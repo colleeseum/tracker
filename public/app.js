@@ -342,6 +342,8 @@ let accountAdjustments = new Map();
 let entityAdjustments = new Map();
 let editingAccountId = null;
 let currentView = 'ledger';
+let lastNonSettingsView = 'ledger';
+let activeSettingsSection = null;
 let ledgerAccountSelection = [];
 let ledgerFilterCustom = false;
 let ledgerTagFilters = [];
@@ -1170,7 +1172,7 @@ function showPricingPanel(panelId = 'seasons') {
 
 function updatePricingToolbarActions() {
   if (!pricingPrimaryActionButton) return;
-  if (currentView !== 'pricing') {
+  if (!isPricingViewActive()) {
     pricingPrimaryActionButton.classList.add('hidden');
     pricingPrimaryActionButton.onclick = null;
     if (pricingSecondaryActionButton) {
@@ -1201,7 +1203,7 @@ function updatePricingToolbarActions() {
 
 function updatePublishButtonState() {
   if (!requestPublishButton) return;
-  const showingPricing = currentView === 'pricing';
+  const showingPricing = isPricingViewActive();
   requestPublishButton.classList.toggle('hidden', !showingPricing);
   if (publishStatusLabel) {
     publishStatusLabel.classList.toggle('hidden', !showingPricing);
@@ -3824,7 +3826,27 @@ navLinks.forEach((link) => {
   });
 });
 
+settingsNavButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const target = button.dataset.settingsTarget;
+    if (!target) return;
+    if (currentView !== 'settings') {
+      setView('settings');
+    }
+    setSettingsSection(target);
+  });
+});
+
+if (closeSettingsNavButton) {
+  closeSettingsNavButton.addEventListener('click', () => {
+    setView(lastNonSettingsView || 'ledger');
+  });
+}
+
 function setView(view) {
+  if (view !== 'settings') {
+    lastNonSettingsView = view;
+  }
   currentView = view;
   navLinks.forEach((link) => {
     link.classList.toggle('active', link.dataset.view === view);
@@ -3835,13 +3857,34 @@ function setView(view) {
   const showingStorage = view === 'storage';
   const showingPricing = view === 'pricing';
   const showingSettings = view === 'settings';
+  if (mainNav) {
+    mainNav.classList.toggle('hidden', showingSettings);
+  }
+  if (settingsNav) {
+    settingsNav.classList.toggle('hidden', !showingSettings);
+  }
   accountsView.classList.toggle('hidden', !showingAccounts);
   clientsView.classList.toggle('hidden', !showingClients);
   storageView.classList.toggle('hidden', !showingStorage);
-  pricingView.classList.toggle('hidden', !showingPricing);
+  const pricingVisible = showingPricing || (showingSettings && activeSettingsSection === 'pricing');
+  pricingView.classList.toggle('hidden', !pricingVisible);
   ledgerView.classList.toggle('hidden', !showingLedger);
   if (settingsView) {
-    settingsView.classList.toggle('hidden', !showingSettings);
+    const showCategories = showingSettings && activeSettingsSection === 'categories';
+    settingsView.classList.toggle('hidden', !showCategories);
+  }
+  if (!showingSettings) {
+    activeSettingsSection = null;
+    settingsNavButtons.forEach((button) => button.classList.remove('active'));
+    if (settingsView) {
+      settingsView.classList.add('hidden');
+    }
+    if (!showingPricing) {
+      pricingView.classList.add('hidden');
+    }
+    updateSettingsActionsVisibility();
+  } else {
+    setSettingsSection(activeSettingsSection);
   }
   newAccountButton.classList.toggle('hidden', !showingAccounts);
   if (accountBalanceStatus) {
@@ -3855,9 +3898,6 @@ function setView(view) {
   newStorageRequestButton.classList.toggle('hidden', !showingStorage);
   addEntryButton.classList.toggle('hidden', !showingLedger);
   transferButton.classList.toggle('hidden', !showingLedger);
-  if (newCategoryButton) {
-    newCategoryButton.classList.toggle('hidden', !showingSettings);
-  }
   updatePublishButtonState();
   updatePricingToolbarActions();
   if (showingLedger) {
@@ -3881,15 +3921,58 @@ function setView(view) {
     renderConditionTable();
     renderEtiquetteTable();
     renderCopyTable();
-  } else if (showingSettings) {
-    panelTitle.textContent = 'Settings';
-    panelSubtitle.textContent = 'Manage ledger categories and future preferences.';
-    renderCategoryTable();
-  } else {
+  } else if (!showingSettings) {
     panelTitle.textContent = 'Accounts';
     panelSubtitle.textContent = 'Cash, entity, and hybrid accounts.';
     renderAccountList();
   }
+}
+
+function setSettingsSection(section) {
+  if (currentView !== 'settings') {
+    return;
+  }
+  activeSettingsSection = section || null;
+  settingsNavButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.settingsTarget === activeSettingsSection);
+  });
+  const showCategories = activeSettingsSection === 'categories';
+  const showPricing = activeSettingsSection === 'pricing';
+  if (settingsView) {
+    settingsView.classList.toggle('hidden', !showCategories);
+  }
+  pricingView.classList.toggle('hidden', !(showPricing || currentView === 'pricing'));
+  updateSettingsActionsVisibility();
+  if (!activeSettingsSection) {
+    panelTitle.textContent = 'Settings';
+    panelSubtitle.textContent = 'Choose a section to manage.';
+  } else if (activeSettingsSection === 'categories') {
+    panelTitle.textContent = 'Categories';
+    panelSubtitle.textContent = 'Manage ledger categories and client requirements.';
+    renderCategoryTable();
+  } else if (activeSettingsSection === 'pricing') {
+    panelTitle.textContent = 'Pricing';
+    panelSubtitle.textContent = 'Manage seasons, offers, add-ons, policies, etiquette, and site copy.';
+    renderSeasonTable();
+    renderOfferTable();
+    renderAddonTable();
+    renderConditionTable();
+    renderEtiquetteTable();
+    renderCopyTable();
+  }
+  updatePricingToolbarActions();
+  updatePublishButtonState();
+}
+
+function updateSettingsActionsVisibility() {
+  if (!newCategoryButton) return;
+  const shouldShow = currentView === 'settings' && activeSettingsSection === 'categories';
+  newCategoryButton.classList.toggle('hidden', !shouldShow);
+}
+
+function isPricingViewActive() {
+  if (currentView === 'pricing') return true;
+  return currentView === 'settings' && activeSettingsSection === 'pricing';
 }
 
 function renderLedgerTable() {

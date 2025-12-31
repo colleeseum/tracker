@@ -29,7 +29,7 @@
       <section id="auth-section">
         <div class="card">
           <h2>Sign in</h2>
-          <form id="login-form">
+          <form id="login-form" class="hidden">
             <label>
               Email
               <input type="email" id="login-email" required />
@@ -63,6 +63,7 @@
               <button type="button" class="nav-link" data-view="storage">Storage</button>
               <button type="button" class="nav-link active" data-view="ledger">Ledger</button>
               <button type="button" class="nav-link" disabled>Reports</button>
+              <button type="button" class="nav-link" data-view="settings">Settings</button>
             </nav>
             <nav class="nav-links hidden" id="settings-nav">
               <button type="button" class="nav-link" data-settings-target="categories">Categories</button>

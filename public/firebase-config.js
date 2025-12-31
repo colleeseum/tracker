@@ -1,12 +1,31 @@
 import { PROFILE_CONFIG } from './profile-config.js';
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
+
 const resolveProfile = () => {
   const { activeProfile, profiles } = PROFILE_CONFIG || {};
-  if (activeProfile && profiles?.[activeProfile]) {
-    return profiles[activeProfile];
+  if (!profiles || !Object.keys(profiles).length) {
+    throw new Error('Missing profile configuration. Update public/profile-config.js.');
   }
-  const firstProfile = profiles ? Object.values(profiles)[0] : null;
+
+  const getProfileByName = (name) => (name && profiles?.[name] ? profiles[name] : null);
+
+  const host = typeof window !== 'undefined' ? window.location.hostname : null;
+  if (host && LOCAL_HOSTS.has(host)) {
+    const localProfile = getProfileByName('local');
+    if (localProfile) return localProfile;
+  }
+  if (host && !LOCAL_HOSTS.has(host)) {
+    const prodProfile = getProfileByName('prod');
+    if (prodProfile) return prodProfile;
+  }
+
+  const active = getProfileByName(activeProfile);
+  if (active) return active;
+
+  const firstProfile = Object.values(profiles)[0];
   if (firstProfile) return firstProfile;
+
   throw new Error('Missing profile configuration. Update public/profile-config.js.');
 };
 
