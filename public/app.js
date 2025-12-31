@@ -55,6 +55,7 @@ const headerSettingsButton = document.getElementById('header-settings-link');
 const loginForm = document.getElementById('login-form');
 const googleSignInButton = document.getElementById('google-sign-in');
 const loginError = document.getElementById('login-error');
+const loginStatusMessage = document.getElementById('login-status');
 
 const navLinks = Array.from(document.querySelectorAll('.nav-link[data-view]'));
 const mainNav = document.getElementById('main-nav');
@@ -3809,6 +3810,10 @@ onAuthStateChanged(auth, async (user) => {
       ledgerFilterSummary.textContent = 'All accounts';
     }
     activeUser.textContent = '';
+    if (loginStatusMessage) {
+      loginStatusMessage.textContent = '';
+      loginStatusMessage.classList.add('hidden');
+    }
     return;
   }
 
@@ -3819,6 +3824,10 @@ onAuthStateChanged(auth, async (user) => {
     if (loginError) {
       loginError.textContent = 'You are not authorized to use this application.';
     }
+    if (loginStatusMessage) {
+      loginStatusMessage.textContent = 'You are not authorized to use this application.';
+      loginStatusMessage.classList.remove('hidden');
+    }
     activeUser.textContent = '';
     await signOut(auth).catch(() => {});
     return;
@@ -3826,6 +3835,10 @@ onAuthStateChanged(auth, async (user) => {
 
   showAppUI(true);
   loginError.textContent = '';
+  if (loginStatusMessage) {
+    loginStatusMessage.textContent = '';
+    loginStatusMessage.classList.add('hidden');
+  }
   activeUser.textContent = user.displayName || user.email || 'Anonymous user';
   subscribeToAccounts();
   subscribeToClients();
