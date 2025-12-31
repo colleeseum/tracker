@@ -3740,6 +3740,10 @@ if (loginForm) {
     loginForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       loginError.textContent = '';
+      if (loginStatusMessage) {
+        loginStatusMessage.textContent = '';
+        loginStatusMessage.classList.add('hidden');
+      }
       const email = document.getElementById('login-email').value.trim();
       const password = document.getElementById('login-password').value;
       try {
@@ -3756,6 +3760,10 @@ if (loginForm) {
 if (googleSignInButton) {
   googleSignInButton.addEventListener('click', async () => {
     loginError.textContent = '';
+    if (loginStatusMessage) {
+      loginStatusMessage.textContent = '';
+      loginStatusMessage.classList.add('hidden');
+    }
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (error) {
@@ -3810,10 +3818,6 @@ onAuthStateChanged(auth, async (user) => {
       ledgerFilterSummary.textContent = 'All accounts';
     }
     activeUser.textContent = '';
-    if (loginStatusMessage) {
-      loginStatusMessage.textContent = '';
-      loginStatusMessage.classList.add('hidden');
-    }
     return;
   }
 
