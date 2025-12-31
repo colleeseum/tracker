@@ -1,52 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /accounts/{accountId} {
-      allow read, create, update, delete: if request.auth != null;
+    function isAuthorizedUser() {
+      return request.auth != null &&
+        (
+          request.auth.token.email == 'serge.colle@gmail.com' ||
+          request.auth.token.email == 'arcolle@gmail.com'
+        );
     }
 
-    match /expenses/{expenseId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /clients/{clientId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /storageRequests/{requestId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /storageSeasons/{seasonId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /storageOffers/{offerId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /storageAddOns/{addonId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /storageConditions/{conditionId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /storageEtiquette/{entryId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /i18nEntries/{copyId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /categories/{categoryId} {
-      allow read, create, update, delete: if request.auth != null;
-    }
-
-    match /admin/{documentId} {
-      allow read: if request.auth != null && documentId == 'sitePublish';
+    match /{document=**} {
+      allow read, write: if isAuthorizedUser();
     }
   }
 }
