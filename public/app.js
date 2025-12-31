@@ -41,6 +41,28 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 const usingEmulators = Boolean(emulatorConfig.useEmulators);
 
+function determineAuthEnvironment() {
+  if (typeof window === 'undefined') {
+    return { host: '', isProdHost: false, isLocalHost: false };
+  }
+  const host = window.location.hostname || '';
+  const PROD_HOSTS = new Set(['tracker-187c5.web.app', 'tracker-187c5.firebaseapp.com', 'tracker.as-colle.com']);
+  const isLocalHost =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    host.startsWith('172.16.');
+  const isProdHost = PROD_HOSTS.has(host);
+  return { host, isProdHost, isLocalHost };
+}
+
+const { isProdHost, isLocalHost } = determineAuthEnvironment();
+const allowEmailPasswordAuth = usingEmulators || isLocalHost || !isProdHost;
+
 if (usingEmulators) {
   connectAuthEmulator(auth, `http://${emulatorConfig.authHost}:${emulatorConfig.authPort}`);
   connectFirestoreEmulator(db, emulatorConfig.firestoreHost, emulatorConfig.firestorePort);
@@ -77,6 +99,19 @@ const publishStatusLabel = document.getElementById('publish-status');
 const addEntryButton = document.getElementById('add-entry');
 const transferButton = document.getElementById('transfer-funds');
 const newCategoryButton = document.getElementById('new-category');
+const dashboardView = document.getElementById('dashboard-view');
+const dashboardCashList = document.getElementById('dashboard-cash-list');
+const dashboardCashTotal = document.getElementById('dashboard-cash-total');
+const dashboardEntityList = document.getElementById('dashboard-entity-list');
+const dashboardEntityTotal = document.getElementById('dashboard-entity-total');
+const dashboardTransactionsList = document.getElementById('dashboard-transactions-list');
+const dashboardAccountActivityList = document.getElementById('dashboard-account-activity-list');
+const dashboardContentUpdatedAt = document.getElementById('dashboard-content-updated-at');
+const dashboardContentUpdatedBy = document.getElementById('dashboard-content-updated-by');
+const dashboardPublishedAt = document.getElementById('dashboard-published-at');
+const dashboardPublishedBy = document.getElementById('dashboard-published-by');
+const dashboardAddEntryButton = document.getElementById('dashboard-add-entry');
+const dashboardTransferButton = document.getElementById('dashboard-transfer');
 const accountList = document.getElementById('account-list');
 const clientsView = document.getElementById('clients-view');
 const clientTableBody = document.getElementById('client-table-body');
@@ -85,7 +120,16 @@ const storageTableBody = document.getElementById('storage-table-body');
 const pricingView = document.getElementById('pricing-view');
 const settingsView = document.getElementById('settings-view');
 const seasonTableBody = document.getElementById('season-table-body');
+const seasonOffersPanel = document.getElementById('season-offers-panel');
+const seasonOffersTitle = document.getElementById('season-offers-title');
+const seasonOffersSubtitle = document.getElementById('season-offers-subtitle');
+const seasonOffersTableBody = document.getElementById('season-offers-table-body');
+const seasonAddonsTableBody = document.getElementById('season-addons-table-body');
+const addOfferToSeasonButton = document.getElementById('add-offer-to-season');
+const addAddonToSeasonButton = document.getElementById('add-addon-to-season');
+const duplicateSeasonButton = document.getElementById('duplicate-season-button');
 const vehicleTypeTableBody = document.getElementById('vehicle-type-table-body');
+const offerTemplateTableBody = document.getElementById('offer-template-table-body');
 const offerTableBody = document.getElementById('offer-table-body');
 const addonTableBody = document.getElementById('addon-table-body');
 const copyTableBody = document.getElementById('copy-table-body');
@@ -149,6 +193,7 @@ const seasonForm = document.getElementById('season-form');
 const seasonFormTitle = document.getElementById('season-form-title');
 const seasonNameEnInput = document.getElementById('season-name-en');
 const seasonNameFrInput = document.getElementById('season-name-fr');
+const seasonTypeSelect = document.getElementById('season-type');
 const seasonLabelEnInput = document.getElementById('season-label-en');
 const seasonLabelFrInput = document.getElementById('season-label-fr');
 const seasonTimeframeEnInput = document.getElementById('season-timeframe-en');
@@ -161,7 +206,14 @@ const seasonDescriptionEnInput = document.getElementById('season-description-en'
 const seasonDescriptionFrInput = document.getElementById('season-description-fr');
 const seasonOrderInput = document.getElementById('season-order');
 const seasonActiveInput = document.getElementById('season-active');
+const seasonDuplicateWrapper = document.getElementById('season-duplicate-wrapper');
+const seasonDuplicateToggle = document.getElementById('season-duplicate-toggle');
+const seasonDuplicateSourceWrapper = document.getElementById('season-duplicate-source-wrapper');
+const seasonDuplicateSourceSelect = document.getElementById('season-duplicate-source');
 const seasonFormError = document.getElementById('season-form-error');
+if (seasonDuplicateWrapper && seasonDuplicateSourceWrapper) {
+  setSeasonDuplicateControlsVisible(true);
+}
 const vehicleTypeModal = document.getElementById('vehicle-type-modal');
 const closeVehicleTypeModalButton = document.getElementById('close-vehicle-type-modal');
 const vehicleTypeForm = document.getElementById('vehicle-type-form');
@@ -178,20 +230,28 @@ const closeOfferModalButton = document.getElementById('close-offer-modal');
 const offerForm = document.getElementById('offer-form');
 const offerFormTitle = document.getElementById('offer-form-title');
 const offerSeasonSelect = document.getElementById('offer-season');
-const offerLabelEnInput = document.getElementById('offer-label-en');
-const offerLabelFrInput = document.getElementById('offer-label-fr');
+const offerTemplateSelect = document.getElementById('offer-template');
 const offerPriceModeSelect = document.getElementById('offer-price-mode');
 const offerFlatAmountInput = document.getElementById('offer-flat-amount');
 const offerPriceRateInput = document.getElementById('offer-price-rate');
 const offerMinimumInput = document.getElementById('offer-minimum');
 const offerPriceUnitEnInput = document.getElementById('offer-price-unit-en');
 const offerPriceUnitFrInput = document.getElementById('offer-price-unit-fr');
-const offerVehicleTypesInput = document.getElementById('offer-vehicle-types');
-const offerNoteEnInput = document.getElementById('offer-note-en');
-const offerNoteFrInput = document.getElementById('offer-note-fr');
 const offerOrderInput = document.getElementById('offer-order');
-const offerHideInput = document.getElementById('offer-hide');
 const offerFormError = document.getElementById('offer-form-error');
+
+const offerTemplateModal = document.getElementById('offer-template-modal');
+const closeOfferTemplateModalButton = document.getElementById('close-offer-template-modal');
+const offerTemplateForm = document.getElementById('offer-template-form');
+const offerTemplateFormTitle = document.getElementById('offer-template-form-title');
+const offerTemplateLabelEnInput = document.getElementById('offer-template-label-en');
+const offerTemplateLabelFrInput = document.getElementById('offer-template-label-fr');
+const offerTemplateVehicleTypesInput = document.getElementById('offer-template-vehicle-types');
+const offerTemplateNoteEnInput = document.getElementById('offer-template-note-en');
+const offerTemplateNoteFrInput = document.getElementById('offer-template-note-fr');
+const offerTemplateOrderInput = document.getElementById('offer-template-order');
+const offerTemplateHideInput = document.getElementById('offer-template-hide');
+const offerTemplateFormError = document.getElementById('offer-template-form-error');
 const offerFlatAmountWrapper = document.getElementById('offer-flat-amount-wrapper');
 const offerRateWrapper = document.getElementById('offer-rate-wrapper');
 const offerMinimumWrapper = document.getElementById('offer-minimum-wrapper');
@@ -202,6 +262,7 @@ const closeAddonModalButton = document.getElementById('close-addon-modal');
 const addonForm = document.getElementById('addon-form');
 const addonFormTitle = document.getElementById('addon-form-title');
 const addonCodeInput = document.getElementById('addon-code');
+const addonSeasonSelect = document.getElementById('addon-season');
 const addonNameEnInput = document.getElementById('addon-name-en');
 const addonNameFrInput = document.getElementById('addon-name-fr');
 const addonDescriptionEnInput = document.getElementById('addon-description-en');
@@ -343,8 +404,8 @@ let entityAccounts = [];
 let accountAdjustments = new Map();
 let entityAdjustments = new Map();
 let editingAccountId = null;
-let currentView = 'ledger';
-let lastNonSettingsView = 'ledger';
+let currentView = 'dashboard';
+let lastNonSettingsView = 'dashboard';
 let activeSettingsSection = null;
 let ledgerAccountSelection = [];
 let ledgerFilterCustom = false;
@@ -368,6 +429,7 @@ let editingStorageRequestId = null;
 let activePricingPanel = 'seasons';
 let seasons = [];
 let seasonLookup = new Map();
+let activeSeasonId = null;
 let unsubscribeSeasons = null;
 let editingSeasonId = null;
 let vehicleTypes = [];
@@ -378,10 +440,15 @@ let offers = [];
 let offerLookup = new Map();
 let unsubscribeOffers = null;
 let editingOfferId = null;
+let offerTemplates = [];
+let offerTemplateLookup = new Map();
+let unsubscribeOfferTemplates = null;
+let editingOfferTemplateId = null;
 let addOns = [];
 let unsubscribeAddOns = null;
 let editingAddonId = null;
 let addonPriceLookup = new Map();
+const GLOBAL_ADDON_PRICE_SCOPE = '__global__';
 let conditions = [];
 let unsubscribeConditions = null;
 let editingConditionId = null;
@@ -397,6 +464,7 @@ let unsubscribeCategories = null;
 let editingCategoryId = null;
 let sitePublishStatus = null;
 let latestContentUpdateMs = 0;
+let latestContentUpdatedBy = null;
 let publishRequestInFlight = false;
 let unsubscribePublishStatus = null;
 
@@ -416,6 +484,9 @@ const PRICING_PANEL_ACTIONS = {
   },
   vehicleTypes: {
     primary: { label: 'Add vehicle type', handler: () => openVehicleTypeModal('create') }
+  },
+  offerTemplates: {
+    primary: { label: 'Add template', handler: () => openOfferTemplateModal('create') }
   },
   offers: {
     primary: { label: 'Add offer', handler: () => openOfferModal('create') }
@@ -516,6 +587,15 @@ function cleanVehicleTypesData() {
   closeVehicleTypeModal();
 }
 
+function cleanOfferTemplateData() {
+  offerTemplates = [];
+  offerTemplateLookup = new Map();
+  editingOfferTemplateId = null;
+  renderOfferTemplateTable();
+  updateOfferTemplateSelect();
+  closeOfferTemplateModal();
+}
+
 function cleanOffersData() {
   offers = [];
   offerLookup = new Map();
@@ -579,6 +659,14 @@ function isEntityAccount(account) {
 
 function isCombinedAccount(account) {
   return account?.type === 'cash_entity';
+}
+
+function isPureCashAccount(account) {
+  return account?.type === 'cash';
+}
+
+function isPureEntityAccount(account) {
+  return account?.type === 'entity';
 }
 
 function getDefaultCashAccountId() {
@@ -692,7 +780,14 @@ function subscribeToSeasons() {
     (snapshot) => {
       seasons = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       seasonLookup = new Map(seasons.map((season) => [season.id, season]));
+      if (activeSeasonId && !seasonLookup.has(activeSeasonId)) {
+        activeSeasonId = seasons[0]?.id || null;
+      }
+      if (!activeSeasonId && seasons.length) {
+        activeSeasonId = seasons[0].id;
+      }
       renderSeasonTable();
+      renderSeasonOffersPanel();
       updateSeasonOptions();
       renderStorageTable();
       renderOfferTable();
@@ -723,6 +818,26 @@ function subscribeToVehicleTypes() {
   );
 }
 
+function subscribeToOfferTemplates() {
+  cleanOfferTemplateSubscription();
+  const ref = collection(db, 'offerTemplates');
+  const q = query(ref, orderBy('order'));
+  unsubscribeOfferTemplates = onSnapshot(
+    q,
+    (snapshot) => {
+      offerTemplates = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      offerTemplateLookup = new Map(offerTemplates.map((template) => [template.id, template]));
+      renderOfferTemplateTable();
+      updateOfferTemplateSelect();
+      renderOfferTable();
+      updateLatestContentTimestamp();
+    },
+    (error) => {
+      offerTemplateFormError.textContent = error.message;
+    }
+  );
+}
+
 function subscribeToOffers() {
   cleanOfferSubscription();
   const ref = collection(db, 'storageOffers');
@@ -733,6 +848,7 @@ function subscribeToOffers() {
       offers = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       offerLookup = new Map(offers.map((offer) => [offer.id, offer]));
       renderOfferTable();
+      renderSeasonOffersPanel();
       renderStorageTable();
       updateLatestContentTimestamp();
     },
@@ -750,8 +866,13 @@ function subscribeToAddOns() {
     q,
     (snapshot) => {
       addOns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-      addonPriceLookup = new Map(addOns.map((addon) => [addon.code, Number(addon.price) || 0]));
+      addonPriceLookup = new Map();
+      addOns.forEach((addon) => {
+        const key = buildAddonPriceKey(addon.seasonId, addon.code);
+        addonPriceLookup.set(key, Number(addon.price) || 0);
+      });
       renderAddonTable();
+      renderSeasonOffersPanel();
       renderStorageTable();
       updateLatestContentTimestamp();
     },
@@ -840,6 +961,7 @@ function subscribeToPublishStatus() {
     (snapshot) => {
       sitePublishStatus = snapshot.exists() ? snapshot.data() : null;
       updatePublishButtonState();
+      renderDashboard();
     },
     (error) => {
       console.error('Failed to load publish status', error);
@@ -880,6 +1002,13 @@ function cleanVehicleTypeSubscription() {
     unsubscribeVehicleTypes();
   }
   unsubscribeVehicleTypes = null;
+}
+
+function cleanOfferTemplateSubscription() {
+  if (unsubscribeOfferTemplates) {
+    unsubscribeOfferTemplates();
+  }
+  unsubscribeOfferTemplates = null;
 }
 
 function cleanOfferSubscription() {
@@ -934,6 +1063,7 @@ function renderAccountList() {
     li.className = 'empty';
     accountList.appendChild(li);
     updateAccountBalanceIndicator(0, 0);
+    renderDashboard();
     return;
   }
 
@@ -978,6 +1108,7 @@ function renderAccountList() {
     accountList.appendChild(li);
   });
   updateAccountBalanceIndicator(cashTotal, entityTotal);
+  renderDashboard();
 }
 
 function updateAccountBalanceIndicator(cashTotal = lastKnownCashTotal, entityTotal = lastKnownEntityTotal) {
@@ -1084,7 +1215,7 @@ function renderStorageTable() {
     const vehicle = request.vehicle || {};
 
     const cells = [
-      request.season || '—',
+      formatSeasonDisplayLabel(request.season),
       tenantDisplay,
       vehicle.typeLabel || vehicle.type || '—'
     ];
@@ -1154,18 +1285,30 @@ function updateLatestContentTimestamp() {
   const candidates = [
     ...seasons,
     ...vehicleTypes,
+    ...offerTemplates,
     ...offers,
     ...addOns,
     ...conditions,
     ...etiquetteEntries,
     ...marketingCopyEntries
   ];
-  const newest = candidates.reduce((max, item) => {
-    const updatedAt = timestampToMillis(item.updatedAt) || timestampToMillis(item.createdAt);
-    return updatedAt > max ? updatedAt : max;
-  }, 0);
-  latestContentUpdateMs = newest;
+  const newest = candidates.reduce(
+    (acc, item) => {
+      const updatedAt = timestampToMillis(item.updatedAt) || timestampToMillis(item.createdAt);
+      if (updatedAt > acc.ms) {
+        return {
+          ms: updatedAt,
+          by: item.updatedBy || item.updatedByName || item.updatedByEmail || item.createdBy || null
+        };
+      }
+      return acc;
+    },
+    { ms: 0, by: null }
+  );
+  latestContentUpdateMs = newest.ms;
+  latestContentUpdatedBy = newest.by;
   updatePublishButtonState();
+  renderDashboard();
 }
 
 function showPricingPanel(panelId = 'seasons') {
@@ -1236,22 +1379,92 @@ function updatePublishButtonState() {
   }
 }
 
+function ensureLegacySeasonOption(value) {
+  if (!storageSeasonSelect || !value) return;
+  const exists = Array.from(storageSeasonSelect.options).some((option) => option.value === value);
+  if (exists) return;
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = value;
+  storageSeasonSelect.appendChild(option);
+}
+
 function updateSeasonOptions() {
-  if (!offerSeasonSelect) return;
-  const previous = offerSeasonSelect.value;
-  offerSeasonSelect.innerHTML = '';
+  const selects = [];
+  if (offerSeasonSelect) {
+    selects.push({ element: offerSeasonSelect, placeholder: null });
+  }
+  if (storageSeasonSelect) {
+    selects.push({ element: storageSeasonSelect, placeholder: 'Select season' });
+  }
+  if (addonSeasonSelect) {
+    selects.push({ element: addonSeasonSelect, placeholder: 'Select season' });
+  }
+  selects.forEach(({ element, placeholder }) => {
+    const previousValue = element.value;
+    element.innerHTML = '';
+    if (placeholder) {
+      const placeholderOption = document.createElement('option');
+      placeholderOption.value = '';
+      placeholderOption.textContent = placeholder;
+      element.appendChild(placeholderOption);
+    }
+    seasons.forEach((season) => {
+      const option = document.createElement('option');
+      option.value = season.id;
+      option.textContent = season.label?.en || season.name?.en || season.id;
+      element.appendChild(option);
+    });
+    const hasPrevious = Array.from(element.options).some((option) => option.value === previousValue);
+    if (hasPrevious) {
+      element.value = previousValue;
+    } else if (!placeholder && seasons.length) {
+      element.value = seasons[0].id;
+    } else if (placeholder) {
+      element.value = '';
+    }
+  });
+
+  populateSeasonDuplicateSourceOptions();
+}
+
+function populateSeasonDuplicateSourceOptions(selectedValue) {
+  if (!seasonDuplicateSourceSelect) return;
+  const previousValue = selectedValue ?? seasonDuplicateSourceSelect.value;
+  const desiredType = seasonTypeSelect?.value || null;
+  seasonDuplicateSourceSelect.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select season';
+  seasonDuplicateSourceSelect.appendChild(placeholder);
   seasons.forEach((season) => {
+    if (desiredType && season.type && season.type !== desiredType) {
+      return;
+    }
     const option = document.createElement('option');
     option.value = season.id;
-    option.textContent = season.label?.en || season.name?.en || season.id;
-    offerSeasonSelect.appendChild(option);
+    const label = season.label?.en || season.name?.en || season.id;
+    option.textContent = `${label} (${formatSeasonTypeLabel(season.type)})`;
+    seasonDuplicateSourceSelect.appendChild(option);
   });
-  if (previous) {
-    offerSeasonSelect.value = previous;
+  const hasPrevious = Array.from(seasonDuplicateSourceSelect.options).some(
+    (option) => option.value === previousValue
+  );
+  if (hasPrevious) {
+    seasonDuplicateSourceSelect.value = previousValue;
+  } else {
+    seasonDuplicateSourceSelect.value = '';
   }
-  if (!offerSeasonSelect.value && seasons.length) {
-    offerSeasonSelect.value = seasons[0].id;
+  seasonDuplicateSourceSelect.disabled = !seasonDuplicateToggle?.checked;
+}
+
+function setActiveSeason(seasonId) {
+  if (seasonId && !seasonLookup.has(seasonId)) {
+    return;
   }
+  activeSeasonId = seasonId || null;
+  renderSeasonTable();
+  renderSeasonOffersPanel();
 }
 
 function renderSeasonTable() {
@@ -1269,10 +1482,15 @@ function renderSeasonTable() {
   }
   seasons.forEach((season) => {
     const row = document.createElement('tr');
+    row.dataset.seasonId = season.id;
+    if (season.id === activeSeasonId) {
+      row.classList.add('active');
+    }
     const cells = [
       season.label?.en || season.name?.en || '—',
       season.label?.fr || season.name?.fr || '—',
       season.timeframe?.en || '—',
+      formatSeasonTypeLabel(season.type),
       Number.isFinite(season.order) ? season.order : '—',
       season.active ? 'Yes' : 'No'
     ];
@@ -1300,6 +1518,393 @@ function renderSeasonTable() {
     actionCell.appendChild(deleteButton);
     row.appendChild(actionCell);
     seasonTableBody.appendChild(row);
+  });
+}
+
+function renderSeasonOffersPanel() {
+  if (!seasonOffersPanel || !seasonOffersTitle || !seasonOffersSubtitle) return;
+  const season = activeSeasonId ? seasonLookup.get(activeSeasonId) : null;
+  seasonOffersPanel.classList.toggle('hidden', !season);
+  if (!addOfferToSeasonButton) return;
+  addOfferToSeasonButton.disabled = !season;
+  if (duplicateSeasonButton) {
+    duplicateSeasonButton.disabled = !season;
+  }
+  if (addAddonToSeasonButton) {
+    addAddonToSeasonButton.disabled = !season;
+  }
+  if (!season) {
+    seasonOffersTitle.textContent = 'Season offers';
+    seasonOffersSubtitle.textContent = 'Select a season to manage its offers.';
+    renderSeasonOffersTable(null);
+    renderSeasonAddonsTable(null);
+    return;
+  }
+  seasonOffersTitle.textContent = season.label?.en || season.name?.en || 'Season offers';
+  const typeLabel = formatSeasonTypeLabel(season.type);
+  const timeframe = season.timeframe?.en || '';
+  seasonOffersSubtitle.textContent = [typeLabel, timeframe].filter(Boolean).join(' • ') || '';
+  renderSeasonOffersTable(season.id);
+  renderSeasonAddonsTable(season.id);
+}
+
+function renderSeasonOffersTable(seasonId) {
+  if (!seasonOffersTableBody) return;
+  seasonOffersTableBody.innerHTML = '';
+  if (!seasonId) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.className = 'empty';
+    cell.textContent = 'Select a season to see its offers.';
+    row.appendChild(cell);
+    seasonOffersTableBody.appendChild(row);
+    return;
+  }
+  const seasonOffers = offers
+    .filter((offer) => offer.seasonId === seasonId)
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  if (!seasonOffers.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.className = 'empty';
+    cell.textContent = 'No offers for this season yet.';
+    row.appendChild(cell);
+    seasonOffersTableBody.appendChild(row);
+    return;
+  }
+  seasonOffers.forEach((offer) => {
+    const row = document.createElement('tr');
+    row.dataset.offerId = offer.id;
+    const cells = [
+      formatTemplateLabel(offer),
+      formatOfferPriceDisplay(offer),
+      formatOfferMinimumDisplay(offer),
+      offerIsHidden(offer) ? 'Yes' : 'No'
+    ];
+    cells.forEach((value) => {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    const actionCell = document.createElement('td');
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'icon-button';
+    editButton.dataset.action = 'edit-offer';
+    editButton.dataset.id = offer.id;
+    editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit ${formatTemplateLabel(offer)}" />`;
+    actionCell.appendChild(editButton);
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-button';
+    deleteButton.dataset.action = 'delete-offer';
+    deleteButton.dataset.id = offer.id;
+    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete offer" data-icon="trash" />';
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
+    seasonOffersTableBody.appendChild(row);
+  });
+}
+
+function getAccountBalanceValue(account) {
+  if (!account) return 0;
+  const opening = Number(account.openingBalance) || 0;
+  const map = isCashAccount(account) ? accountAdjustments : entityAdjustments;
+  return opening + (map.get(account.id) || 0);
+}
+
+function renderDashboard() {
+  renderDashboardCashSummary();
+  renderDashboardEntitySummary();
+  renderDashboardTransactions();
+  renderDashboardAccountActivity();
+  renderDashboardContentStatus();
+  if (dashboardAddEntryButton) {
+    dashboardAddEntryButton.disabled = !cashAccounts.length || !entityAccounts.length;
+  }
+  if (dashboardTransferButton) {
+    dashboardTransferButton.disabled = cashAccounts.length < 2;
+  }
+}
+
+function renderDashboardCashSummary() {
+  if (!dashboardCashList || !dashboardCashTotal) return;
+  dashboardCashList.innerHTML = '';
+  const pureCashAccounts = accounts.filter(isPureCashAccount);
+  if (!pureCashAccounts.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'No cash accounts yet.';
+    dashboardCashList.appendChild(li);
+    dashboardCashTotal.textContent = '$0.00';
+    return;
+  }
+  let total = 0;
+  pureCashAccounts.forEach((account) => {
+    const balance = getAccountBalanceValue(account);
+    total += balance;
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${account.name}</span><span>${formatCurrency(balance)}</span>`;
+    dashboardCashList.appendChild(li);
+  });
+  dashboardCashTotal.textContent = formatCurrency(total);
+}
+
+function renderDashboardEntitySummary() {
+  if (!dashboardEntityList || !dashboardEntityTotal) return;
+  dashboardEntityList.innerHTML = '';
+  const pureEntityAccounts = accounts.filter(isPureEntityAccount);
+  if (!pureEntityAccounts.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'No entity accounts yet.';
+    dashboardEntityList.appendChild(li);
+    dashboardEntityTotal.textContent = '$0.00';
+    return;
+  }
+  let total = 0;
+  pureEntityAccounts.forEach((account) => {
+    const balance = getAccountBalanceValue(account);
+    total += balance;
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${account.name}</span><span>${formatCurrency(balance)}</span>`;
+    dashboardEntityList.appendChild(li);
+  });
+  dashboardEntityTotal.textContent = formatCurrency(total);
+}
+
+function getEntryTimestamp(entry) {
+  return (
+    timestampToMillis(entry?.updatedAt) ||
+    timestampToMillis(entry?.createdAt) ||
+    (entry?.date ? Date.parse(entry.date) : 0)
+  );
+}
+
+function getRecentTransactions(limit = 3) {
+  const grouped = new Map();
+  const blocked = new Set();
+  expenses.forEach((entry) => {
+    if (entry?.isVirtualOpening) return;
+    const key = entry.transactionId || entry.id;
+    if (!key) return;
+    if (blocked.has(key)) return;
+    const account = accountLookup.get(entry.accountId);
+    const entity = entry.entityId ? accountLookup.get(entry.entityId) : null;
+    if (isCombinedAccount(account) || isCombinedAccount(entity)) {
+      blocked.add(key);
+      grouped.delete(key);
+      return;
+    }
+    const timestamp = getEntryTimestamp(entry);
+    const description = entry.description || entry.category || 'Ledger entry';
+    if (!grouped.has(key)) {
+      grouped.set(key, { id: key, entries: [], date: timestamp, description });
+    }
+    const group = grouped.get(key);
+    group.entries.push(entry);
+    if (timestamp > group.date) {
+      group.date = timestamp;
+      group.description = description;
+    }
+  });
+  return Array.from(grouped.values())
+    .sort((a, b) => b.date - a.date)
+    .slice(0, limit);
+}
+
+function renderDashboardTransactions() {
+  if (!dashboardTransactionsList) return;
+  dashboardTransactionsList.innerHTML = '';
+  const transactions = getRecentTransactions(6);
+  if (!transactions.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'No transactions logged yet.';
+    dashboardTransactionsList.appendChild(li);
+    return;
+  }
+  transactions.forEach((txn) => {
+    const { summaryHtml, amountText, isPositive } = summarizeTransaction(txn);
+    const li = document.createElement('li');
+    li.className = 'dashboard-transaction-line';
+    const main = document.createElement('div');
+    main.className = 'transaction-main';
+    main.innerHTML = `<p class="transaction-summary">${summaryHtml}</p><span class="transaction-date">${formatDateTimeFromMillis(
+      txn.date
+    )}</span>`;
+    const amount = document.createElement('span');
+    amount.className = `transaction-amount ${isPositive ? 'amount-positive' : 'amount-negative'}`;
+    amount.textContent = amountText;
+    li.append(main, amount);
+    dashboardTransactionsList.appendChild(li);
+  });
+}
+
+function summarizeTransaction(txn) {
+  const impacts = [];
+  txn.entries.forEach((entry) => {
+    if (!entry.entityOnly) {
+      const account = accountLookup.get(entry.accountId);
+      if (account && !isCombinedAccount(account)) {
+        impacts.push({ label: account.name, type: 'Cash', amount: getEntryDelta(entry) });
+      }
+    }
+    if (entry.entityId) {
+      const entityAccount = accountLookup.get(entry.entityId);
+      if (entityAccount && !isCombinedAccount(entityAccount)) {
+        impacts.push({ label: entityAccount.name, type: 'Entity', amount: getEntryDelta(entry) });
+      }
+    }
+  });
+  const isTransfer = impacts.length === 2 && impacts.every((impact) => impact.type === 'Cash');
+  const connector = isTransfer ? '→' : '+';
+  const impactText = impacts
+    .map((impact) => `${impact.label} <span class="hint">(${impact.type})</span>`)
+    .join(` ${connector} `);
+  const description = txn.description || (isTransfer ? 'Transfer' : 'Entry');
+  const summaryHtml = impactText ? `<strong>${description}</strong> ${impactText}` : `<strong>${description}</strong>`;
+  const reference = impacts.find((impact) => impact.amount !== 0) || impacts[0] || { amount: 0 };
+  const signedAmount = reference.amount || 0;
+  const isPositive = signedAmount >= 0;
+  const amountText = formatCurrency(signedAmount);
+  return { summaryHtml, amountText, isPositive };
+}
+
+function getAccountActivityRecords() {
+  const activity = new Map();
+  accounts.forEach((account) => {
+    if (isCombinedAccount(account)) return;
+    const fallback = timestampToMillis(account.updatedAt) || timestampToMillis(account.createdAt) || 0;
+    activity.set(account.id, { account, timestamp: fallback });
+  });
+  expenses.forEach((entry) => {
+    if (entry?.isVirtualOpening) return;
+    const ts = getEntryTimestamp(entry);
+    if (!ts) return;
+    const cashAccount = accountLookup.get(entry.accountId);
+    if (cashAccount && !isCombinedAccount(cashAccount)) {
+      const existing = activity.get(entry.accountId);
+      if (!existing || ts > existing.timestamp) {
+        activity.set(entry.accountId, { account: cashAccount, timestamp: ts });
+      }
+    }
+    if (entry.entityId) {
+      const entityAccount = accountLookup.get(entry.entityId);
+      if (entityAccount && !isCombinedAccount(entityAccount)) {
+        const existing = activity.get(entry.entityId);
+        if (!existing || ts > existing.timestamp) {
+          activity.set(entry.entityId, { account: entityAccount, timestamp: ts });
+        }
+      }
+    }
+  });
+  return Array.from(activity.values()).sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function renderDashboardAccountActivity() {
+  if (!dashboardAccountActivityList) return;
+  dashboardAccountActivityList.innerHTML = '';
+  const records = getAccountActivityRecords().slice(0, 5);
+  if (!records.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'No activity yet.';
+    dashboardAccountActivityList.appendChild(li);
+    return;
+  }
+  records.forEach(({ account, timestamp }) => {
+    if (!account || isCombinedAccount(account)) return;
+    const li = document.createElement('li');
+    const accountLabel = document.createElement('span');
+    const typeLabel = isCashAccount(account) ? 'Cash' : isEntityAccount(account) ? 'Entity' : 'Account';
+    accountLabel.innerHTML = `${account.name} <span class="hint">${typeLabel}</span>`;
+    const timeLabel = document.createElement('span');
+    timeLabel.className = 'hint';
+    timeLabel.textContent = formatDateTimeFromMillis(timestamp);
+    li.append(accountLabel, timeLabel);
+    dashboardAccountActivityList.appendChild(li);
+  });
+}
+
+function renderDashboardContentStatus() {
+  if (!dashboardContentUpdatedAt || !dashboardContentUpdatedBy) return;
+  dashboardContentUpdatedAt.textContent = latestContentUpdateMs
+    ? formatDateTimeFromMillis(latestContentUpdateMs)
+    : 'No edits yet';
+  dashboardContentUpdatedBy.textContent = latestContentUpdatedBy || 'Unknown';
+  if (dashboardPublishedAt && dashboardPublishedBy) {
+    const publishedMillis = timestampToMillis(sitePublishStatus?.lastPublishedAt);
+    dashboardPublishedAt.textContent = publishedMillis ? formatDateTimeFromMillis(publishedMillis) : 'Not published';
+    dashboardPublishedBy.textContent = sitePublishStatus?.lastPublishedBy || '—';
+  }
+}
+
+function formatDateTimeFromMillis(ms) {
+  if (!ms) return '—';
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString();
+}
+
+function renderSeasonAddonsTable(seasonId) {
+  if (!seasonAddonsTableBody) return;
+  seasonAddonsTableBody.innerHTML = '';
+  if (!seasonId) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 3;
+    cell.className = 'empty';
+    cell.textContent = 'Select a season to see add-ons.';
+    row.appendChild(cell);
+    seasonAddonsTableBody.appendChild(row);
+    return;
+  }
+  const seasonAddons = addOns
+    .filter((addon) => addon.seasonId === seasonId)
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  if (!seasonAddons.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 3;
+    cell.className = 'empty';
+    cell.textContent = 'No add-ons for this season yet.';
+    row.appendChild(cell);
+    seasonAddonsTableBody.appendChild(row);
+    return;
+  }
+  seasonAddons.forEach((addon) => {
+    const row = document.createElement('tr');
+    row.dataset.addonId = addon.id;
+    const label = addon.name?.en || addon.code || '—';
+    const codeSuffix = addon.code ? ` (${addon.code})` : '';
+    const cells = [label + codeSuffix, addon.price != null ? formatCurrency(addon.price) : '—'];
+    cells.forEach((value) => {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    const actionCell = document.createElement('td');
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'icon-button';
+    editButton.dataset.action = 'edit-addon';
+    editButton.dataset.id = addon.id;
+    editButton.setAttribute('aria-label', `Edit ${label || 'add-on'}`);
+    editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit ${label || 'add-on'}" />`;
+    actionCell.appendChild(editButton);
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-button';
+    deleteButton.dataset.action = 'delete-addon';
+    deleteButton.dataset.id = addon.id;
+    deleteButton.setAttribute('aria-label', `Delete ${label || 'add-on'}`);
+    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete add-on" data-icon="trash" />';
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
+    seasonAddonsTableBody.appendChild(row);
   });
 }
 
@@ -1354,13 +1959,86 @@ function renderVehicleTypeTable() {
   });
 }
 
+function renderOfferTemplateTable() {
+  if (!offerTemplateTableBody) return;
+  offerTemplateTableBody.innerHTML = '';
+  if (!offerTemplates.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 6;
+    cell.className = 'empty';
+    cell.textContent = 'No templates yet.';
+    row.appendChild(cell);
+    offerTemplateTableBody.appendChild(row);
+    return;
+  }
+
+  offerTemplates.forEach((template) => {
+    const row = document.createElement('tr');
+    const vehicleDisplay = (template.vehicleTypes || []).join(', ') || '—';
+    const cells = [
+      template.label?.en || '—',
+      template.label?.fr || '—',
+      vehicleDisplay,
+      template.hideInTable ? 'Yes' : 'No',
+      Number.isFinite(template.order) ? template.order : '—'
+    ];
+    cells.forEach((value) => {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    const actionCell = document.createElement('td');
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'icon-button';
+    editButton.dataset.action = 'edit-offer-template';
+    editButton.dataset.id = template.id;
+    editButton.setAttribute('aria-label', `Edit ${template.label?.en || 'template'}`);
+    editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit ${template.label?.en || 'template'}" />`;
+    actionCell.appendChild(editButton);
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-button';
+    deleteButton.dataset.action = 'delete-offer-template';
+    deleteButton.dataset.id = template.id;
+    deleteButton.setAttribute('aria-label', `Delete ${template.label?.en || 'template'}`);
+    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete template" data-icon="trash" />';
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
+    offerTemplateTableBody.appendChild(row);
+  });
+}
+
+function updateOfferTemplateSelect() {
+  if (!offerTemplateSelect) return;
+  const previousValue = offerTemplateSelect.value;
+  offerTemplateSelect.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select template';
+  offerTemplateSelect.appendChild(placeholder);
+  offerTemplates.forEach((template) => {
+    const option = document.createElement('option');
+    option.value = template.id;
+    option.textContent = template.label?.en || template.label?.fr || template.id;
+    offerTemplateSelect.appendChild(option);
+  });
+  const hasPrevious = Array.from(offerTemplateSelect.options).some((option) => option.value === previousValue);
+  if (hasPrevious) {
+    offerTemplateSelect.value = previousValue;
+  } else {
+    offerTemplateSelect.value = '';
+  }
+}
+
 function renderOfferTable() {
   if (!offerTableBody) return;
   offerTableBody.innerHTML = '';
   if (!offers.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 8;
+    cell.colSpan = 6;
     cell.className = 'empty';
     cell.textContent = 'No offers yet.';
     row.appendChild(cell);
@@ -1371,30 +2049,15 @@ function renderOfferTable() {
   offers.forEach((offer) => {
     const row = document.createElement('tr');
     const parentSeason = seasonLookup.get(offer.seasonId);
-    const priceDisplay = (() => {
-      if (offer.price?.mode === 'flat') {
-        return formatCurrency(offer.price?.amount ?? 0);
-      }
-      if (offer.price?.mode === 'perFoot') {
-        const rate = formatCurrency(offer.price?.rate ?? 0);
-        const unit = offer.price?.unit?.en || '/ ft';
-        return `${rate} ${unit}`;
-      }
-      return 'Contact';
-    })();
-
-    const minimumDisplay =
-      offer.price?.mode === 'perFoot' && offer.price?.minimum != null
-        ? formatCurrency(offer.price.minimum)
-        : '—';
-
+    const templateDisplay = formatTemplateLabel(offer);
+    const priceDisplay = formatOfferPriceDisplay(offer);
+    const minimumDisplay = formatOfferMinimumDisplay(offer);
     const cells = [
       parentSeason?.label?.en || offer.seasonId || '—',
-      offer.label?.en || '—',
-      offer.label?.fr || '—',
+      templateDisplay,
       priceDisplay,
       minimumDisplay,
-      offer.hideInTable ? 'Yes' : 'No'
+      offerIsHidden(offer) ? 'Yes' : 'No'
     ];
     cells.forEach((value) => {
       const cell = document.createElement('td');
@@ -1407,15 +2070,15 @@ function renderOfferTable() {
     editButton.className = 'icon-button';
     editButton.dataset.action = 'edit-offer';
     editButton.dataset.id = offer.id;
-    editButton.setAttribute('aria-label', `Edit ${offer.label?.en || 'offer'}`);
-    editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit ${offer.label?.en || 'offer'}" />`;
+    editButton.setAttribute('aria-label', `Edit ${templateDisplay || 'offer'}`);
+    editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit ${templateDisplay || 'offer'}" />`;
     actionCell.appendChild(editButton);
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
     deleteButton.className = 'icon-button';
     deleteButton.dataset.action = 'delete-offer';
     deleteButton.dataset.id = offer.id;
-    deleteButton.setAttribute('aria-label', `Delete ${offer.label?.en || 'offer'}`);
+    deleteButton.setAttribute('aria-label', `Delete ${templateDisplay || 'offer'}`);
     deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete offer" data-icon="trash" />';
     actionCell.appendChild(deleteButton);
     row.appendChild(actionCell);
@@ -1429,16 +2092,27 @@ function renderAddonTable() {
   if (!addOns.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     cell.className = 'empty';
     cell.textContent = 'No add-on services yet.';
     row.appendChild(cell);
     addonTableBody.appendChild(row);
     return;
   }
-  addOns.forEach((addon) => {
+  const sortedAddons = [...addOns].sort((a, b) => {
+    const seasonA = formatSeasonDisplayLabel(a.seasonId).toLowerCase();
+    const seasonB = formatSeasonDisplayLabel(b.seasonId).toLowerCase();
+    if (seasonA !== seasonB) {
+      return seasonA.localeCompare(seasonB);
+    }
+    const orderA = Number.isFinite(a.order) ? a.order : 0;
+    const orderB = Number.isFinite(b.order) ? b.order : 0;
+    return orderA - orderB;
+  });
+  sortedAddons.forEach((addon) => {
     const row = document.createElement('tr');
     const cells = [
+      formatSeasonDisplayLabel(addon.seasonId),
       addon.code || '—',
       addon.name?.en || '—',
       addon.name?.fr || '—',
@@ -2149,12 +2823,12 @@ function getVehicleTypeCandidates(identifier) {
 }
 
 function offerSupportsVehicleTypeForRequest(offer, vehicleTypeId) {
-  if (!offer || !Array.isArray(offer.vehicleTypes) || !offer.vehicleTypes.length) {
-    return false;
-  }
+  if (!offer) return false;
+  const supportedTypes = getOfferVehicleTypes(offer);
+  if (!supportedTypes.length) return false;
   const candidates = getVehicleTypeCandidates(vehicleTypeId);
   if (!candidates.length) return false;
-  return candidates.some((candidate) => offer.vehicleTypes.includes(candidate));
+  return candidates.some((candidate) => supportedTypes.includes(candidate));
 }
 
 function resolveSeasonId(seasonValue) {
@@ -2177,6 +2851,98 @@ function resolveSeasonId(seasonValue) {
       );
     }) || null;
   return match?.id || null;
+}
+
+function formatSeasonTypeLabel(type) {
+  if (!type) return '—';
+  if (type === 'winter') return 'Winter';
+  if (type === 'summer') return 'Summer';
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function formatSeasonDisplayLabel(seasonValue) {
+  const resolvedId = resolveSeasonId(seasonValue);
+  if (resolvedId) {
+    const season = seasonLookup.get(resolvedId);
+    return season?.label?.en || season?.name?.en || resolvedId;
+  }
+  return seasonValue || '—';
+}
+
+function formatTemplateLabel(offer) {
+  const template = getOfferTemplate(offer);
+  const labelEn = template?.label?.en || offer?.label?.en || '—';
+  const labelFr = template?.label?.fr || offer?.label?.fr || '';
+  return labelFr ? `${labelEn} / ${labelFr}` : labelEn;
+}
+
+function formatOfferPriceDisplay(offer) {
+  if (offer?.price?.mode === 'flat') {
+    return formatCurrency(offer.price?.amount ?? 0);
+  }
+  if (offer?.price?.mode === 'perFoot') {
+    const rate = formatCurrency(offer.price?.rate ?? 0);
+    const unit = offer.price?.unit?.en || offer.price?.unit?.fr || offer.price?.unit || '/ ft';
+    return `${rate} ${unit}`;
+  }
+  return 'Contact';
+}
+
+function formatOfferMinimumDisplay(offer) {
+  if (offer?.price?.mode === 'perFoot' && offer?.price?.minimum != null) {
+    return formatCurrency(offer.price.minimum);
+  }
+  return '—';
+}
+
+function getOfferTemplate(offer) {
+  if (!offer) return null;
+  if (offer.templateId && offerTemplateLookup.has(offer.templateId)) {
+    return offerTemplateLookup.get(offer.templateId);
+  }
+  return null;
+}
+
+function getOfferVehicleTypes(offer) {
+  if (Array.isArray(offer?.vehicleTypes) && offer.vehicleTypes.length) {
+    return offer.vehicleTypes;
+  }
+  const template = getOfferTemplate(offer);
+  if (Array.isArray(template?.vehicleTypes) && template.vehicleTypes.length) {
+    return template.vehicleTypes;
+  }
+  return [];
+}
+
+function offerIsHidden(offer) {
+  const template = getOfferTemplate(offer);
+  if (typeof template?.hideInTable === 'boolean') {
+    return template.hideInTable;
+  }
+  return Boolean(offer?.hideInTable);
+}
+
+function ensureOfferTemplateOption(templateId, label) {
+  if (!offerTemplateSelect || !templateId) return;
+  const exists = Array.from(offerTemplateSelect.options).some((option) => option.value === templateId);
+  if (exists) return;
+  const option = document.createElement('option');
+  option.value = templateId;
+  option.textContent = label || templateId;
+  offerTemplateSelect.appendChild(option);
+}
+
+function setSeasonDuplicateControlsVisible(visible) {
+  if (!seasonDuplicateWrapper || !seasonDuplicateSourceWrapper) return;
+  seasonDuplicateWrapper.classList.toggle('hidden', !visible);
+  const showSource = visible && seasonDuplicateToggle?.checked;
+  seasonDuplicateSourceWrapper.classList.toggle('hidden', !showSource);
+  if (seasonDuplicateSourceSelect) {
+    if (!visible) {
+      seasonDuplicateSourceSelect.value = '';
+    }
+    seasonDuplicateSourceSelect.disabled = !showSource;
+  }
 }
 
 function offerRequiresLength(offer) {
@@ -2234,14 +3000,25 @@ function getOffersForRequest(request) {
   return filtered;
 }
 
-function getAddonPrice(code) {
+function buildAddonPriceKey(seasonId, code) {
+  return `${seasonId || GLOBAL_ADDON_PRICE_SCOPE}::${code}`;
+}
+
+function getAddonPrice(code, seasonId) {
   if (!code) return 0;
-  const value = addonPriceLookup.get(code);
-  return Number.isFinite(value) ? Number(value) : 0;
+  if (seasonId) {
+    const scopedValue = addonPriceLookup.get(buildAddonPriceKey(seasonId, code));
+    if (Number.isFinite(scopedValue)) {
+      return Number(scopedValue);
+    }
+  }
+  const fallbackValue = addonPriceLookup.get(buildAddonPriceKey(null, code));
+  return Number.isFinite(fallbackValue) ? Number(fallbackValue) : 0;
 }
 
 function estimateStorageAmount(request) {
   if (!request) return null;
+  const seasonId = resolveSeasonId(request.season);
   const seasonOffers = getOffersForRequest(request);
   if (!seasonOffers.length) return null;
   const vehicleLength = Number(request.vehicle?.lengthFeet);
@@ -2256,10 +3033,10 @@ function estimateStorageAmount(request) {
   if (!Number.isFinite(baseAmount)) return null;
   let total = baseAmount;
   if (request.addons?.battery) {
-    total += getAddonPrice('battery');
+    total += getAddonPrice('battery', seasonId);
   }
   if (request.addons?.propane) {
-    total += getAddonPrice('propane');
+    total += getAddonPrice('propane', seasonId);
   }
   return Number.isFinite(total) ? total : null;
 }
@@ -2313,7 +3090,15 @@ function resetStorageFormFields() {
 }
 
 function populateStorageFormFields(request) {
-  storageSeasonSelect.value = request.season || '';
+  const resolvedSeasonId = resolveSeasonId(request.season);
+  if (resolvedSeasonId) {
+    storageSeasonSelect.value = resolvedSeasonId;
+  } else if (request.season) {
+    ensureLegacySeasonOption(request.season);
+    storageSeasonSelect.value = request.season;
+  } else {
+    storageSeasonSelect.value = '';
+  }
   storageClientSelect.value = request.clientId || '';
   storageVehicleTypeSelect.value = request.vehicle?.type || '';
   storageVehicleBrandInput.value = request.vehicle?.brand || '';
@@ -2376,11 +3161,15 @@ function closeStorageModal() {
 }
 
 function openSeasonModal(mode, season = null) {
+  populateSeasonDuplicateSourceOptions();
   if (mode === 'edit' && season) {
     editingSeasonId = season.id;
     seasonFormTitle.textContent = `Edit ${season.label?.en || season.name?.en || 'season'}`;
     seasonNameEnInput.value = season.name?.en || '';
     seasonNameFrInput.value = season.name?.fr || '';
+    if (seasonTypeSelect) {
+      seasonTypeSelect.value = season.type || 'winter';
+    }
     seasonLabelEnInput.value = season.label?.en || '';
     seasonLabelFrInput.value = season.label?.fr || '';
     seasonTimeframeEnInput.value = season.timeframe?.en || '';
@@ -2393,12 +3182,23 @@ function openSeasonModal(mode, season = null) {
     seasonDescriptionFrInput.value = season.description?.fr || '';
     seasonOrderInput.value = Number.isFinite(season.order) ? season.order : 0;
     seasonActiveInput.checked = Boolean(season.active);
+    setSeasonDuplicateControlsVisible(false);
   } else {
     editingSeasonId = null;
     seasonFormTitle.textContent = 'New season';
     seasonForm.reset();
     seasonOrderInput.value = 0;
     seasonActiveInput.checked = false;
+    if (seasonTypeSelect) {
+      seasonTypeSelect.value = 'winter';
+    }
+    if (seasonDuplicateToggle) {
+      seasonDuplicateToggle.checked = false;
+    }
+    if (seasonDuplicateSourceSelect) {
+      seasonDuplicateSourceSelect.value = '';
+    }
+    setSeasonDuplicateControlsVisible(true);
   }
   seasonFormError.textContent = '';
   seasonModal.classList.remove('hidden');
@@ -2410,6 +3210,17 @@ function closeSeasonModal() {
   seasonForm.reset();
   seasonOrderInput.value = 0;
   seasonActiveInput.checked = false;
+  if (seasonTypeSelect) {
+    seasonTypeSelect.value = 'winter';
+  }
+  if (seasonDuplicateToggle) {
+    seasonDuplicateToggle.checked = false;
+  }
+  if (seasonDuplicateSourceSelect) {
+    seasonDuplicateSourceSelect.value = '';
+    seasonDuplicateSourceSelect.disabled = true;
+  }
+  setSeasonDuplicateControlsVisible(true);
   seasonFormError.textContent = '';
   editingSeasonId = null;
 }
@@ -2448,40 +3259,80 @@ function closeVehicleTypeModal() {
   editingVehicleTypeId = null;
 }
 
-function openOfferModal(mode, offer = null) {
+function openOfferTemplateModal(mode, template = null) {
+  if (!offerTemplateModal) return;
+  if (mode === 'edit' && template) {
+    editingOfferTemplateId = template.id;
+    offerTemplateFormTitle.textContent = `Edit ${template.label?.en || 'template'}`;
+    offerTemplateLabelEnInput.value = template.label?.en || '';
+    offerTemplateLabelFrInput.value = template.label?.fr || '';
+    offerTemplateVehicleTypesInput.value = Array.isArray(template.vehicleTypes)
+      ? template.vehicleTypes.join(', ')
+      : '';
+    offerTemplateNoteEnInput.value = template.note?.en || '';
+    offerTemplateNoteFrInput.value = template.note?.fr || '';
+    offerTemplateOrderInput.value = Number.isFinite(template.order) ? template.order : 0;
+    offerTemplateHideInput.checked = Boolean(template.hideInTable);
+  } else {
+    editingOfferTemplateId = null;
+    offerTemplateFormTitle.textContent = 'New offer template';
+    offerTemplateForm.reset();
+    offerTemplateOrderInput.value = 0;
+    offerTemplateHideInput.checked = false;
+  }
+  offerTemplateFormError.textContent = '';
+  offerTemplateModal.classList.remove('hidden');
+  offerTemplateLabelEnInput.focus();
+}
+
+function closeOfferTemplateModal() {
+  if (!offerTemplateModal) return;
+  offerTemplateModal.classList.add('hidden');
+  offerTemplateForm.reset();
+  offerTemplateOrderInput.value = 0;
+  offerTemplateHideInput.checked = false;
+  offerTemplateFormError.textContent = '';
+  editingOfferTemplateId = null;
+}
+
+function openOfferModal(mode, offer = null, options = {}) {
   updateSeasonOptions();
+  updateOfferTemplateSelect();
   if (mode === 'edit' && offer) {
     editingOfferId = offer.id;
-    offerFormTitle.textContent = `Edit ${offer.label?.en || 'offer'}`;
+    const template = getOfferTemplate(offer);
+    offerFormTitle.textContent = `Edit ${template?.label?.en || offer.label?.en || 'offer'}`;
     offerSeasonSelect.value = offer.seasonId || '';
-    offerLabelEnInput.value = offer.label?.en || '';
-    offerLabelFrInput.value = offer.label?.fr || '';
+    const templateId = offer.templateId || '';
+    if (templateId) {
+      ensureOfferTemplateOption(templateId, template?.label?.en || offer.label?.en || templateId);
+    }
+    offerTemplateSelect.value = templateId;
     offerPriceModeSelect.value = offer.price?.mode || 'flat';
     offerFlatAmountInput.value = offer.price?.amount ?? '';
     offerPriceRateInput.value = offer.price?.rate ?? '';
     offerMinimumInput.value = offer.price?.minimum ?? '';
     offerPriceUnitEnInput.value = offer.price?.unit?.en || '';
     offerPriceUnitFrInput.value = offer.price?.unit?.fr || '';
-    offerVehicleTypesInput.value = Array.isArray(offer.vehicleTypes) ? offer.vehicleTypes.join(', ') : '';
-    offerNoteEnInput.value = offer.note?.en || '';
-    offerNoteFrInput.value = offer.note?.fr || '';
     offerOrderInput.value = Number.isFinite(offer.order) ? offer.order : 0;
-    offerHideInput.checked = Boolean(offer.hideInTable);
   } else {
     editingOfferId = null;
     offerFormTitle.textContent = 'New offer';
     offerForm.reset();
-    offerSeasonSelect.value = seasons[0]?.id || '';
+    const preferredSeasonId = options?.seasonId && seasonLookup.has(options.seasonId) ? options.seasonId : '';
+    offerSeasonSelect.value = preferredSeasonId || seasons[0]?.id || '';
+    if (offerTemplateSelect) {
+      offerTemplateSelect.value = '';
+    }
     offerPriceModeSelect.value = 'flat';
     offerFlatAmountInput.value = '';
     offerPriceRateInput.value = '';
     offerMinimumInput.value = '';
     offerOrderInput.value = 0;
-    offerHideInput.checked = false;
   }
   offerFormError.textContent = '';
   offerModal.classList.remove('hidden');
-  offerLabelEnInput.focus();
+  (offerTemplateSelect || offerSeasonSelect).focus();
   syncOfferPriceFields();
 }
 
@@ -2489,7 +3340,9 @@ function closeOfferModal() {
   offerModal.classList.add('hidden');
   offerForm.reset();
   offerOrderInput.value = 0;
-  offerHideInput.checked = false;
+  if (offerTemplateSelect) {
+    offerTemplateSelect.value = '';
+  }
   offerFormError.textContent = '';
   editingOfferId = null;
   syncOfferPriceFields();
@@ -2506,11 +3359,15 @@ function syncOfferPriceFields() {
   offerUnitFrWrapper.classList.toggle('hidden', !showPerFoot);
 }
 
-function openAddonModal(mode, addon = null) {
+function openAddonModal(mode, addon = null, options = {}) {
+  updateSeasonOptions();
   if (mode === 'edit' && addon) {
     editingAddonId = addon.id;
     addonFormTitle.textContent = `Edit ${addon.code || 'add-on'}`;
     addonCodeInput.value = addon.code || '';
+    if (addonSeasonSelect) {
+      addonSeasonSelect.value = addon.seasonId || '';
+    }
     addonNameEnInput.value = addon.name?.en || '';
     addonNameFrInput.value = addon.name?.fr || '';
     addonDescriptionEnInput.value = addon.description?.en || '';
@@ -2524,6 +3381,11 @@ function openAddonModal(mode, addon = null) {
     addonForm.reset();
     addonOrderInput.value = 0;
     addonCodeInput.disabled = false;
+    if (addonSeasonSelect) {
+      const preferredSeasonId =
+        options?.seasonId && seasonLookup.has(options.seasonId) ? options.seasonId : seasons[0]?.id || '';
+      addonSeasonSelect.value = preferredSeasonId || '';
+    }
   }
   addonFormError.textContent = '';
   addonModal.classList.remove('hidden');
@@ -2536,6 +3398,9 @@ function closeAddonModal() {
   addonOrderInput.value = 0;
   addonFormError.textContent = '';
   addonCodeInput.disabled = false;
+  if (addonSeasonSelect) {
+    addonSeasonSelect.value = '';
+  }
   editingAddonId = null;
 }
 
@@ -2680,6 +3545,99 @@ async function deleteSeasonById(seasonId) {
   await batch.commit();
 }
 
+async function enforceSingleActiveSeason(seasonType, activeSeasonId) {
+  if (!seasonType || !activeSeasonId) return;
+  const conflicts = seasons.filter(
+    (season) => season.id !== activeSeasonId && season.type === seasonType && season.active
+  );
+  if (!conflicts.length) return;
+  const batch = writeBatch(db);
+  conflicts.forEach((season) => {
+    batch.update(doc(db, 'storageSeasons', season.id), {
+      active: false,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    });
+  });
+  await batch.commit();
+}
+
+async function duplicateSeasonOffers(sourceSeasonId, targetSeasonId) {
+  if (!sourceSeasonId || !targetSeasonId) return;
+  const sourceOffers = offers.filter((offer) => offer.seasonId === sourceSeasonId);
+  if (!sourceOffers.length) return;
+  const batch = writeBatch(db);
+  sourceOffers.forEach((offer) => {
+    const { id, createdAt, createdBy, updatedAt, updatedBy, ...rest } = offer;
+    const newRef = doc(collection(db, 'storageOffers'));
+    batch.set(newRef, {
+      ...rest,
+      seasonId: targetSeasonId,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.uid || null,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    });
+  });
+  await batch.commit();
+}
+
+async function duplicateSeasonAddOns(sourceSeasonId, targetSeasonId) {
+  if (!sourceSeasonId || !targetSeasonId) return;
+  const sourceAddons = addOns.filter((addon) => addon.seasonId === sourceSeasonId);
+  if (!sourceAddons.length) return;
+  const batch = writeBatch(db);
+  sourceAddons.forEach((addon) => {
+    const { id, createdAt, createdBy, updatedAt, updatedBy, ...rest } = addon;
+    const newRef = doc(collection(db, 'storageAddOns'));
+    batch.set(newRef, {
+      ...rest,
+      seasonId: targetSeasonId,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.uid || null,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    });
+  });
+  await batch.commit();
+}
+
+async function duplicateSeasonById(sourceSeasonId) {
+  if (!sourceSeasonId || !seasonLookup.has(sourceSeasonId)) return;
+  const sourceSeason = seasonLookup.get(sourceSeasonId);
+  const { id, createdAt, createdBy, updatedAt, updatedBy, ...rest } = sourceSeason;
+  const appendSuffix = (value, suffix) => {
+    const trimmed = value?.trim();
+    if (!trimmed) return suffix.trim();
+    if (trimmed.toLowerCase().includes(suffix.trim().toLowerCase())) {
+      return trimmed;
+    }
+    return `${trimmed}${suffix}`;
+  };
+  const baseName = rest.name || {};
+  const baseLabel = rest.label || {};
+  const payload = {
+    ...rest,
+    name: {
+      en: baseName.en || '',
+      fr: baseName.fr || ''
+    },
+    label: {
+      en: appendSuffix(baseLabel.en, ' (copy)'),
+      fr: appendSuffix(baseLabel.fr, ' (copie)')
+    },
+    active: false,
+    createdAt: serverTimestamp(),
+    createdBy: auth.currentUser?.uid || null,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null
+  };
+  const newSeasonRef = await addDoc(collection(db, 'storageSeasons'), payload);
+  await duplicateSeasonOffers(sourceSeasonId, newSeasonRef.id);
+  await duplicateSeasonAddOns(sourceSeasonId, newSeasonRef.id);
+  setActiveSeason(newSeasonRef.id);
+}
+
 async function deleteVehicleTypeById(typeId) {
   const entry = vehicleTypes.find((item) => item.id === typeId);
   const label = entry?.value || entry?.labels?.en || typeId;
@@ -2692,6 +3650,23 @@ async function deleteOfferById(offerId) {
   const label = offer?.label?.en || offerId;
   if (!window.confirm(`Delete offer "${label}"?`)) return;
   await deleteDoc(doc(db, 'storageOffers', offerId));
+}
+
+async function deleteOfferTemplateById(templateId) {
+  if (!templateId) return;
+  const template = offerTemplateLookup.get(templateId);
+  const label = template?.label?.en || templateId;
+  const relatedOffers = offers.filter((offer) => offer.templateId === templateId);
+  const suffix = relatedOffers.length
+    ? ` This will also remove ${relatedOffers.length} season pricing entr${
+        relatedOffers.length === 1 ? 'y' : 'ies'
+      }.`
+    : '';
+  if (!window.confirm(`Delete template "${label}"?${suffix}`)) return;
+  const batch = writeBatch(db);
+  relatedOffers.forEach((offer) => batch.delete(doc(db, 'storageOffers', offer.id)));
+  batch.delete(doc(db, 'offerTemplates', templateId));
+  await batch.commit();
 }
 
 async function deleteAddonById(addonId) {
@@ -2878,6 +3853,7 @@ if (seasonTableBody) {
   seasonTableBody.addEventListener('click', (event) => {
     const editButton = event.target.closest('button[data-action="edit-season"]');
     if (editButton) {
+      event.stopPropagation();
       const season = seasons.find((item) => item.id === editButton.dataset.id);
       if (season) {
         openSeasonModal('edit', season);
@@ -2886,8 +3862,39 @@ if (seasonTableBody) {
     }
     const deleteButton = event.target.closest('button[data-action="delete-season"]');
     if (deleteButton) {
+      event.stopPropagation();
       deleteSeasonById(deleteButton.dataset.id);
+      return;
     }
+    const row = event.target.closest('tr[data-season-id]');
+    if (row && !event.target.closest('button')) {
+      setActiveSeason(row.dataset.seasonId);
+    }
+  });
+}
+
+if (addOfferToSeasonButton) {
+  addOfferToSeasonButton.addEventListener('click', () => {
+    if (!activeSeasonId) return;
+    openOfferModal('create', null, { seasonId: activeSeasonId });
+  });
+}
+
+if (duplicateSeasonButton) {
+  duplicateSeasonButton.addEventListener('click', async () => {
+    if (!activeSeasonId) return;
+    try {
+      await duplicateSeasonById(activeSeasonId);
+    } catch (error) {
+      seasonFormError.textContent = error.message;
+    }
+  });
+}
+
+if (addAddonToSeasonButton) {
+  addAddonToSeasonButton.addEventListener('click', () => {
+    if (!activeSeasonId) return;
+    openAddonModal('create', null, { seasonId: activeSeasonId });
   });
 }
 
@@ -2922,6 +3929,23 @@ if (seasonModal) {
   });
 }
 
+if (seasonDuplicateToggle && seasonDuplicateSourceWrapper) {
+  seasonDuplicateToggle.addEventListener('change', () => {
+    const visible = !seasonDuplicateWrapper.classList.contains('hidden');
+    const showSource = seasonDuplicateToggle.checked && visible;
+    seasonDuplicateSourceWrapper.classList.toggle('hidden', !showSource);
+    if (seasonDuplicateSourceSelect) {
+      seasonDuplicateSourceSelect.disabled = !showSource;
+    }
+  });
+}
+
+if (seasonTypeSelect && seasonDuplicateSourceSelect) {
+  seasonTypeSelect.addEventListener('change', () => {
+    populateSeasonDuplicateSourceOptions();
+  });
+}
+
 if (closeVehicleTypeModalButton) {
   closeVehicleTypeModalButton.addEventListener('click', () => {
     closeVehicleTypeModal();
@@ -2953,6 +3977,57 @@ if (offerTableBody) {
   });
 }
 
+if (seasonOffersTableBody) {
+  seasonOffersTableBody.addEventListener('click', (event) => {
+    const editButton = event.target.closest('button[data-action="edit-offer"]');
+    if (editButton) {
+      const offer = offers.find((item) => item.id === editButton.dataset.id);
+      if (offer) {
+        openOfferModal('edit', offer);
+      }
+      return;
+    }
+    const deleteButton = event.target.closest('button[data-action="delete-offer"]');
+    if (deleteButton) {
+      deleteOfferById(deleteButton.dataset.id);
+    }
+  });
+}
+
+if (seasonAddonsTableBody) {
+  seasonAddonsTableBody.addEventListener('click', (event) => {
+    const editButton = event.target.closest('button[data-action="edit-addon"]');
+    if (editButton) {
+      const addon = addOns.find((item) => item.id === editButton.dataset.id);
+      if (addon) {
+        openAddonModal('edit', addon);
+      }
+      return;
+    }
+    const deleteButton = event.target.closest('button[data-action="delete-addon"]');
+    if (deleteButton) {
+      deleteAddonById(deleteButton.dataset.id);
+    }
+  });
+}
+
+if (offerTemplateTableBody) {
+  offerTemplateTableBody.addEventListener('click', (event) => {
+    const editButton = event.target.closest('button[data-action="edit-offer-template"]');
+    if (editButton) {
+      const template = offerTemplates.find((item) => item.id === editButton.dataset.id);
+      if (template) {
+        openOfferTemplateModal('edit', template);
+      }
+      return;
+    }
+    const deleteButton = event.target.closest('button[data-action="delete-offer-template"]');
+    if (deleteButton) {
+      deleteOfferTemplateById(deleteButton.dataset.id);
+    }
+  });
+}
+
 if (closeOfferModalButton) {
   closeOfferModalButton.addEventListener('click', () => {
     closeOfferModal();
@@ -2970,6 +4045,20 @@ if (offerModal) {
 if (offerPriceModeSelect) {
   offerPriceModeSelect.addEventListener('change', syncOfferPriceFields);
   syncOfferPriceFields();
+}
+
+if (closeOfferTemplateModalButton) {
+  closeOfferTemplateModalButton.addEventListener('click', () => {
+    closeOfferTemplateModal();
+  });
+}
+
+if (offerTemplateModal) {
+  offerTemplateModal.addEventListener('click', (event) => {
+    if (event.target === offerTemplateModal) {
+      closeOfferTemplateModal();
+    }
+  });
 }
 
 if (addonTableBody) {
@@ -3376,6 +4465,10 @@ seasonForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   seasonFormError.textContent = '';
 
+  const duplicateEnabled = !editingSeasonId && seasonDuplicateToggle?.checked;
+  const duplicateSourceSeasonId = duplicateEnabled ? seasonDuplicateSourceSelect?.value : '';
+  const seasonType = seasonTypeSelect.value || 'winter';
+
   const payload = {
     name: { en: seasonNameEnInput.value.trim(), fr: seasonNameFrInput.value.trim() },
     label: { en: seasonLabelEnInput.value.trim(), fr: seasonLabelFrInput.value.trim() },
@@ -3385,6 +4478,7 @@ seasonForm.addEventListener('submit', async (event) => {
     description: { en: seasonDescriptionEnInput.value.trim(), fr: seasonDescriptionFrInput.value.trim() },
     order: Number(seasonOrderInput.value) || 0,
     active: seasonActiveInput.checked,
+    type: seasonType,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null
   };
@@ -3393,16 +4487,32 @@ seasonForm.addEventListener('submit', async (event) => {
     seasonFormError.textContent = 'Provide both English and French names.';
     return;
   }
+  if (!payload.type) {
+    seasonFormError.textContent = 'Select a season type.';
+    return;
+  }
+  if (duplicateEnabled && !duplicateSourceSeasonId) {
+    seasonFormError.textContent = 'Select a season to duplicate.';
+    return;
+  }
 
   try {
+    let seasonDocRef;
     if (editingSeasonId) {
-      await setDoc(doc(db, 'storageSeasons', editingSeasonId), payload, { merge: true });
+      seasonDocRef = doc(db, 'storageSeasons', editingSeasonId);
+      await setDoc(seasonDocRef, payload, { merge: true });
     } else {
-      await addDoc(collection(db, 'storageSeasons'), {
+      seasonDocRef = await addDoc(collection(db, 'storageSeasons'), {
         ...payload,
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.uid || null
       });
+    }
+    if (payload.active) {
+      await enforceSingleActiveSeason(payload.type, seasonDocRef.id);
+    }
+    if (!editingSeasonId && duplicateSourceSeasonId) {
+      await duplicateSeasonOffers(duplicateSourceSeasonId, seasonDocRef.id);
     }
     closeSeasonModal();
   } catch (error) {
@@ -3458,11 +4568,57 @@ if (vehicleTypeForm) {
   });
 }
 
+if (offerTemplateForm) {
+  offerTemplateForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    offerTemplateFormError.textContent = '';
+    const labelEn = offerTemplateLabelEnInput.value.trim();
+    const labelFr = offerTemplateLabelFrInput.value.trim();
+    const vehicleTypes = offerTemplateVehicleTypesInput.value
+      ? offerTemplateVehicleTypesInput.value.split(',').map((entry) => entry.trim()).filter(Boolean)
+      : [];
+    const noteEn = offerTemplateNoteEnInput.value.trim();
+    const noteFr = offerTemplateNoteFrInput.value.trim();
+    const orderValue = Number(offerTemplateOrderInput.value) || 0;
+
+    if (!labelEn || !labelFr) {
+      offerTemplateFormError.textContent = 'Provide labels in both languages.';
+      return;
+    }
+
+    const payload = {
+      label: { en: labelEn, fr: labelFr },
+      vehicleTypes,
+      note: { en: noteEn, fr: noteFr },
+      hideInTable: offerTemplateHideInput.checked,
+      order: orderValue,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    };
+
+    try {
+      if (editingOfferTemplateId) {
+        await setDoc(doc(db, 'offerTemplates', editingOfferTemplateId), payload, { merge: true });
+      } else {
+        await addDoc(collection(db, 'offerTemplates'), {
+          ...payload,
+          createdAt: serverTimestamp(),
+          createdBy: auth.currentUser?.uid || null
+        });
+      }
+      closeOfferTemplateModal();
+    } catch (error) {
+      offerTemplateFormError.textContent = error.message;
+    }
+  });
+}
+
 offerForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   offerFormError.textContent = '';
 
   const seasonId = offerSeasonSelect.value;
+  const templateId = offerTemplateSelect.value;
   const priceMode = offerPriceModeSelect.value;
   const price = { mode: priceMode };
   if (priceMode === 'flat') {
@@ -3476,15 +4632,16 @@ offerForm.addEventListener('submit', async (event) => {
     };
   }
 
+  const template = templateId ? offerTemplateLookup.get(templateId) : null;
+
   const payload = {
     seasonId,
-    label: { en: offerLabelEnInput.value.trim(), fr: offerLabelFrInput.value.trim() },
+    templateId,
+    label: template?.label || { en: '', fr: '' },
+    note: template?.note || { en: '', fr: '' },
+    vehicleTypes: Array.isArray(template?.vehicleTypes) ? template.vehicleTypes : [],
+    hideInTable: Boolean(template?.hideInTable),
     price,
-    vehicleTypes: offerVehicleTypesInput.value
-      ? offerVehicleTypesInput.value.split(',').map((type) => type.trim()).filter(Boolean)
-      : [],
-    note: { en: offerNoteEnInput.value.trim(), fr: offerNoteFrInput.value.trim() },
-    hideInTable: offerHideInput.checked,
     order: Number(offerOrderInput.value) || 0,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null
@@ -3494,8 +4651,8 @@ offerForm.addEventListener('submit', async (event) => {
     offerFormError.textContent = 'Select a season.';
     return;
   }
-  if (!payload.label.en || !payload.label.fr) {
-    offerFormError.textContent = 'Provide labels in both languages.';
+  if (!templateId) {
+    offerFormError.textContent = 'Select a template.';
     return;
   }
   if (priceMode === 'flat' && (price.amount == null || Number.isNaN(price.amount))) {
@@ -3535,6 +4692,7 @@ addonForm.addEventListener('submit', async (event) => {
 
   const payload = {
     code: addonCodeInput.value.trim(),
+    seasonId: addonSeasonSelect ? addonSeasonSelect.value : '',
     name: { en: addonNameEnInput.value.trim(), fr: addonNameFrInput.value.trim() },
     description: { en: addonDescriptionEnInput.value.trim(), fr: addonDescriptionFrInput.value.trim() },
     price: addonPriceInput.value ? Number(addonPriceInput.value) : 0,
@@ -3547,6 +4705,10 @@ addonForm.addEventListener('submit', async (event) => {
     addonFormError.textContent = 'Add-on code is required.';
     return;
   }
+  if (!payload.seasonId) {
+    addonFormError.textContent = 'Select a season.';
+    return;
+  }
   if (!payload.name.en || !payload.name.fr) {
     addonFormError.textContent = 'Provide English and French names.';
     return;
@@ -3556,7 +4718,7 @@ addonForm.addEventListener('submit', async (event) => {
     if (editingAddonId) {
       await setDoc(doc(db, 'storageAddOns', editingAddonId), payload, { merge: true });
     } else {
-      await setDoc(doc(db, 'storageAddOns', payload.code), {
+      await addDoc(collection(db, 'storageAddOns'), {
         ...payload,
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.uid || null
@@ -3735,7 +4897,7 @@ categoryForm.addEventListener('submit', async (event) => {
 });
 
 if (loginForm) {
-  if (usingEmulators) {
+  if (allowEmailPasswordAuth) {
     loginForm.classList.remove('hidden');
     loginForm.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -3786,6 +4948,7 @@ onAuthStateChanged(auth, async (user) => {
     cleanStorageSubscription();
     cleanSeasonSubscription();
     cleanVehicleTypeSubscription();
+    cleanOfferTemplateSubscription();
     cleanOfferSubscription();
     cleanAddonSubscription();
     cleanConditionSubscription();
@@ -3797,6 +4960,7 @@ onAuthStateChanged(auth, async (user) => {
     cleanStorageRequests();
     cleanSeasonsData();
     cleanVehicleTypesData();
+    cleanOfferTemplateData();
     cleanOffersData();
     cleanAddOnsData();
     cleanConditionsData();
@@ -3808,6 +4972,7 @@ onAuthStateChanged(auth, async (user) => {
     closeClientModal();
     closeStorageModal();
     closeSeasonModal();
+    closeOfferTemplateModal();
     closeOfferModal();
     closeAddonModal();
     ledgerAccountSelection = [];
@@ -3849,6 +5014,7 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToStorageRequests();
   subscribeToSeasons();
   subscribeToVehicleTypes();
+  subscribeToOfferTemplates();
   subscribeToOffers();
   subscribeToAddOns();
   subscribeToConditions();
@@ -3858,7 +5024,7 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToPublishStatus();
   subscribeToExpensesStream();
   ledgerAccountSelection = [];
-  setView('ledger');
+setView('dashboard');
 });
 navLinks.forEach((link) => {
   link.addEventListener('click', () => {
@@ -3881,7 +5047,7 @@ settingsNavButtons.forEach((button) => {
 
 if (closeSettingsNavButton) {
   closeSettingsNavButton.addEventListener('click', () => {
-    setView(lastNonSettingsView || 'ledger');
+    setView(lastNonSettingsView || 'dashboard');
   });
 }
 
@@ -3893,6 +5059,7 @@ function setView(view) {
   navLinks.forEach((link) => {
     link.classList.toggle('active', link.dataset.view === view);
   });
+  const showingDashboard = view === 'dashboard';
   const showingLedger = view === 'ledger';
   const showingAccounts = view === 'accounts';
   const showingClients = view === 'clients';
@@ -3904,6 +5071,9 @@ function setView(view) {
   }
   if (settingsNav) {
     settingsNav.classList.toggle('hidden', !showingSettings);
+  }
+  if (dashboardView) {
+    dashboardView.classList.toggle('hidden', !showingDashboard);
   }
   accountsView.classList.toggle('hidden', !showingAccounts);
   clientsView.classList.toggle('hidden', !showingClients);
@@ -3942,7 +5112,11 @@ function setView(view) {
   transferButton.classList.toggle('hidden', !showingLedger);
   updatePublishButtonState();
   updatePricingToolbarActions();
-  if (showingLedger) {
+  if (showingDashboard) {
+    panelTitle.textContent = 'Dashboard';
+    panelSubtitle.textContent = 'Overview of balances, activity, and website updates.';
+    renderDashboard();
+  } else if (showingLedger) {
     panelTitle.textContent = 'Ledger';
     panelSubtitle.textContent = 'Reverse chronological table of every entry.';
     updateLedgerAccountOptions();
@@ -4066,6 +5240,7 @@ function renderLedgerTable() {
     cell.textContent = 'No entries yet.';
     row.appendChild(cell);
     ledgerTableBody.appendChild(row);
+    renderDashboard();
     return;
   }
 
@@ -4217,6 +5392,7 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
       ledgerTableBody.appendChild(entityRow);
     }
   });
+  renderDashboard();
 }
 
 function toDateObject(value) {
@@ -4321,7 +5497,7 @@ function resetLedgerTagFilters() {
   updateLedgerFilterSummary();
 }
 
-addEntryButton.addEventListener('click', () => {
+function openNewEntryModal() {
   if (!cashAccounts.length || !entityAccounts.length) {
     entryFormError.textContent = 'Create at least one cash account and one entity before logging entries.';
     return;
@@ -4356,6 +5532,10 @@ addEntryButton.addEventListener('click', () => {
   syncEntrySelectors();
   updateTagSuggestions();
   entryModal.classList.remove('hidden');
+}
+
+addEntryButton.addEventListener('click', () => {
+  openNewEntryModal();
 });
 
 closeEntryModalButton.addEventListener('click', () => {
@@ -4416,6 +5596,18 @@ tagInput.addEventListener('input', () => {
 tagInput.addEventListener('focus', () => {
   updateTagSuggestions(tagInput.value);
 });
+
+if (dashboardAddEntryButton) {
+  dashboardAddEntryButton.addEventListener('click', () => {
+    openNewEntryModal();
+  });
+}
+
+if (dashboardTransferButton) {
+  dashboardTransferButton.addEventListener('click', () => {
+    openTransferModal();
+  });
+}
 
 function setDateInputValue(input, rawDate, fallbackToday = false) {
   if (!input) return;
@@ -4611,7 +5803,7 @@ entryForm.addEventListener('submit', async (event) => {
   }
 });
 
-transferButton.addEventListener('click', () => {
+function openTransferModal() {
   if (cashAccounts.length < 2) return;
   transferForm.reset();
   transferFormError.textContent = '';
@@ -4620,6 +5812,10 @@ transferButton.addEventListener('click', () => {
   setDateInputValue(transferDateInput, new Date(), true);
   editingTransferContext = null;
   transferModal.classList.remove('hidden');
+}
+
+transferButton.addEventListener('click', () => {
+  openTransferModal();
 });
 
 closeTransferModalButton.addEventListener('click', () => {

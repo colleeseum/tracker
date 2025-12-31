@@ -59,16 +59,17 @@
               <p class="hint">Manage everything from here</p>
             </div>
             <nav class="nav-links" id="main-nav">
+              <button type="button" class="nav-link active" data-view="dashboard">Dashboard</button>
               <button type="button" class="nav-link" data-view="accounts">Accounts</button>
               <button type="button" class="nav-link" data-view="clients">Clients</button>
-              <button type="button" class="nav-link" data-view="storage">Storage</button>
-              <button type="button" class="nav-link active" data-view="ledger">Ledger</button>
+              <button type="button" class="nav-link" data-view="storage" disabled>Storage</button>
+              <button type="button" class="nav-link" data-view="ledger">Ledger</button>
               <button type="button" class="nav-link" disabled>Reports</button>
               <button type="button" class="nav-link" data-view="settings">Settings</button>
             </nav>
             <nav class="nav-links hidden" id="settings-nav">
               <button type="button" class="nav-link" data-settings-target="categories">Categories</button>
-              <button type="button" class="nav-link" data-settings-target="pricing">Pricing</button>
+              <button type="button" class="nav-link" data-settings-target="pricing">Website & Offering</button>
               <button type="button" class="nav-link secondary" id="close-settings-nav">Close</button>
             </nav>
           </aside>
@@ -94,6 +95,75 @@
                 <button id="add-entry" type="button">Add entry</button>
                 <button id="transfer-funds" type="button" class="secondary">Transfer funds</button>
                 <button id="new-category" type="button" class="hidden">New category</button>
+              </div>
+            </div>
+
+            <div id="dashboard-view" class="dashboard-view">
+              <div class="dashboard-grid">
+                <section class="card dashboard-card">
+                  <div class="dashboard-card-header">
+                    <div>
+                      <h3>Cash accounts</h3>
+                      <p class="hint">Total cash on hand</p>
+                    </div>
+                    <p id="dashboard-cash-total" class="summary-value">$0.00</p>
+                  </div>
+                  <ul id="dashboard-cash-list" class="dashboard-list">
+                    <li class="empty">No cash accounts yet.</li>
+                  </ul>
+                </section>
+
+                <section class="card dashboard-card">
+                  <div class="dashboard-card-header">
+                    <div>
+                      <h3>Entity accounts</h3>
+                      <p class="hint">Total entity balance</p>
+                    </div>
+                    <p id="dashboard-entity-total" class="summary-value">$0.00</p>
+                  </div>
+                  <ul id="dashboard-entity-list" class="dashboard-list">
+                    <li class="empty">No entity accounts yet.</li>
+                  </ul>
+                </section>
+
+                <section class="card dashboard-card span-two">
+                  <div class="dashboard-card-header">
+                    <div>
+                      <h3>Recent transactions</h3>
+                      <p class="hint">Latest activity across all accounts</p>
+                    </div>
+                    <div class="dashboard-actions">
+                      <button id="dashboard-add-entry" type="button" class="secondary">New entry</button>
+                      <button id="dashboard-transfer" type="button">Transfer funds</button>
+                    </div>
+                  </div>
+                  <ul id="dashboard-transactions-list" class="dashboard-list transactions-list">
+                    <li class="empty">No transactions logged yet.</li>
+                  </ul>
+                </section>
+
+                <section class="card dashboard-card">
+                  <div class="dashboard-card-header">
+                    <h3>Account activity</h3>
+                    <p class="hint">Most recently adjusted accounts</p>
+                  </div>
+                  <ul id="dashboard-account-activity-list" class="dashboard-list">
+                    <li class="empty">No activity yet.</li>
+                  </ul>
+                </section>
+
+                <section class="card dashboard-card">
+                  <div class="dashboard-card-header">
+                    <h3>Content updates</h3>
+                    <p class="hint">Website data refresh summary</p>
+                  </div>
+                  <div class="dashboard-status">
+                    <p><strong>Last edit:</strong> <span id="dashboard-content-updated-at">—</span></p>
+                    <p><strong>Edited by:</strong> <span id="dashboard-content-updated-by">—</span></p>
+                    <p><strong>Last publish:</strong> <span id="dashboard-published-at">—</span></p>
+                    <p><strong>Published by:</strong> <span id="dashboard-published-by">—</span></p>
+                  </div>
+                </section>
               </div>
             </div>
 
@@ -159,6 +229,9 @@
                   <button type="button" data-panel="vehicleTypes" role="tab" aria-selected="false">
                     Vehicle types
                   </button>
+                  <button type="button" data-panel="offerTemplates" role="tab" aria-selected="false">
+                    Offer templates
+                  </button>
                   <button type="button" data-panel="offers" role="tab" aria-selected="false">
                     Offers
                   </button>
@@ -179,27 +252,85 @@
 
               <div class="pricing-panels">
                 <div class="pricing-panel" data-panel="seasons">
-                  <section class="card pricing-section">
-                <div class="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Label (EN)</th>
-                        <th>Label (FR)</th>
-                        <th>Timeframe</th>
-                        <th>Order</th>
-                        <th>Active</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody id="season-table-body">
-                      <tr>
-                        <td colspan="6" class="empty">No seasons yet.</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                  </section>
+                  <div class="season-layout">
+                    <section class="card pricing-section">
+                      <div class="table-wrapper">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Label (EN)</th>
+                              <th>Label (FR)</th>
+                              <th>Timeframe</th>
+                              <th>Type</th>
+                              <th>Order</th>
+                              <th>Active</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody id="season-table-body">
+                            <tr>
+                              <td colspan="7" class="empty">No seasons yet.</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                    <section class="card pricing-section season-offers-panel hidden" id="season-offers-panel">
+                      <div class="season-offers-header">
+                        <div>
+                          <h3 id="season-offers-title">Season offers</h3>
+                          <p class="hint" id="season-offers-subtitle">Select a season to manage its offers.</p>
+                        </div>
+                        <div class="season-offers-actions">
+                          <button id="duplicate-season-button" type="button" class="secondary">Duplicate season</button>
+                          <button id="add-offer-to-season" type="button">Add offer</button>
+                        </div>
+                      </div>
+                      <div class="table-wrapper">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Template</th>
+                              <th>Amount / Rate</th>
+                              <th>Minimum</th>
+                              <th>Hidden?</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody id="season-offers-table-body">
+                            <tr>
+                              <td colspan="5" class="empty">Select a season to see its offers.</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div class="season-addons-header">
+                        <div>
+                          <h4>Season add-ons</h4>
+                          <p class="hint">Attach add-on pricing to the selected season.</p>
+                        </div>
+                        <div class="season-addons-actions">
+                          <button id="add-addon-to-season" type="button">Add add-on</button>
+                        </div>
+                      </div>
+                      <div class="table-wrapper">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Add-on</th>
+                              <th>Price</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody id="season-addons-table-body">
+                            <tr>
+                              <td colspan="3" class="empty">Select a season to see add-ons.</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  </div>
                 </div>
 
                 <div class="pricing-panel hidden" data-panel="vehicleTypes">
@@ -227,6 +358,30 @@
                   </section>
                 </div>
 
+                <div class="pricing-panel hidden" data-panel="offerTemplates">
+                  <section class="card pricing-section">
+                    <div class="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Label (EN)</th>
+                            <th>Label (FR)</th>
+                            <th>Vehicle types</th>
+                            <th>Hidden?</th>
+                            <th>Order</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody id="offer-template-table-body">
+                          <tr>
+                            <td colspan="6" class="empty">No templates yet.</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+
                 <div class="pricing-panel hidden" data-panel="offers">
                   <section class="card pricing-section">
                 <div class="table-wrapper">
@@ -234,8 +389,7 @@
                     <thead>
                     <tr>
                       <th>Season</th>
-                      <th>Label (EN)</th>
-                      <th>Label (FR)</th>
+                      <th>Template</th>
                       <th>Amount / Rate</th>
                       <th>Minimum</th>
                       <th>Hidden?</th>
@@ -244,7 +398,7 @@
                     </thead>
                     <tbody id="offer-table-body">
                       <tr>
-                        <td colspan="8" class="empty">No offers yet.</td>
+                        <td colspan="6" class="empty">No offers yet.</td>
                       </tr>
                     </tbody>
                   </table>
@@ -258,6 +412,7 @@
                       <table>
                         <thead>
                           <tr>
+                            <th>Season</th>
                             <th>Code</th>
                             <th>Name (EN)</th>
                             <th>Name (FR)</th>
@@ -267,7 +422,7 @@
                         </thead>
                         <tbody id="addon-table-body">
                           <tr>
-                            <td colspan="5" class="empty">No add-on services yet.</td>
+                            <td colspan="6" class="empty">No add-on services yet.</td>
                           </tr>
                         </tbody>
                       </table>
@@ -370,7 +525,7 @@
               </div>
             </div>
 
-            <div id="ledger-view" class="card ledger-card">
+            <div id="ledger-view" class="card ledger-card hidden">
               <div class="ledger-toolbar">
                 <div class="ledger-filter">
                   <button type="button" id="toggle-ledger-filter">Filter accounts</button>
@@ -540,9 +695,6 @@
                 Season
                 <select id="storage-season" required>
                   <option value="">Select season</option>
-                  <option value="Winter 2024-2025">Winter 2024-2025</option>
-                  <option value="Winter 2025-2026">Winter 2025-2026</option>
-                  <option value="Winter 2026-2027">Winter 2026-2027</option>
                 </select>
               </label>
               <label class="wide">
@@ -667,46 +819,63 @@
               <button id="close-season-modal" type="button" class="link">Close</button>
             </div>
             <form id="season-form" class="grid-form">
-              <label>
-                Name (EN)
-                <input type="text" id="season-name-en" required />
+              <label class="wide">
+                Season type
+                <select id="season-type" required>
+                  <option value="winter">Winter</option>
+                  <option value="summer">Summer</option>
+                </select>
               </label>
-              <label>
-                Name (FR)
-                <input type="text" id="season-name-fr" required />
-              </label>
-              <label>
-                Label (EN)
-                <input type="text" id="season-label-en" required />
-              </label>
-              <label>
-                Label (FR)
-                <input type="text" id="season-label-fr" required />
-              </label>
-              <label>
-                Timeframe (EN)
-                <input type="text" id="season-timeframe-en" required />
-              </label>
-              <label>
-                Timeframe (FR)
-                <input type="text" id="season-timeframe-fr" required />
-              </label>
-              <label>
-                Drop-off window (EN)
-                <input type="text" id="season-dropoff-en" />
-              </label>
-              <label>
-                Drop-off window (FR)
-                <input type="text" id="season-dropoff-fr" />
-              </label>
-              <label>
-                Pickup deadline (EN)
-                <input type="text" id="season-pickup-en" />
-              </label>
-              <label>
-                Pickup deadline (FR)
-                <input type="text" id="season-pickup-fr" />
-              </label>
+              <div class="form-row">
+                <label>
+                  Name (EN)
+                  <input type="text" id="season-name-en" required />
+                </label>
+                <label>
+                  Name (FR)
+                  <input type="text" id="season-name-fr" required />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  Label (EN)
+                  <input type="text" id="season-label-en" required />
+                </label>
+                <label>
+                  Label (FR)
+                  <input type="text" id="season-label-fr" required />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  Timeframe (EN)
+                  <input type="text" id="season-timeframe-en" required />
+                </label>
+                <label>
+                  Timeframe (FR)
+                  <input type="text" id="season-timeframe-fr" required />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  Drop-off window (EN)
+                  <input type="text" id="season-dropoff-en" />
+                </label>
+                <label>
+                  Drop-off window (FR)
+                  <input type="text" id="season-dropoff-fr" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  Pickup deadline (EN)
+                  <input type="text" id="season-pickup-en" />
+                </label>
+                <label>
+                  Pickup deadline (FR)
+                  <input type="text" id="season-pickup-fr" />
+                </label>
+              </div>
               <label class="wide">
                 Description (EN)
                 <textarea id="season-description-en" rows="2"></textarea>
@@ -714,6 +883,16 @@
               <label class="wide">
                 Description (FR)
                 <textarea id="season-description-fr" rows="2"></textarea>
+              </label>
+              <label class="checkbox wide" id="season-duplicate-wrapper">
+                <input type="checkbox" id="season-duplicate-toggle" />
+                Duplicate offers from an existing season
+              </label>
+              <label class="wide" id="season-duplicate-source-wrapper">
+                Source season
+                <select id="season-duplicate-source" disabled>
+                  <option value="">Select season</option>
+                </select>
               </label>
               <label>
                 Order
@@ -766,6 +945,47 @@
           </div>
         </div>
 
+        <div id="offer-template-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="offer-template-form-title">New offer template</h3>
+              <button id="close-offer-template-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="offer-template-form" class="grid-form">
+              <label>
+                Label (EN)
+                <input type="text" id="offer-template-label-en" required />
+              </label>
+              <label>
+                Label (FR)
+                <input type="text" id="offer-template-label-fr" required />
+              </label>
+              <label class="wide">
+                Vehicle types (comma separated)
+                <input type="text" id="offer-template-vehicle-types" />
+              </label>
+              <label class="wide">
+                Notes (EN)
+                <textarea id="offer-template-note-en" rows="2"></textarea>
+              </label>
+              <label class="wide">
+                Notes (FR)
+                <textarea id="offer-template-note-fr" rows="2"></textarea>
+              </label>
+              <label>
+                Order
+                <input type="number" id="offer-template-order" step="0.1" value="0" />
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" id="offer-template-hide" />
+                Hide in table
+              </label>
+              <button type="submit" class="wide">Save template</button>
+              <p class="error" id="offer-template-form-error"></p>
+            </form>
+          </div>
+        </div>
+
         <div id="offer-modal" class="modal hidden">
           <div class="modal-content card">
             <div class="modal-header">
@@ -777,13 +997,11 @@
                 Season
                 <select id="offer-season" required></select>
               </label>
-              <label>
-                Label (EN)
-                <input type="text" id="offer-label-en" required />
-              </label>
-              <label>
-                Label (FR)
-                <input type="text" id="offer-label-fr" required />
+              <label class="wide">
+                Template
+                <select id="offer-template" required>
+                  <option value="">Select template</option>
+                </select>
               </label>
               <label>
                 Price mode
@@ -813,25 +1031,9 @@
                 Price unit (FR)
                 <input type="text" id="offer-price-unit-fr" placeholder="/ pi" />
               </label>
-              <label class="wide">
-                Vehicle types (comma separated)
-                <input type="text" id="offer-vehicle-types" />
-              </label>
-              <label class="wide">
-                Notes (EN)
-                <textarea id="offer-note-en" rows="2"></textarea>
-              </label>
-              <label class="wide">
-                Notes (FR)
-                <textarea id="offer-note-fr" rows="2"></textarea>
-              </label>
               <label>
                 Order
                 <input type="number" id="offer-order" step="0.1" value="0" />
-              </label>
-              <label class="checkbox">
-                <input type="checkbox" id="offer-hide" />
-                Hide in table
               </label>
               <button type="submit" class="wide">Save offer</button>
               <p class="error" id="offer-form-error"></p>
@@ -915,6 +1117,12 @@
               <label>
                 Code
                 <input type="text" id="addon-code" placeholder="battery" required />
+              </label>
+              <label>
+                Season
+                <select id="addon-season" required>
+                  <option value="">Select season</option>
+                </select>
               </label>
               <label>
                 Name (EN)

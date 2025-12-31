@@ -172,6 +172,17 @@ form {
   gap: 1rem;
 }
 
+.grid-form .form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  grid-column: 1 / -1;
+}
+
+.grid-form .form-row label {
+  width: 100%;
+}
+
 .grid-form .wide {
   grid-column: 1 / -1;
 }
@@ -638,6 +649,134 @@ form {
   overflow-x: auto;
 }
 
+.dashboard-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+}
+
+.dashboard-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dashboard-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dashboard-card .summary-value {
+  margin: 0;
+}
+
+.dashboard-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.dashboard-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-weight: 600;
+}
+
+.dashboard-list li span.hint {
+  font-weight: 400;
+  color: #64748b;
+}
+
+.dashboard-list li .amount-positive {
+  color: #15803d;
+}
+
+.dashboard-list li .amount-negative {
+  color: #b91c1c;
+}
+
+.dashboard-list li.empty {
+  font-weight: 400;
+  color: #94a3b8;
+  justify-content: flex-start;
+}
+
+.transactions-list {
+  gap: 1rem;
+}
+
+.dashboard-transaction-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dashboard-transaction-line:last-child {
+  border-bottom: none;
+}
+
+.transaction-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+
+.transaction-summary {
+  margin: 0;
+}
+
+.transaction-date {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.transaction-amount {
+  font-weight: 700;
+}
+
+.dashboard-status p {
+  margin: 0.3rem 0;
+}
+
+.dashboard-card.span-two {
+  grid-column: span 2;
+}
+
+@media (max-width: 700px) {
+  .dashboard-card.span-two {
+    grid-column: span 1;
+  }
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -648,6 +787,52 @@ table {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.season-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+@media (max-width: 1200px) {
+  .season-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.season-offers-panel {
+  min-width: 0;
+}
+
+.season-offers-header,
+.season-addons-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.season-addons-header {
+  margin-top: 2rem;
+}
+
+.season-offers-actions,
+.season-addons-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+#season-table-body tr {
+  cursor: pointer;
+}
+
+#season-table-body tr.active td {
+  background: #dbeafe;
+  font-weight: 600;
 }
 
 .pricing-tabs-header {

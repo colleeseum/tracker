@@ -120,16 +120,26 @@ The script reads Firestore (`storageAddOns`, `storageConditions`, `storageEtique
 You can now snapshot the entire Firestore database (all collections/subcollections) and rehydrate it later.
 
 ```bash
+# 1. Ensure the active Firebase profile is LOCAL before exporting.
+node bin/use-profile.mjs local
+
+# 2. Run the backup script (defaults to ../backups/firestore-backup-<timestamp>.json).
 cd functions
-# Optional --out to override the output file (defaults to ../backups/firestore-backup-<timestamp>.json)
 node scripts/backup-firestore.mjs --out ../backups/firestore-backup.json
 ```
 
 Restore from a backup file (pass `--drop-existing` to wipe the target project before writing):
 
 ```bash
+# 1. Switch to the PROD profile so the restore targets the real project.
+node bin/use-profile.mjs prod
+
+# 2. Restore the chosen backup into production.
 cd functions
 node scripts/restore-firestore.mjs --in ../backups/firestore-backup.json --drop-existing
+
+# 3. (Optional) Switch back to the local profile for day-to-day work.
+node bin/use-profile.mjs local
 ```
 
 Both scripts honour the active Firebase profile, so switch profiles (`node bin/use-profile.mjs prod`) before exporting/importing production data. Backups are JSON files stored in `backups/` (which is ignored by git).
