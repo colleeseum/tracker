@@ -1,12 +1,12 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
+  GoogleAuthProvider,
   connectAuthEmulator,
-  createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signOut,
-  updateProfile
+  signInWithPopup,
+  signOut
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   Timestamp,
@@ -36,8 +36,11 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const functionsApp = getFunctions(app);
 const requestSitePublishCallable = httpsCallable(functionsApp, 'requestSitePublish');
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+const usingEmulators = Boolean(emulatorConfig.useEmulators);
 
-if (emulatorConfig.useEmulators) {
+if (usingEmulators) {
   connectAuthEmulator(auth, `http://${emulatorConfig.authHost}:${emulatorConfig.authPort}`);
   connectFirestoreEmulator(db, emulatorConfig.firestoreHost, emulatorConfig.firestorePort);
   connectFunctionsEmulator(functionsApp, emulatorConfig.functionsHost, emulatorConfig.functionsPort);
@@ -49,11 +52,14 @@ const activeUser = document.getElementById('active-user');
 const signOutButton = document.getElementById('sign-out');
 const headerSettingsButton = document.getElementById('header-settings-link');
 const loginForm = document.getElementById('login-form');
-const registerForm = document.getElementById('register-form');
+const googleSignInButton = document.getElementById('google-sign-in');
 const loginError = document.getElementById('login-error');
-const registerError = document.getElementById('register-error');
 
 const navLinks = Array.from(document.querySelectorAll('.nav-link[data-view]'));
+const mainNav = document.getElementById('main-nav');
+const settingsNav = document.getElementById('settings-nav');
+const settingsNavButtons = Array.from(settingsNav?.querySelectorAll('button[data-settings-target]') ?? []);
+const closeSettingsNavButton = document.getElementById('close-settings-nav');
 const panelTitle = document.getElementById('panel-title');
 const panelSubtitle = document.getElementById('panel-subtitle');
 const accountsView = document.getElementById('accounts-view');
@@ -3713,34 +3719,36 @@ categoryForm.addEventListener('submit', async (event) => {
   }
 });
 
-loginForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  loginError.textContent = '';
-  const email = document.getElementById('login-email').value.trim();
-  const password = document.getElementById('login-password').value;
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-  } catch (error) {
-    loginError.textContent = error.message;
+if (loginForm) {
+  if (usingEmulators) {
+    loginForm.classList.remove('hidden');
+    loginForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      loginError.textContent = '';
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (error) {
+        loginError.textContent = error.message;
+      }
+    });
+  } else {
+    loginForm.classList.add('hidden');
   }
-});
+}
 
-registerForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  registerError.textContent = '';
-  const email = document.getElementById('register-email').value.trim();
-  const password = document.getElementById('register-password').value;
-  const name = document.getElementById('register-name').value.trim();
-
-  try {
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    if (name) {
-      await updateProfile(cred.user, { displayName: name });
+if (googleSignInButton) {
+  googleSignInButton.addEventListener('click', async () => {
+    loginError.textContent = '';
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      loginError.textContent = error.message;
     }
-  } catch (error) {
-    registerError.textContent = error.message;
-  }
-});
+  });
+}
+
 
 signOutButton.addEventListener('click', async () => {
   await signOut(auth);

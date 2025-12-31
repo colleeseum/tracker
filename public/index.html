@@ -9,8 +9,7 @@
   <body>
     <header>
       <div class="branding">
-        <h1>Farm &amp; Petty Cash Ledger</h1>
-        <p class="subtitle">Manage entries inspired by <code>depense.csv</code></p>
+        <h1>Ferme Colle Tracker</h1>
       </div>
       <div class="header-actions">
         <div id="active-user" class="hidden"></div>
@@ -40,38 +39,14 @@
               <input type="password" id="login-password" required />
             </label>
             <button type="submit">Access ledger</button>
-            <p class="hint">Accounts live inside the emulator when running locally.</p>
+            <p class="hint">
+              Accounts live inside the emulator when running locally. Email/password sign-in is available only when running against the local emulator.
+            </p>
             <p class="error" id="login-error"></p>
           </form>
-        </div>
-        <div class="card">
-          <h2>Create a user</h2>
-          <form id="register-form">
-            <label>
-              Email
-              <input type="email" id="register-email" required />
-            </label>
-            <label>
-              Password
-              <input type="password" id="register-password" minlength="6" required />
-            </label>
-            <label>
-              Display name
-              <input type="text" id="register-name" required />
-            </label>
-            <label>
-              Account assignment
-              <select id="register-account" required>
-                <option value="">Select an account</option>
-                <option value="farm">Farm</option>
-                <option value="serge_petty_cash">Serge petty cash</option>
-                <option value="alain_petty_cash">Alain petty cash</option>
-              </select>
-            </label>
-            <button type="submit">Create account</button>
-            <p class="hint">Accounts can be re-used on the real backend.</p>
-            <p class="error" id="register-error"></p>
-          </form>
+          <button type="button" id="google-sign-in" class="secondary auth-provider-button">
+            Sign in with Google
+          </button>
         </div>
       </section>
 
@@ -82,13 +57,17 @@
               <h2>Tracker</h2>
               <p class="hint">Manage everything from here</p>
             </div>
-            <nav class="nav-links">
+            <nav class="nav-links" id="main-nav">
               <button type="button" class="nav-link" data-view="accounts">Accounts</button>
               <button type="button" class="nav-link" data-view="clients">Clients</button>
               <button type="button" class="nav-link" data-view="storage">Storage</button>
-              <button type="button" class="nav-link" data-view="pricing">Pricing</button>
               <button type="button" class="nav-link active" data-view="ledger">Ledger</button>
               <button type="button" class="nav-link" disabled>Reports</button>
+            </nav>
+            <nav class="nav-links hidden" id="settings-nav">
+              <button type="button" class="nav-link" data-settings-target="categories">Categories</button>
+              <button type="button" class="nav-link" data-settings-target="pricing">Pricing</button>
+              <button type="button" class="nav-link secondary" id="close-settings-nav">Close</button>
             </nav>
           </aside>
 
