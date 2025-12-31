@@ -4,7 +4,7 @@ service cloud.firestore {
     function isAuthorizedUser() {
       return request.auth != null &&
         (
-          request.auth.token.email == 'serge.colle@gmail.com' ||
+          request.auth.token.email == 'sergecolle@gmail.com' ||
           request.auth.token.email == 'arcolle@gmail.com'
         );
     }
