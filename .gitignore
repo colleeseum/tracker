@@ -1,0 +1,20 @@
+# Node modules and build artifacts
+node_modules/
+functions/node_modules/
+
+# Environment files (never commit secrets)
+.env
+.env.*
+functions/.env
+functions/.env.*
+
+# Firebase emulator/data and logs
+emulator-data/
+firebase-debug.log
+firestore-debug.log
+
+# Local exports/backups
+backups/
+
+# macOS / editor cruft
+.DS_Store

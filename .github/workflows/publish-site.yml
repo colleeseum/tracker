@@ -1,0 +1,56 @@
+name: Publish website text
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - tracker-content-publish
+
+env:
+  PROJECT_ID: tracker-187c5
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tracker
+        uses: actions/checkout@v4
+
+      - name: Checkout entrepot
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.ENTREPOT_REPO }}
+          token: ${{ secrets.ENTREPOT_PAT }}
+          path: entrepot
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install functions deps
+        run: npm ci
+        working-directory: functions
+
+      - name: Write service account key
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > $RUNNER_TEMP/firebase-key.json
+
+      - name: Export website text
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: $RUNNER_TEMP/firebase-key.json
+          GCLOUD_PROJECT: ${{ env.PROJECT_ID }}
+        run: |
+          node functions/scripts/export-site-data.mjs --out ./entrepot/static/generated/website-text.generated.js
+
+      - name: Commit and push changes
+        run: |
+          cd entrepot
+          git config user.email "tracker-bot@users.noreply.github.com"
+          git config user.name "Tracker Bot"
+          git add static/generated/website-text.generated.js
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+            exit 0
+          fi
+          git commit -m "Update website text from Tracker"
+          git push

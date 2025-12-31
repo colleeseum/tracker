@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tracker Expenses</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="branding">
+        <h1>Farm &amp; Petty Cash Ledger</h1>
+        <p class="subtitle">Manage entries inspired by <code>depense.csv</code></p>
+      </div>
+      <div class="header-actions">
+        <div id="active-user" class="hidden"></div>
+        <button
+          type="button"
+          class="nav-link secondary hidden header-settings"
+          data-view="settings"
+          id="header-settings-link"
+        >
+          Settings
+        </button>
+        <button id="sign-out" class="hidden">Sign out</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="auth-section">
+        <div class="card">
+          <h2>Sign in</h2>
+          <form id="login-form">
+            <label>
+              Email
+              <input type="email" id="login-email" required />
+            </label>
+            <label>
+              Password
+              <input type="password" id="login-password" required />
+            </label>
+            <button type="submit">Access ledger</button>
+            <p class="hint">Accounts live inside the emulator when running locally.</p>
+            <p class="error" id="login-error"></p>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Create a user</h2>
+          <form id="register-form">
+            <label>
+              Email
+              <input type="email" id="register-email" required />
+            </label>
+            <label>
+              Password
+              <input type="password" id="register-password" minlength="6" required />
+            </label>
+            <label>
+              Display name
+              <input type="text" id="register-name" required />
+            </label>
+            <label>
+              Account assignment
+              <select id="register-account" required>
+                <option value="">Select an account</option>
+                <option value="farm">Farm</option>
+                <option value="serge_petty_cash">Serge petty cash</option>
+                <option value="alain_petty_cash">Alain petty cash</option>
+              </select>
+            </label>
+            <button type="submit">Create account</button>
+            <p class="hint">Accounts can be re-used on the real backend.</p>
+            <p class="error" id="register-error"></p>
+          </form>
+        </div>
+      </section>
+
+      <section id="app-section" class="hidden">
+        <div class="app-shell">
+          <aside class="nav-panel">
+            <div class="nav-brand">
+              <h2>Tracker</h2>
+              <p class="hint">Manage everything from here</p>
+            </div>
+            <nav class="nav-links">
+              <button type="button" class="nav-link" data-view="accounts">Accounts</button>
+              <button type="button" class="nav-link" data-view="clients">Clients</button>
+              <button type="button" class="nav-link" data-view="storage">Storage</button>
+              <button type="button" class="nav-link" data-view="pricing">Pricing</button>
+              <button type="button" class="nav-link active" data-view="ledger">Ledger</button>
+              <button type="button" class="nav-link" disabled>Reports</button>
+            </nav>
+          </aside>
+
+          <div class="content-panel">
+            <div class="content-panel-inner">
+            <div class="toolbar">
+              <div>
+                <h2 id="panel-title">Ledger</h2>
+                <p id="panel-subtitle" class="hint">Reverse chronological table of every entry.</p>
+              </div>
+              <div class="toolbar-actions">
+                <span id="account-balance-status" class="balance-status hidden"></span>
+                <button id="new-account" type="button" class="hidden">New account</button>
+                <button id="new-client" type="button" class="hidden">New client</button>
+                <button id="new-storage-request" type="button" class="hidden">New storage request</button>
+                <button id="pricing-primary-action" type="button" class="hidden">Add item</button>
+                <button id="pricing-secondary-action" type="button" class="hidden secondary">
+                  Add secondary item
+                </button>
+                <button id="request-publish" type="button" class="hidden secondary">Publish website text</button>
+                <span id="publish-status" class="hint hidden"></span>
+                <button id="add-entry" type="button">Add entry</button>
+                <button id="transfer-funds" type="button" class="secondary">Transfer funds</button>
+                <button id="new-category" type="button" class="hidden">New category</button>
+              </div>
+            </div>
+
+            <div id="accounts-view" class="card list-card hidden">
+              <ul id="account-list" class="account-list">
+                <li class="empty">No accounts yet. Add one to get started.</li>
+              </ul>
+            </div>
+
+            <div id="clients-view" class="card list-card hidden">
+              <div class="table-wrapper">
+                <table class="ledger-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Phone</th>
+                      <th>Email</th>
+                      <th>Mailing address</th>
+                      <th>City</th>
+                      <th>Province</th>
+                      <th>Postal code</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="client-table-body">
+                    <tr>
+                      <td colspan="8" class="empty">No clients yet. Add one to get started.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="storage-view" class="card list-card hidden">
+              <div class="table-wrapper">
+                <table class="ledger-table">
+                  <thead>
+                    <tr>
+                      <th>Season</th>
+                      <th>Client</th>
+                      <th>Vehicle type</th>
+                      <th>Add-ons</th>
+                      <th>Status</th>
+                      <th>Amount</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="storage-table-body">
+                    <tr>
+                      <td colspan="7" class="empty">No storage requests yet.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="pricing-view" class="pricing-layout hidden">
+              <div class="pricing-tabs-header">
+                <div id="pricing-tabs" class="pricing-tabs" role="tablist" aria-label="Pricing datasets">
+                  <button type="button" class="active" data-panel="seasons" role="tab" aria-selected="true">
+                    Seasons
+                  </button>
+                  <button type="button" data-panel="vehicleTypes" role="tab" aria-selected="false">
+                    Vehicle types
+                  </button>
+                  <button type="button" data-panel="offers" role="tab" aria-selected="false">
+                    Offers
+                  </button>
+                  <button type="button" data-panel="addons" role="tab" aria-selected="false">
+                    Add-ons
+                  </button>
+                  <button type="button" data-panel="policies" role="tab" aria-selected="false">
+                    Policies
+                  </button>
+                  <button type="button" data-panel="etiquette" role="tab" aria-selected="false">
+                    Etiquette
+                  </button>
+                  <button type="button" data-panel="i18n" role="tab" aria-selected="false">
+                    Website text
+                  </button>
+                </div>
+              </div>
+
+              <div class="pricing-panels">
+                <div class="pricing-panel" data-panel="seasons">
+                  <section class="card pricing-section">
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Label (EN)</th>
+                        <th>Label (FR)</th>
+                        <th>Timeframe</th>
+                        <th>Order</th>
+                        <th>Active</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="season-table-body">
+                      <tr>
+                        <td colspan="6" class="empty">No seasons yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                  </section>
+                </div>
+
+                <div class="pricing-panel hidden" data-panel="vehicleTypes">
+                  <section class="card pricing-section">
+                    <div class="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Value</th>
+                            <th>Label (EN)</th>
+                            <th>Label (FR)</th>
+                            <th>Slug</th>
+                            <th>Order</th>
+                            <th>Legacy values</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody id="vehicle-type-table-body">
+                          <tr>
+                            <td colspan="7" class="empty">No vehicle types yet.</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+
+                <div class="pricing-panel hidden" data-panel="offers">
+                  <section class="card pricing-section">
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                    <tr>
+                      <th>Season</th>
+                      <th>Label (EN)</th>
+                      <th>Label (FR)</th>
+                      <th>Amount / Rate</th>
+                      <th>Minimum</th>
+                      <th>Hidden?</th>
+                      <th></th>
+                    </tr>
+                    </thead>
+                    <tbody id="offer-table-body">
+                      <tr>
+                        <td colspan="8" class="empty">No offers yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                  </section>
+                </div>
+
+                <div class="pricing-panel hidden" data-panel="addons">
+                  <section class="card pricing-section">
+                    <div class="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Code</th>
+                            <th>Name (EN)</th>
+                            <th>Name (FR)</th>
+                            <th>Price</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody id="addon-table-body">
+                          <tr>
+                            <td colspan="5" class="empty">No add-on services yet.</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+
+                <div class="pricing-panel hidden" data-panel="policies">
+                  <section class="card pricing-section">
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Text (EN)</th>
+                        <th>Text (FR)</th>
+                        <th>Tooltip (EN)</th>
+                        <th>Tooltip (FR)</th>
+                        <th>Order</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="condition-table-body">
+                      <tr>
+                        <td colspan="6" class="empty">No conditions yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                  </section>
+                </div>
+
+                <div class="pricing-panel hidden" data-panel="etiquette">
+                  <section class="card pricing-section">
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Text (EN)</th>
+                        <th>Text (FR)</th>
+                        <th>Tooltip (EN)</th>
+                        <th>Tooltip (FR)</th>
+                        <th>Order</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="etiquette-table-body">
+                      <tr>
+                        <td colspan="6" class="empty">No etiquette notes yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                  </section>
+                </div>
+
+                <div class="pricing-panel hidden" data-panel="i18n">
+                  <section class="card pricing-section">
+                    <div class="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Key</th>
+                            <th>Category</th>
+                            <th>Text (EN)</th>
+                            <th>Text (FR)</th>
+                            <th>Hint</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody id="copy-table-body">
+                          <tr>
+                            <td colspan="6" class="empty">No i18n entries yet.</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+
+            <div id="settings-view" class="card list-card hidden">
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Label</th>
+                      <th>Type</th>
+                      <th>Code</th>
+                      <th>Client link</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="category-table-body">
+                    <tr>
+                      <td colspan="5" class="empty">No categories yet.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="ledger-view" class="card ledger-card">
+              <div class="ledger-toolbar">
+                <div class="ledger-filter">
+                  <button type="button" id="toggle-ledger-filter">Filter accounts</button>
+                  <span id="ledger-filter-summary" class="hint">All accounts</span>
+                  <div id="ledger-filter-menu" class="filter-menu hidden">
+                    <div class="filter-menu-header">
+                      <strong>Show rows for</strong>
+                      <button type="button" id="close-ledger-filter" class="link">Done</button>
+                    </div>
+                    <div id="ledger-filter-list" class="filter-list"></div>
+                    <div class="tag-filter-section">
+                      <label for="ledger-tag-filter" class="hint">Tags (comma separated)</label>
+                      <input type="text" id="ledger-tag-filter" placeholder="machinery, seeds" />
+                    </div>
+                    <button type="button" id="reset-ledger-filter" class="secondary">Reset</button>
+                  </div>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Transaction</th>
+                      <th>Date</th>
+                      <th>Account</th>
+                      <th>Description</th>
+                      <th>Category</th>
+                      <th>Amount</th>
+                      <th>Balance</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="ledger-table-body">
+                    <tr>
+                      <td colspan="8" class="empty">No entries yet.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <div id="account-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="account-form-title">New account</h3>
+              <button id="close-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="account-form" class="grid-form">
+              <label class="wide">
+                Account name
+                <input type="text" id="account-name" required />
+              </label>
+              <label>
+                Type
+                <select id="account-type" required>
+                  <option value="entity">Entity</option>
+                  <option value="cash">Cash</option>
+                  <option value="cash_entity">Cash + Entity</option>
+                </select>
+              </label>
+              <label class="wide">
+                Description
+                <textarea id="account-description" rows="3" placeholder="Optional details"></textarea>
+              </label>
+              <div id="account-defaults" class="account-defaults hidden wide">
+                <label class="checkbox hidden" id="account-default-cash-wrapper">
+                  <input type="checkbox" id="account-default-cash" />
+                  <span>Set as default cash account</span>
+                </label>
+                <label class="checkbox hidden" id="account-default-entity-wrapper">
+                  <input type="checkbox" id="account-default-entity" />
+                  <span>Set as default entity account</span>
+                </label>
+              </div>
+              <label>
+                Opening date
+                <input type="date" id="account-opening-date" required />
+              </label>
+              <label>
+                Opening balance
+                <input type="number" step="0.01" id="account-opening-balance" required />
+              </label>
+              <button type="submit" class="wide">Save account</button>
+              <p class="error" id="account-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="client-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="client-form-title">New client</h3>
+              <button id="close-client-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="client-form" class="grid-form" autocomplete="off">
+              <label class="wide">
+                Name
+                <input type="text" id="client-name" name="client_name_entry" required autocomplete="off" />
+              </label>
+              <label>
+                Phone
+                <input
+                  type="text"
+                  id="client-phone"
+                  name="client_phone_entry"
+                  placeholder="+1 555-555-5555"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                Email
+                <input type="email" id="client-email" name="client_email_entry" required autocomplete="off" />
+              </label>
+              <label class="wide">
+                Mailing address
+                <textarea id="client-address" name="client_address_entry" rows="2" required autocomplete="off"></textarea>
+              </label>
+              <label>
+                City
+                <input type="text" id="client-city" name="client_city_entry" required autocomplete="off" />
+              </label>
+              <label>
+                Province
+                <select id="client-province" name="client_province_entry" required>
+                  <option value="">Select</option>
+                  <option value="QC">Quebec</option>
+                  <option value="ON">Ontario</option>
+                  <option value="NB">New Brunswick</option>
+                  <option value="NS">Nova Scotia</option>
+                  <option value="PE">Prince Edward Island</option>
+                  <option value="NL">Newfoundland & Labrador</option>
+                  <option value="MB">Manitoba</option>
+                  <option value="SK">Saskatchewan</option>
+                  <option value="AB">Alberta</option>
+                  <option value="BC">British Columbia</option>
+                </select>
+              </label>
+              <label>
+                Postal code
+                <input type="text" id="client-postal" name="client_postal_entry" required autocomplete="off" />
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" id="client-active" checked />
+                <span>Active client</span>
+              </label>
+              <label class="wide">
+                Notes
+                <textarea id="client-notes" rows="3" placeholder="Private notes"></textarea>
+              </label>
+              <button type="submit" class="wide">Save client</button>
+              <p class="error" id="client-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="storage-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="storage-form-title">New storage request</h3>
+              <button id="close-storage-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="storage-form" class="grid-form">
+              <label>
+                Season
+                <select id="storage-season" required>
+                  <option value="">Select season</option>
+                  <option value="Winter 2024-2025">Winter 2024-2025</option>
+                  <option value="Winter 2025-2026">Winter 2025-2026</option>
+                  <option value="Winter 2026-2027">Winter 2026-2027</option>
+                </select>
+              </label>
+              <label class="wide">
+                Tenant (client)
+                <select id="storage-client" required>
+                  <option value="">Select client</option>
+                </select>
+              </label>
+              <fieldset class="wide">
+                <legend>Vehicle details</legend>
+                <label>
+                  Vehicle type
+                  <select id="storage-vehicle-type" required>
+                    <option value="">Select type</option>
+                    <option value="rv">RV / Motorhome</option>
+                    <option value="boat">Boat</option>
+                    <option value="trailer">Trailer</option>
+                    <option value="car">Car</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <label>
+                  Brand
+                  <input type="text" id="storage-vehicle-brand" />
+                </label>
+                <label>
+                  Model
+                  <input type="text" id="storage-vehicle-model" />
+                </label>
+                <label>
+                  Colour
+                  <input type="text" id="storage-vehicle-colour" />
+                </label>
+                <label>
+                  Length (ft)
+                  <input type="number" min="0" step="0.1" id="storage-vehicle-length" />
+                </label>
+                <label>
+                  Year
+                  <input type="number" min="1950" max="2100" id="storage-vehicle-year" />
+                </label>
+                <label>
+                  Plate
+                  <input type="text" id="storage-vehicle-plate" />
+                </label>
+                <label>
+                  Province
+                  <select id="storage-vehicle-province">
+                    <option value="">Select</option>
+                    <option value="QC">Quebec</option>
+                    <option value="ON">Ontario</option>
+                    <option value="NB">New Brunswick</option>
+                    <option value="NS">Nova Scotia</option>
+                    <option value="PE">Prince Edward Island</option>
+                    <option value="NL">Newfoundland & Labrador</option>
+                    <option value="MB">Manitoba</option>
+                    <option value="SK">Saskatchewan</option>
+                    <option value="AB">Alberta</option>
+                    <option value="BC">British Columbia</option>
+                  </select>
+                </label>
+              </fieldset>
+              <fieldset class="wide">
+                <legend>Insurance</legend>
+                <label>
+                  Insurance company
+                  <input type="text" id="storage-insurance-company" />
+                </label>
+                <label>
+                  Policy number
+                  <input type="text" id="storage-policy-number" />
+                </label>
+                <label>
+                  Insurance expiration
+                  <input type="date" id="storage-insurance-expiration" />
+                </label>
+              </fieldset>
+              <label>
+                Status
+                <select id="storage-status" required>
+                  <option value="new">New</option>
+                  <option value="waiting_signature">Waiting for Signature</option>
+                  <option value="waiting_deposit">Waiting for Deposit</option>
+                  <option value="reserved">Reserved</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="stored">Stored</option>
+                  <option value="picked_up">Picked-Up</option>
+                </select>
+              </label>
+              <label>
+                Contract amount
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  id="storage-amount"
+                  placeholder="Auto-calculated from pricing"
+                />
+                <small class="hint">Leave blank to use the suggested amount.</small>
+              </label>
+              <fieldset class="wide">
+                <legend>Add-on services</legend>
+                <label>
+                  <input type="checkbox" id="storage-addon-battery" />
+                  Battery charging service
+                </label>
+                <label>
+                  <input type="checkbox" id="storage-addon-propane" />
+                  Propane tank storage
+                </label>
+              </fieldset>
+              <button type="submit" class="wide">Save storage request</button>
+              <p class="error" id="storage-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="season-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="season-form-title">New season</h3>
+              <button id="close-season-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="season-form" class="grid-form">
+              <label>
+                Name (EN)
+                <input type="text" id="season-name-en" required />
+              </label>
+              <label>
+                Name (FR)
+                <input type="text" id="season-name-fr" required />
+              </label>
+              <label>
+                Label (EN)
+                <input type="text" id="season-label-en" required />
+              </label>
+              <label>
+                Label (FR)
+                <input type="text" id="season-label-fr" required />
+              </label>
+              <label>
+                Timeframe (EN)
+                <input type="text" id="season-timeframe-en" required />
+              </label>
+              <label>
+                Timeframe (FR)
+                <input type="text" id="season-timeframe-fr" required />
+              </label>
+              <label>
+                Drop-off window (EN)
+                <input type="text" id="season-dropoff-en" />
+              </label>
+              <label>
+                Drop-off window (FR)
+                <input type="text" id="season-dropoff-fr" />
+              </label>
+              <label>
+                Pickup deadline (EN)
+                <input type="text" id="season-pickup-en" />
+              </label>
+              <label>
+                Pickup deadline (FR)
+                <input type="text" id="season-pickup-fr" />
+              </label>
+              <label class="wide">
+                Description (EN)
+                <textarea id="season-description-en" rows="2"></textarea>
+              </label>
+              <label class="wide">
+                Description (FR)
+                <textarea id="season-description-fr" rows="2"></textarea>
+              </label>
+              <label>
+                Order
+                <input type="number" id="season-order" step="0.1" value="0" />
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" id="season-active" />
+                Active
+              </label>
+              <button type="submit" class="wide">Save season</button>
+            <p class="error" id="season-form-error"></p>
+          </form>
+        </div>
+      </div>
+
+        <div id="vehicle-type-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="vehicle-type-form-title">New vehicle type</h3>
+              <button id="close-vehicle-type-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="vehicle-type-form" class="grid-form">
+              <label class="wide">
+                Value
+                <input type="text" id="vehicle-type-value" required />
+              </label>
+              <label>
+                Label (EN)
+                <input type="text" id="vehicle-type-label-en" required />
+              </label>
+              <label>
+                Label (FR)
+                <input type="text" id="vehicle-type-label-fr" required />
+              </label>
+              <label>
+                Slug
+                <input type="text" id="vehicle-type-slug" placeholder="auto-generated if empty" />
+              </label>
+              <label>
+                Order
+                <input type="number" id="vehicle-type-order" step="0.1" value="0" />
+              </label>
+              <label class="wide">
+                Legacy values (comma separated)
+                <textarea id="vehicle-type-legacy" rows="2" placeholder="Optional legacy labels"></textarea>
+              </label>
+              <button type="submit" class="wide">Save vehicle type</button>
+              <p class="error" id="vehicle-type-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="offer-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="offer-form-title">New offer</h3>
+              <button id="close-offer-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="offer-form" class="grid-form">
+              <label class="wide">
+                Season
+                <select id="offer-season" required></select>
+              </label>
+              <label>
+                Label (EN)
+                <input type="text" id="offer-label-en" required />
+              </label>
+              <label>
+                Label (FR)
+                <input type="text" id="offer-label-fr" required />
+              </label>
+              <label>
+                Price mode
+                <select id="offer-price-mode" required>
+                  <option value="flat">Flat</option>
+                  <option value="perFoot">Per foot</option>
+                  <option value="contact">Contact</option>
+                </select>
+              </label>
+              <label id="offer-flat-amount-wrapper">
+                Flat amount
+                <input type="number" id="offer-flat-amount" step="0.01" />
+              </label>
+              <label id="offer-rate-wrapper">
+                Per-foot rate
+                <input type="number" id="offer-price-rate" step="0.01" />
+              </label>
+              <label id="offer-minimum-wrapper">
+                Minimum (per-foot pricing)
+                <input type="number" id="offer-minimum" step="0.01" />
+              </label>
+              <label id="offer-unit-en-wrapper">
+                Price unit (EN)
+                <input type="text" id="offer-price-unit-en" placeholder="/ ft" />
+              </label>
+              <label id="offer-unit-fr-wrapper">
+                Price unit (FR)
+                <input type="text" id="offer-price-unit-fr" placeholder="/ pi" />
+              </label>
+              <label class="wide">
+                Vehicle types (comma separated)
+                <input type="text" id="offer-vehicle-types" />
+              </label>
+              <label class="wide">
+                Notes (EN)
+                <textarea id="offer-note-en" rows="2"></textarea>
+              </label>
+              <label class="wide">
+                Notes (FR)
+                <textarea id="offer-note-fr" rows="2"></textarea>
+              </label>
+              <label>
+                Order
+                <input type="number" id="offer-order" step="0.1" value="0" />
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" id="offer-hide" />
+                Hide in table
+              </label>
+              <button type="submit" class="wide">Save offer</button>
+              <p class="error" id="offer-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="condition-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="condition-form-title">New condition</h3>
+              <button id="close-condition-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="condition-form" class="grid-form">
+              <label class="wide">
+                Text (EN)
+                <textarea id="condition-text-en" rows="2" required></textarea>
+              </label>
+              <label class="wide">
+                Text (FR)
+                <textarea id="condition-text-fr" rows="2" required></textarea>
+              </label>
+              <label class="wide">
+                Tooltip (EN)
+                <textarea id="condition-tooltip-en" rows="2"></textarea>
+              </label>
+              <label class="wide">
+                Tooltip (FR)
+                <textarea id="condition-tooltip-fr" rows="2"></textarea>
+              </label>
+              <label>
+                Order
+                <input type="number" id="condition-order" step="0.1" value="0" />
+              </label>
+              <button type="submit" class="wide">Save condition</button>
+              <p class="error" id="condition-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="etiquette-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="etiquette-form-title">New etiquette note</h3>
+              <button id="close-etiquette-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="etiquette-form" class="grid-form">
+              <label class="wide">
+                Text (EN)
+                <textarea id="etiquette-text-en" rows="2" required></textarea>
+              </label>
+              <label class="wide">
+                Text (FR)
+                <textarea id="etiquette-text-fr" rows="2" required></textarea>
+              </label>
+              <label class="wide">
+                Tooltip (EN)
+                <textarea id="etiquette-tooltip-en" rows="2"></textarea>
+              </label>
+              <label class="wide">
+                Tooltip (FR)
+                <textarea id="etiquette-tooltip-fr" rows="2"></textarea>
+              </label>
+              <label>
+                Order
+                <input type="number" id="etiquette-order" step="0.1" value="0" />
+              </label>
+              <button type="submit" class="wide">Save etiquette note</button>
+              <p class="error" id="etiquette-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="addon-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="addon-form-title">New add-on</h3>
+              <button id="close-addon-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="addon-form" class="grid-form">
+              <label>
+                Code
+                <input type="text" id="addon-code" placeholder="battery" required />
+              </label>
+              <label>
+                Name (EN)
+                <input type="text" id="addon-name-en" required />
+              </label>
+              <label>
+                Name (FR)
+                <input type="text" id="addon-name-fr" required />
+              </label>
+              <label class="wide">
+                Description (EN)
+                <textarea id="addon-description-en" rows="2"></textarea>
+              </label>
+              <label class="wide">
+                Description (FR)
+                <textarea id="addon-description-fr" rows="2"></textarea>
+              </label>
+              <label>
+                Price
+                <input type="number" id="addon-price" step="0.01" required />
+              </label>
+              <label>
+                Order
+                <input type="number" id="addon-order" step="0.1" value="0" />
+              </label>
+              <button type="submit" class="wide">Save add-on</button>
+              <p class="error" id="addon-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="copy-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="copy-form-title">New copy entry</h3>
+              <button id="close-copy-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="copy-form" class="grid-form">
+              <label>
+                Key
+                <input type="text" id="copy-key" placeholder="contactSection.heading" required />
+              </label>
+              <label>
+                Category
+                <input type="text" id="copy-category" placeholder="contact" />
+              </label>
+              <label class="wide">
+                Text (EN)
+                <textarea id="copy-text-en" rows="2" required></textarea>
+              </label>
+              <label class="wide">
+                Text (FR)
+                <textarea id="copy-text-fr" rows="2" required></textarea>
+              </label>
+              <label class="wide">
+                Hint / description
+                <textarea id="copy-hint" rows="2"></textarea>
+              </label>
+              <button type="submit" class="wide">Save copy</button>
+              <p class="error" id="copy-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="category-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="category-form-title">New category</h3>
+              <button id="close-category-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="category-form" class="grid-form">
+              <label class="wide">
+                Label
+                <input type="text" id="category-label" required />
+              </label>
+              <label>
+                Type
+                <select id="category-type" required>
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                </select>
+              </label>
+              <label>
+                Code
+                <input type="number" id="category-code" required />
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" id="category-requires-client" />
+                <span>Requires client link</span>
+              </label>
+              <button type="submit" class="wide">Save category</button>
+              <p class="error" id="category-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="entry-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="entry-form-title">Add ledger entry</h3>
+              <button id="close-entry-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="entry-form" class="grid-form">
+              <label>
+                Account
+                <select id="entry-account" required></select>
+              </label>
+              <label>
+                Entity
+                <select id="entry-entity" required></select>
+              </label>
+              <label>
+                Date
+                <input type="date" id="entry-date" required />
+              </label>
+              <label>
+                Type
+                <select id="entry-type" required>
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                </select>
+              </label>
+              <label>
+                Category
+                <select id="entry-category" required></select>
+              </label>
+              <label id="entry-client-field" class="hidden">
+                Client
+                <select id="entry-client">
+                  <option value="">Select client</option>
+                </select>
+              </label>
+              <label>
+                Tags
+                <div class="tag-input" id="tag-input-wrapper">
+                  <div id="selected-tags" class="selected-tags"></div>
+                  <input type="text" id="entry-tag-input" placeholder="Add tag" />
+                </div>
+                <ul id="tag-suggestion-list" class="tag-suggestions hidden"></ul>
+                <small class="hint">Type and press Enter to add. Click suggestions to reuse existing tags.</small>
+              </label>
+              <label>
+                Amount
+                <input type="number" step="0.01" id="entry-amount" required />
+              </label>
+              <label class="checkbox" id="entry-return-wrapper">
+                <input type="checkbox" id="entry-is-return" />
+                <span id="entry-return-label">Mark as return / credit</span>
+              </label>
+              <label class="wide">
+                Description
+                <textarea id="entry-description" rows="2" required></textarea>
+              </label>
+              <button type="submit" class="wide">Save entry</button>
+              <p class="error" id="entry-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="transfer-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3>Transfer between cash accounts</h3>
+              <button id="close-transfer-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="transfer-form" class="grid-form">
+              <label>
+                From
+                <select id="transfer-from" required></select>
+              </label>
+              <label>
+                To
+                <select id="transfer-to" required></select>
+              </label>
+              <label>
+                Date
+                <input type="date" id="transfer-date" required />
+              </label>
+              <label>
+                Amount
+                <input type="number" step="0.01" id="transfer-amount" required />
+              </label>
+              <label class="wide">
+                Note
+                <textarea id="transfer-note" rows="2" placeholder="Optional"></textarea>
+              </label>
+              <button type="submit" class="wide">Transfer</button>
+              <p class="error" id="transfer-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="ledger-error-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3>Ledger error</h3>
+              <button id="close-ledger-error" type="button" class="link">OK</button>
+            </div>
+            <p class="error" id="ledger-error"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="firebase-config.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
