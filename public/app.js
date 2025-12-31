@@ -15,6 +15,7 @@ import {
   connectFirestoreEmulator,
   deleteDoc,
   doc,
+  getDoc,
   getFirestore,
   onSnapshot,
   orderBy,
@@ -457,6 +458,17 @@ function showAppUI(isAuthenticated) {
   signOutButton.classList.toggle('hidden', !isAuthenticated);
   if (headerSettingsButton) {
     headerSettingsButton.classList.toggle('hidden', !isAuthenticated);
+  }
+}
+
+async function assertAuthorizedAccess() {
+  try {
+    const probeRef = doc(db, 'admin', 'sitePublish');
+    await getDoc(probeRef);
+    return true;
+  } catch (error) {
+    console.error('Authorization probe failed', error);
+    throw error;
   }
 }
 
@@ -3756,7 +3768,7 @@ signOutButton.addEventListener('click', async () => {
   await signOut(auth);
 });
 
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
   if (!user) {
     showAppUI(false);
     cleanAccountSubscription();
@@ -3800,7 +3812,20 @@ onAuthStateChanged(auth, (user) => {
     return;
   }
 
+  try {
+    await assertAuthorizedAccess();
+  } catch (error) {
+    showAppUI(false);
+    if (loginError) {
+      loginError.textContent = 'You are not authorized to use this application.';
+    }
+    activeUser.textContent = '';
+    await signOut(auth).catch(() => {});
+    return;
+  }
+
   showAppUI(true);
+  loginError.textContent = '';
   activeUser.textContent = user.displayName || user.email || 'Anonymous user';
   subscribeToAccounts();
   subscribeToClients();
