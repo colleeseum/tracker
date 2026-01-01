@@ -276,6 +276,7 @@ form {
   gap: 2rem;
   min-height: 70vh;
   width: 100%;
+  position: relative;
 }
 
 .nav-panel {
@@ -350,6 +351,22 @@ form {
   margin-top: auto;
 }
 
+.app-shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 30;
+}
+
+.app-shell.mobile-nav-open::after {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .app-shell.nav-collapsed .nav-panel {
   flex: 0 0 70px;
   padding: 1rem 0.5rem;
@@ -378,6 +395,53 @@ form {
 
 .app-shell.nav-collapsed .collapse-collapsed {
   display: inline;
+}
+
+.mobile-nav-toggle {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .nav-panel {
+    position: fixed;
+    top: 70px;
+    left: 1rem;
+    right: 1rem;
+    transform: translateY(-120%);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+    z-index: 40;
+  }
+  .app-shell.mobile-nav-open .nav-panel {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .nav-collapse-toggle {
+    display: none;
+  }
+  .mobile-nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #0f172a;
+    padding: 0.3rem 0.9rem;
+  }
+  .app-shell.nav-collapsed .nav-panel {
+    flex: 1 1 auto;
+  }
+  .content-panel {
+    width: 100%;
+    padding: 0 0.5rem;
+  }
 }
 
 .content-panel {

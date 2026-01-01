@@ -5065,6 +5065,7 @@ navLinks.forEach((link) => {
     if (link.dataset.view) {
       setView(link.dataset.view);
     }
+    closeMobileNav();
   });
 });
 
@@ -5072,6 +5073,21 @@ if (navCollapseToggle && appShell) {
   navCollapseToggle.addEventListener('click', () => {
     const collapsed = appShell.classList.toggle('nav-collapsed');
     navCollapseToggle.setAttribute('aria-expanded', (!collapsed).toString());
+  });
+}
+
+function closeMobileNav() {
+  if (!appShell || !mobileNavToggle) return;
+  if (appShell.classList.contains('mobile-nav-open')) {
+    appShell.classList.remove('mobile-nav-open');
+    mobileNavToggle.setAttribute('aria-expanded', 'false');
+  }
+}
+
+if (mobileNavToggle && appShell) {
+  mobileNavToggle.addEventListener('click', () => {
+    const open = appShell.classList.toggle('mobile-nav-open');
+    mobileNavToggle.setAttribute('aria-expanded', open.toString());
   });
 }
 
@@ -5183,6 +5199,7 @@ function setView(view) {
     panelSubtitle.textContent = 'Cash, entity, and hybrid accounts.';
     renderAccountList();
   }
+  closeMobileNav();
 }
 
 function setSettingsSection(section) {
