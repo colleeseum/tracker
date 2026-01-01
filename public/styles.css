@@ -351,8 +351,7 @@ form {
   margin-top: auto;
 }
 
-.app-shell::after {
-  content: '';
+.nav-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.45);
@@ -362,7 +361,7 @@ form {
   z-index: 30;
 }
 
-.app-shell.mobile-nav-open::after {
+.nav-backdrop.visible {
   opacity: 1;
   pointer-events: auto;
 }
@@ -747,7 +746,7 @@ form {
   align-items: flex-start;
   padding: 4vh 1rem;
   overflow-y: auto;
-  z-index: 10;
+  z-index: 100;
 }
 
 .modal.hidden {

@@ -82,6 +82,8 @@ const loginStatusMessage = document.getElementById('login-status');
 const navLinks = Array.from(document.querySelectorAll('.nav-link[data-view]'));
 const appShell = document.querySelector('.app-shell');
 const navCollapseToggle = document.getElementById('nav-collapse-toggle');
+const mobileNavToggle = document.getElementById('mobile-nav-toggle');
+const navBackdrop = document.getElementById('nav-backdrop');
 const mainNav = document.getElementById('main-nav');
 const settingsNav = document.getElementById('settings-nav');
 const settingsNavButtons = Array.from(settingsNav?.querySelectorAll('button[data-settings-target]') ?? []);
@@ -5081,6 +5083,9 @@ function closeMobileNav() {
   if (appShell.classList.contains('mobile-nav-open')) {
     appShell.classList.remove('mobile-nav-open');
     mobileNavToggle.setAttribute('aria-expanded', 'false');
+    if (navBackdrop) {
+      navBackdrop.classList.remove('visible');
+    }
   }
 }
 
@@ -5088,7 +5093,14 @@ if (mobileNavToggle && appShell) {
   mobileNavToggle.addEventListener('click', () => {
     const open = appShell.classList.toggle('mobile-nav-open');
     mobileNavToggle.setAttribute('aria-expanded', open.toString());
+    if (navBackdrop) {
+      navBackdrop.classList.toggle('visible', open);
+    }
   });
+}
+
+if (navBackdrop) {
+  navBackdrop.addEventListener('click', () => closeMobileNav());
 }
 
 settingsNavButtons.forEach((button) => {
