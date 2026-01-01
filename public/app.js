@@ -5063,7 +5063,9 @@ onAuthStateChanged(auth, async (user) => {
   ledgerAccountSelection = [];
 setView('dashboard');
 if (appVersionLabel) {
-  const version = window.__APP_VERSION__ && window.__APP_VERSION__ !== '__APP_VERSION__' ? window.__APP_VERSION__ : 'dev';
+  const versionScript = document.querySelector('script[data-app-version]');
+  const rawVersion = versionScript?.getAttribute('data-app-version') || '';
+  const version = rawVersion && rawVersion !== '__APP_VERSION__' ? rawVersion : 'dev';
   appVersionLabel.textContent = `v${version}`;
 }
 });

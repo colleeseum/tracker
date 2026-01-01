@@ -19,11 +19,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Inject build version into client
-        run: |
-          VERSION="${{ github.run_number }}"
-          sed -i "s/__APP_VERSION__/${VERSION}/g" public/index.html
-
       - name: Install Functions dependencies
         run: npm install --prefix functions
 
@@ -34,3 +29,7 @@ jobs:
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: firebase deploy --project tracker-187c5 --only hosting,functions,firestore
+      - name: Inject build version into client
+        run: |
+          VERSION="${{ github.run_number }}"
+          sed -i "s/data-app-version=\"__APP_VERSION__\"/data-app-version=\"${VERSION}\"/" public/index.html
