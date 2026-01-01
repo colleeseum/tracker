@@ -80,6 +80,8 @@ const loginError = document.getElementById('login-error');
 const loginStatusMessage = document.getElementById('login-status');
 
 const navLinks = Array.from(document.querySelectorAll('.nav-link[data-view]'));
+const appShell = document.querySelector('.app-shell');
+const navCollapseToggle = document.getElementById('nav-collapse-toggle');
 const mainNav = document.getElementById('main-nav');
 const settingsNav = document.getElementById('settings-nav');
 const settingsNavButtons = Array.from(settingsNav?.querySelectorAll('button[data-settings-target]') ?? []);
@@ -104,6 +106,12 @@ const dashboardCashList = document.getElementById('dashboard-cash-list');
 const dashboardCashTotal = document.getElementById('dashboard-cash-total');
 const dashboardEntityList = document.getElementById('dashboard-entity-list');
 const dashboardEntityTotal = document.getElementById('dashboard-entity-total');
+const dashboardKpiCash = document.getElementById('dashboard-kpi-cash');
+const dashboardKpiHybrid = document.getElementById('dashboard-kpi-hybrid');
+const dashboardKpiStorage = document.getElementById('dashboard-kpi-storage');
+const dashboardKpiOutflow = document.getElementById('dashboard-kpi-outflow');
+const dashboardKpiTopTagAmount = document.getElementById('dashboard-kpi-top-tag-amount');
+const dashboardKpiTopTagLabel = document.getElementById('dashboard-kpi-top-tag-label');
 const dashboardTransactionsList = document.getElementById('dashboard-transactions-list');
 const dashboardAccountActivityList = document.getElementById('dashboard-account-activity-list');
 const dashboardContentUpdatedAt = document.getElementById('dashboard-content-updated-at');
@@ -1616,8 +1624,9 @@ function getAccountBalanceValue(account) {
 }
 
 function renderDashboard() {
-  renderDashboardCashSummary();
-  renderDashboardEntitySummary();
+  const cashTotal = renderDashboardCashSummary();
+  const entityTotal = renderDashboardEntitySummary();
+  updateDashboardKpis({ cashTotal, entityTotal });
   renderDashboardTransactions();
   renderDashboardAccountActivity();
   renderDashboardContentStatus();
@@ -1630,7 +1639,7 @@ function renderDashboard() {
 }
 
 function renderDashboardCashSummary() {
-  if (!dashboardCashList || !dashboardCashTotal) return;
+  if (!dashboardCashList || !dashboardCashTotal) return 0;
   dashboardCashList.innerHTML = '';
   const pureCashAccounts = accounts.filter(isPureCashAccount);
   if (!pureCashAccounts.length) {
@@ -1639,7 +1648,7 @@ function renderDashboardCashSummary() {
     li.textContent = 'No cash accounts yet.';
     dashboardCashList.appendChild(li);
     dashboardCashTotal.textContent = '$0.00';
-    return;
+    return 0;
   }
   let total = 0;
   pureCashAccounts.forEach((account) => {
@@ -1650,10 +1659,11 @@ function renderDashboardCashSummary() {
     dashboardCashList.appendChild(li);
   });
   dashboardCashTotal.textContent = formatCurrency(total);
+  return total;
 }
 
 function renderDashboardEntitySummary() {
-  if (!dashboardEntityList || !dashboardEntityTotal) return;
+  if (!dashboardEntityList || !dashboardEntityTotal) return 0;
   dashboardEntityList.innerHTML = '';
   const pureEntityAccounts = accounts.filter(isPureEntityAccount);
   if (!pureEntityAccounts.length) {
@@ -1662,7 +1672,7 @@ function renderDashboardEntitySummary() {
     li.textContent = 'No entity accounts yet.';
     dashboardEntityList.appendChild(li);
     dashboardEntityTotal.textContent = '$0.00';
-    return;
+    return 0;
   }
   let total = 0;
   pureEntityAccounts.forEach((account) => {
@@ -1673,6 +1683,7 @@ function renderDashboardEntitySummary() {
     dashboardEntityList.appendChild(li);
   });
   dashboardEntityTotal.textContent = formatCurrency(total);
+  return total;
 }
 
 function getEntryTimestamp(entry) {
@@ -1729,16 +1740,28 @@ function renderDashboardTransactions() {
   transactions.forEach((txn) => {
     const { summaryHtml, amountText, isPositive } = summarizeTransaction(txn);
     const li = document.createElement('li');
-    li.className = 'dashboard-transaction-line';
-    const main = document.createElement('div');
-    main.className = 'transaction-main';
-    main.innerHTML = `<p class="transaction-summary">${summaryHtml}</p><span class="transaction-date">${formatDateOnlyFromMillis(
-      txn.date
-    )}</span>`;
-    const amount = document.createElement('span');
-    amount.className = `transaction-amount ${isPositive ? 'amount-positive' : 'amount-negative'}`;
-    amount.textContent = amountText;
-    li.append(main, amount);
+    li.className = 'timeline-entry';
+
+    const marker = document.createElement('span');
+    marker.className = 'timeline-marker';
+
+    const body = document.createElement('div');
+    body.className = 'timeline-body';
+    const heading = document.createElement('div');
+    heading.className = 'timeline-heading';
+    heading.textContent = formatDateOnlyFromMillis(txn.date);
+    const summary = document.createElement('div');
+    summary.className = 'timeline-summary';
+    summary.innerHTML = summaryHtml;
+    const meta = document.createElement('div');
+    meta.className = 'timeline-meta';
+    const amountChip = document.createElement('span');
+    amountChip.className = `timeline-amount ${isPositive ? 'amount-positive' : 'amount-negative'}`;
+    amountChip.textContent = amountText;
+    meta.appendChild(amountChip);
+
+    body.append(heading, summary, meta);
+    li.append(marker, body);
     dashboardTransactionsList.appendChild(li);
   });
 }
@@ -5045,6 +5068,13 @@ navLinks.forEach((link) => {
   });
 });
 
+if (navCollapseToggle && appShell) {
+  navCollapseToggle.addEventListener('click', () => {
+    const collapsed = appShell.classList.toggle('nav-collapsed');
+    navCollapseToggle.setAttribute('aria-expanded', (!collapsed).toString());
+  });
+}
+
 settingsNavButtons.forEach((button) => {
   button.addEventListener('click', () => {
     const target = button.dataset.settingsTarget;
@@ -6145,3 +6175,59 @@ document.addEventListener('click', (event) => {
     tagSuggestionList.classList.add('hidden');
   }
 });
+function updateDashboardKpis({ cashTotal = 0, entityTotal = 0 }) {
+  if (dashboardKpiCash) {
+    dashboardKpiCash.textContent = formatCurrency(cashTotal);
+  }
+  if (dashboardKpiHybrid) {
+    const hybridCount = accounts.filter((account) => account?.type === 'cash_entity').length;
+    dashboardKpiHybrid.textContent = String(hybridCount);
+  }
+  if (dashboardKpiStorage) {
+    const pendingStorage = storageRequests.filter((request) => request?.status !== 'completed').length;
+    dashboardKpiStorage.textContent = String(pendingStorage);
+  }
+  const { totalOutflow, topTag, topTagAmount } = getMonthlyTagMetrics();
+  if (dashboardKpiOutflow) {
+    dashboardKpiOutflow.textContent = formatCurrency(totalOutflow);
+  }
+  if (dashboardKpiTopTagAmount) {
+    dashboardKpiTopTagAmount.textContent = topTagAmount ? formatCurrency(topTagAmount) : '$0.00';
+  }
+  if (dashboardKpiTopTagLabel) {
+    dashboardKpiTopTagLabel.textContent = topTag ? `#${topTag}` : '—';
+  }
+}
+
+function getMonthlyTagMetrics() {
+  if (!Array.isArray(expenses)) {
+    return { totalOutflow: 0, topTag: null, topTagAmount: 0 };
+  }
+  const now = new Date();
+  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  let totalOutflow = 0;
+  const tagTotals = new Map();
+  expenses.forEach((entry) => {
+    if (!Array.isArray(entry.tags) || !entry.tags.length) return;
+    const recorded = getEntryTimestamp(entry);
+    if (recorded < firstDayOfMonth) return;
+    const delta = getEntryDelta(entry);
+    if (delta >= 0) return;
+    const absAmount = Math.abs(delta);
+    totalOutflow += absAmount;
+    entry.tags.forEach((tag) => {
+      const normalizedTag = (tag || '').trim();
+      if (!normalizedTag) return;
+      tagTotals.set(normalizedTag, (tagTotals.get(normalizedTag) || 0) + absAmount);
+    });
+  });
+  let topTag = null;
+  let topTagAmount = 0;
+  tagTotals.forEach((amount, tag) => {
+    if (amount > topTagAmount) {
+      topTagAmount = amount;
+      topTag = tag;
+    }
+  });
+  return { totalOutflow, topTag, topTagAmount };
+}

@@ -54,6 +54,10 @@
       <section id="app-section" class="hidden">
         <div class="app-shell">
           <aside class="nav-panel">
+            <button type="button" id="nav-collapse-toggle" class="nav-collapse-toggle" aria-expanded="true">
+              <span class="collapse-expanded">Collapse</span>
+              <span class="collapse-collapsed">Expand menu</span>
+            </button>
             <div class="nav-brand">
               <h2>Tracker</h2>
               <p class="hint">Manage everything from here</p>
@@ -99,34 +103,82 @@
             </div>
 
             <div id="dashboard-view" class="dashboard-view">
+              <div class="dashboard-kpis">
+                <div class="kpi-pill">
+                  <span>Total cash</span>
+                  <strong id="dashboard-kpi-cash">$0.00</strong>
+                </div>
+                <div class="kpi-pill">
+                  <span>Hybrid accounts</span>
+                  <strong id="dashboard-kpi-hybrid">0</strong>
+                </div>
+                <div class="kpi-pill">
+                  <span>Pending storage</span>
+                  <strong id="dashboard-kpi-storage">0</strong>
+                </div>
+                <div class="kpi-pill">
+                  <span>Monthly outflows</span>
+                  <strong id="dashboard-kpi-outflow">$0.00</strong>
+                </div>
+                <div class="kpi-pill">
+                  <span>Top tag</span>
+                  <strong id="dashboard-kpi-top-tag-amount">$0.00</strong>
+                  <small id="dashboard-kpi-top-tag-label">—</small>
+                </div>
+              </div>
               <div class="dashboard-grid">
-                <section class="card dashboard-card">
-                  <div class="dashboard-card-header">
-                    <div>
-                      <h3>Cash accounts</h3>
-                      <p class="hint">Total cash on hand</p>
+                <div class="dashboard-overview-grid">
+                  <section class="card dashboard-card">
+                    <div class="dashboard-card-header">
+                      <div>
+                        <h3>Cash accounts</h3>
+                        <p class="hint">Total cash on hand</p>
+                      </div>
+                      <p id="dashboard-cash-total" class="summary-value">$0.00</p>
                     </div>
-                    <p id="dashboard-cash-total" class="summary-value">$0.00</p>
-                  </div>
-                  <ul id="dashboard-cash-list" class="dashboard-list">
-                    <li class="empty">No cash accounts yet.</li>
-                  </ul>
-                </section>
+                    <ul id="dashboard-cash-list" class="dashboard-list">
+                      <li class="empty">No cash accounts yet.</li>
+                    </ul>
+                  </section>
 
-                <section class="card dashboard-card">
-                  <div class="dashboard-card-header">
-                    <div>
-                      <h3>Entity accounts</h3>
-                      <p class="hint">Total entity balance</p>
+                  <section class="card dashboard-card">
+                    <div class="dashboard-card-header">
+                      <div>
+                        <h3>Entity accounts</h3>
+                        <p class="hint">Total entity balance</p>
+                      </div>
+                      <p id="dashboard-entity-total" class="summary-value">$0.00</p>
                     </div>
-                    <p id="dashboard-entity-total" class="summary-value">$0.00</p>
-                  </div>
-                  <ul id="dashboard-entity-list" class="dashboard-list">
-                    <li class="empty">No entity accounts yet.</li>
-                  </ul>
-                </section>
+                    <ul id="dashboard-entity-list" class="dashboard-list">
+                      <li class="empty">No entity accounts yet.</li>
+                    </ul>
+                  </section>
 
-                <section class="card dashboard-card span-two">
+                  <section class="card dashboard-card">
+                    <div class="dashboard-card-header">
+                      <h3>Account activity</h3>
+                      <p class="hint">Most recently adjusted accounts</p>
+                    </div>
+                    <ul id="dashboard-account-activity-list" class="dashboard-list">
+                      <li class="empty">No activity yet.</li>
+                    </ul>
+                  </section>
+
+                  <section class="card dashboard-card">
+                    <div class="dashboard-card-header">
+                      <h3>Content updates</h3>
+                      <p class="hint">Website data refresh summary</p>
+                    </div>
+                    <div class="dashboard-status">
+                      <p><strong>Last edit:</strong> <span id="dashboard-content-updated-at">—</span></p>
+                      <p><strong>Edited by:</strong> <span id="dashboard-content-updated-by">—</span></p>
+                      <p><strong>Last publish:</strong> <span id="dashboard-published-at">—</span></p>
+                      <p><strong>Published by:</strong> <span id="dashboard-published-by">—</span></p>
+                    </div>
+                  </section>
+                </div>
+
+                <section class="card dashboard-card dashboard-card--transactions">
                   <div class="dashboard-card-header">
                     <div>
                       <h3>Recent transactions</h3>
@@ -137,32 +189,9 @@
                       <button id="dashboard-transfer" type="button">Transfer funds</button>
                     </div>
                   </div>
-                  <ul id="dashboard-transactions-list" class="dashboard-list transactions-list">
+                  <ul id="dashboard-transactions-list" class="dashboard-timeline">
                     <li class="empty">No transactions logged yet.</li>
                   </ul>
-                </section>
-
-                <section class="card dashboard-card">
-                  <div class="dashboard-card-header">
-                    <h3>Account activity</h3>
-                    <p class="hint">Most recently adjusted accounts</p>
-                  </div>
-                  <ul id="dashboard-account-activity-list" class="dashboard-list">
-                    <li class="empty">No activity yet.</li>
-                  </ul>
-                </section>
-
-                <section class="card dashboard-card">
-                  <div class="dashboard-card-header">
-                    <h3>Content updates</h3>
-                    <p class="hint">Website data refresh summary</p>
-                  </div>
-                  <div class="dashboard-status">
-                    <p><strong>Last edit:</strong> <span id="dashboard-content-updated-at">—</span></p>
-                    <p><strong>Edited by:</strong> <span id="dashboard-content-updated-by">—</span></p>
-                    <p><strong>Last publish:</strong> <span id="dashboard-published-at">—</span></p>
-                    <p><strong>Published by:</strong> <span id="dashboard-published-by">—</span></p>
-                  </div>
                 </section>
               </div>
             </div>
