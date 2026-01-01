@@ -30,6 +30,17 @@ jobs:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: firebase deploy --project tracker-187c5 --only hosting,functions,firestore
       - name: Inject build version into client
+        env:
+          VERSION: ${{ github.run_number }}
         run: |
-          VERSION="${{ github.run_number }}"
-          sed -i "s/data-app-version=\"__APP_VERSION__\"/data-app-version=\"${VERSION}\"/" public/index.html
+          python3 - <<'PY'
+import os
+from pathlib import Path
+path = Path("public/index.html")
+text = path.read_text()
+marker = 'data-app-version="__APP_VERSION__"'
+version = os.environ.get("VERSION", "dev")
+if marker not in text:
+    raise SystemExit("Version marker not found in public/index.html")
+path.write_text(text.replace(marker, f'data-app-version="{version}"', 1))
+PY
