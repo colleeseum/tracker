@@ -5246,7 +5246,7 @@ function renderLedgerTable() {
   if (!filteredEntries.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 8;
+    cell.colSpan = 6;
     cell.className = 'empty';
     cell.textContent = 'No entries yet.';
     row.appendChild(cell);
@@ -5336,47 +5336,85 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
     `;
   };
 
-  filteredEntries
-    .sort((a, b) => {
-      const aDate = a.date?.toMillis ? a.date.toMillis() : new Date(a.date).getTime();
-      const bDate = b.date?.toMillis ? b.date.toMillis() : new Date(b.date).getTime();
-      if (bDate !== aDate) {
-        return bDate - aDate;
-      }
-      const aTxn = a.transactionId || a.id || '';
-      const bTxn = b.transactionId || b.id || '';
-      if (aTxn !== bTxn) {
-        return aTxn.localeCompare(bTxn);
-      }
-      const aIsCashRow = !a.entityOnly;
-      const bIsCashRow = !b.entityOnly;
-      if (aIsCashRow !== bIsCashRow) {
-        return aIsCashRow ? -1 : 1;
-      }
-      return (a.accountId || '').localeCompare(b.accountId || '');
-    })
-    .forEach((entry) => {
-    const account = accountLookup.get(entry.accountId);
-    const opening = Number(account?.openingBalance) || 0;
-    const accountFinal = (accountAdjustments.get(entry.accountId) || 0) + opening;
-    const previousCash = cashRunning.has(entry.accountId) ? cashRunning.get(entry.accountId) : accountFinal;
-    const delta = entry.isVirtualOpening ? 0 : getEntryDelta(entry);
-    const displayAmount = entry.isVirtualOpening ? Number(account?.openingBalance) || 0 : delta;
-    const balance = entry.isVirtualOpening ? Number(account?.openingBalance) || 0 : previousCash;
-    cashRunning.set(entry.accountId, previousCash - delta);
+  const sortedEntries = [...filteredEntries].sort((a, b) => {
+    const aDate = a.date?.toMillis ? a.date.toMillis() : new Date(a.date).getTime();
+    const bDate = b.date?.toMillis ? b.date.toMillis() : new Date(b.date).getTime();
+    if (bDate !== aDate) {
+      return bDate - aDate;
+    }
+    const aTxn = a.transactionId || a.id || '';
+    const bTxn = b.transactionId || b.id || '';
+    if (aTxn !== bTxn) {
+      return aTxn.localeCompare(bTxn);
+    }
+    const aIsCashRow = !a.entityOnly;
+    const bIsCashRow = !b.entityOnly;
+    if (aIsCashRow !== bIsCashRow) {
+      return aIsCashRow ? -1 : 1;
+    }
+    return (a.accountId || '').localeCompare(b.accountId || '');
+  });
 
+  const renderPlans = sortedEntries.map((entry) => {
     const includeCash = !entry.entityOnly && (!useFilter || filterSet.has(entry.accountId));
     const includeEntity =
       entry.entityId &&
       (!useFilter || filterSet.has(entry.entityId)) &&
       (entry.entityId !== entry.accountId || entry.entityOnly);
+    const txnKey = entry.transactionId || entry.id || '';
+    const delta = entry.isVirtualOpening ? 0 : getEntryDelta(entry);
+    return { entry, includeCash, includeEntity, txnKey, delta };
+  });
 
-    const txnKey = entry.transactionId || entry.id;
+  const txnGroups = new Map();
+  renderPlans.forEach((plan) => {
+    const meta =
+      txnGroups.get(plan.txnKey) || { cash: 0, entity: 0, isTransfer: false, transferDeltas: [] };
+    if (plan.includeCash) meta.cash += 1;
+    if (plan.includeEntity) meta.entity += 1;
+    if (plan.entry.category === 'Transfer') {
+      meta.isTransfer = true;
+      meta.transferDeltas.push(plan.delta);
+    }
+    txnGroups.set(plan.txnKey, meta);
+  });
+
+  const txnRenderState = new Map();
+
+  const buildTransferAmountContent = (meta) => {
+    const debit = meta.transferDeltas.find((value) => value < 0) || 0;
+    const credit = meta.transferDeltas.find((value) => value > 0) || 0;
+    const outValue = debit || credit ? `-${formatCurrency(Math.abs(debit || credit))}` : formatCurrency(0);
+    const inValue = credit || debit ? `${formatCurrency(Math.abs(credit || debit))}` : formatCurrency(0);
+    return `
+      <div class="transfer-amount">
+        <span class="transfer-value debit">${outValue}</span>
+        <span class="transfer-value credit">${inValue}</span>
+      </div>
+    `;
+  };
+
+  renderPlans.forEach(({ entry, includeCash, includeEntity, txnKey, delta }) => {
+    const groupMeta = txnGroups.get(txnKey) || { cash: 0, entity: 0, isTransfer: false };
+    const state = txnRenderState.get(txnKey) || { cashRendered: 0, entityRendered: 0 };
+    txnRenderState.set(txnKey, state);
+    const account = accountLookup.get(entry.accountId);
+    const opening = Number(account?.openingBalance) || 0;
+    const accountFinal = (accountAdjustments.get(entry.accountId) || 0) + opening;
+    const previousCash = cashRunning.has(entry.accountId) ? cashRunning.get(entry.accountId) : accountFinal;
+    const displayAmount = entry.isVirtualOpening ? Number(account?.openingBalance) || 0 : delta;
+    const balance = entry.isVirtualOpening ? Number(account?.openingBalance) || 0 : previousCash;
+    cashRunning.set(entry.accountId, previousCash - delta);
+
     if (!txnStripeMap.has(txnKey)) {
       txnStripeMap.set(txnKey, stripeToggle ? 'txn-stripe-b' : 'txn-stripe-a');
       stripeToggle = !stripeToggle;
     }
-  const rowStripeClass = txnStripeMap.get(txnKey);
+    const rowStripeClass = txnStripeMap.get(txnKey);
+
+    const descriptionMarkup = renderLedgerDescription(entry);
+    const shareCells = includeCash && includeEntity;
+    const shareTransferRows = !shareCells && groupMeta.isTransfer && groupMeta.cash > 1;
 
     if (includeCash) {
       const row = document.createElement('tr');
@@ -5384,18 +5422,38 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
       row.classList.add(rowStripeClass);
       row.dataset.txnId = txnKey || '';
       const actionsMarkup = getTxnActionsMarkup(entry, txnKey);
+      const shouldShare = shareCells || shareTransferRows;
+      const cashRowspan = shareCells ? 2 : shareTransferRows ? groupMeta.cash : 1;
+      const isPrimaryCashRow = !shareTransferRows || state.cashRendered === 0;
+      const rowspanAttr = shouldShare && isPrimaryCashRow ? ` rowspan="${cashRowspan}"` : '';
+      const dateCell = isPrimaryCashRow
+        ? `<td class="date-cell"${rowspanAttr}>${formatDate(entry.date)}</td>`
+        : '';
+      const descriptionCell = isPrimaryCashRow
+        ? `<td class="description-cell"${rowspanAttr}>${descriptionMarkup}</td>`
+        : '';
+      const sharedAmountContent =
+        shareTransferRows && isPrimaryCashRow ? buildTransferAmountContent(groupMeta) : null;
+      const amountCell = isPrimaryCashRow
+        ? `<td class="ledger-amount"${rowspanAttr}>${
+            sharedAmountContent || formatCurrency(displayAmount)
+          }</td>`
+        : '';
+      const actionsCell = isPrimaryCashRow
+        ? `<td class="actions-cell"${rowspanAttr}>${actionsMarkup || ''}</td>`
+        : '';
       row.innerHTML = `
-        <td>${formatDate(entry.date)}</td>
-        <td>${account?.name || 'Unknown'}</td>
-        <td class="description-cell">${renderLedgerDescription(entry)}</td>
-        <td>${entry.category || ''}</td>
-        <td class="ledger-amount">${formatCurrency(displayAmount)}</td>
-        <td>${formatCurrency(balance)}</td>
-        <td>${actionsMarkup}</td>
+        ${dateCell}
+        ${descriptionCell}
+        ${amountCell}
+        <td class="account-cell">${account?.name || 'Unknown'}</td>
+        <td class="ledger-balance">${formatCurrency(balance)}</td>
+        ${actionsCell}
       `;
       const cashPalette = applyStripeColors(row, rowStripeClass);
       applyAmountColor(row, displayAmount, cashPalette.color);
       ledgerTableBody.appendChild(row);
+      state.cashRendered += 1;
     }
 
     if (includeEntity && entry.entityId) {
@@ -5412,18 +5470,24 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
       entityRow.classList.add(rowStripeClass);
       entityRow.dataset.txnId = txnKey || '';
       const entityActionsMarkup = getTxnActionsMarkup(entry, txnKey);
+      const entityDateCell = shareCells ? '' : `<td class="date-cell">${formatDate(entry.date)}</td>`;
+      const entityDescriptionCell = shareCells ? '' : `<td class="description-cell">${descriptionMarkup}</td>`;
+      const entityAmountCell = shareCells
+        ? ''
+        : `<td class="ledger-amount">${formatCurrency(entityDisplayAmount)}</td>`;
+      const entityActionsCell = shareCells ? '' : `<td class="actions-cell">${entityActionsMarkup || ''}</td>`;
       entityRow.innerHTML = `
-        <td>${formatDate(entry.date)}</td>
-        <td>${entity?.name || 'Entity'}</td>
-        <td class="description-cell">${renderLedgerDescription(entry)}</td>
-        <td>${entry.category || ''}</td>
-        <td class="ledger-amount">${formatCurrency(entityDisplayAmount)}</td>
-        <td>${formatCurrency(entityBalance)}</td>
-        <td>${entityActionsMarkup}</td>
+        ${entityDateCell}
+        ${entityDescriptionCell}
+        ${entityAmountCell}
+        <td class="account-cell">${entity?.name || 'Entity'}</td>
+        <td class="ledger-balance">${formatCurrency(entityBalance)}</td>
+        ${entityActionsCell}
       `;
       const entityPalette = applyStripeColors(entityRow, rowStripeClass);
       applyAmountColor(entityRow, entityDisplayAmount, entityPalette.color);
       ledgerTableBody.appendChild(entityRow);
+      state.entityRendered += 1;
     }
   });
   renderDashboard();
@@ -5455,15 +5519,32 @@ function formatDate(raw) {
 }
 
 function renderLedgerDescription(entry) {
-  const description = entry.description || '';
-  const returnLabel = entry.isReturn
-    ? `<span class="return-label">${entry.entryType === 'expense' ? 'Return' : 'Adjustment'}</span>`
-    : '';
-  const spacer = description && returnLabel ? ' ' : '';
+  const sections = [];
+  const baseDescription = entry.description || (entry.isVirtualOpening ? 'Opening balance' : '');
+  if (baseDescription) {
+    sections.push(`<div class="ledger-description-text">${baseDescription}</div>`);
+  }
+  const metaChips = [];
+  if (entry.category) {
+    metaChips.push(`<span class="category-label">${entry.category}</span>`);
+  }
+  if (entry.isReturn) {
+    metaChips.push(
+      `<span class="return-label">${entry.entryType === 'expense' ? 'Return' : 'Adjustment'}</span>`
+    );
+  }
   const clientName = entry.clientId ? clientLookup.get(entry.clientId)?.name || 'Client' : '';
-  const clientLabel = clientName ? `<span class="client-label">${clientName}</span>` : '';
-  const clientSpacer = (description || returnLabel) && clientLabel ? ' ' : '';
-  return `${description}${spacer}${returnLabel}${clientSpacer}${clientLabel}${renderTagList(entry)}`;
+  if (clientName) {
+    metaChips.push(`<span class="client-label">${clientName}</span>`);
+  }
+  if (metaChips.length) {
+    sections.push(`<div class="ledger-description-meta">${metaChips.join('')}</div>`);
+  }
+  const tagsMarkup = renderTagList(entry);
+  if (tagsMarkup) {
+    sections.push(tagsMarkup);
+  }
+  return sections.join('') || '—';
 }
 
 function renderTagList(entry) {

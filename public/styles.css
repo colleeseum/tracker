@@ -512,9 +512,26 @@ form {
 }
 
 .table-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.ledger-table tr:hover .table-actions,
+.ledger-table tr:focus-within .table-actions,
+.table-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.table-actions .icon-button {
+  padding: 0.15rem;
 }
 
 .account-list {
@@ -889,6 +906,11 @@ td {
   text-align: left;
 }
 
+.ledger-table th,
+.ledger-table td {
+  padding: 0.5rem 0.65rem;
+}
+
 th {
   font-size: 0.85rem;
   text-transform: uppercase;
@@ -919,7 +941,7 @@ th {
 }
 
 .table-tags {
-  margin-top: 0.25rem;
+  margin-top: 0.15rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
@@ -964,6 +986,76 @@ th {
   padding: 0.1rem 0.45rem;
   font-size: 0.75rem;
   margin-left: 0.4rem;
+}
+
+.ledger-description-text {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ledger-description-meta {
+  margin-top: 0.15rem;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ledger-description-meta .return-label,
+.ledger-description-meta .client-label {
+  margin-left: 0;
+}
+
+.category-label {
+  display: inline-flex;
+  align-items: center;
+  background: #e0edff;
+  color: #1e3a8a;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.account-cell {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.ledger-amount,
+.ledger-balance {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.transfer-amount {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
+.transfer-value.debit {
+  color: #dc2626;
+}
+
+.transfer-value.credit {
+  color: #16a34a;
+}
+
+.date-cell[rowspan],
+.description-cell[rowspan],
+.actions-cell[rowspan],
+.ledger-amount[rowspan] {
+  vertical-align: middle;
+}
+
+.ledger-account-row + .ledger-entity-row td {
+  padding-top: 0.2rem;
+  border-top: none;
+}
+
+.description-cell[rowspan] {
+  vertical-align: middle;
 }
 
 @media (max-width: 768px) {
