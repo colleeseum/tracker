@@ -19,16 +19,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Functions dependencies
-        run: npm install --prefix functions
-
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
-      - name: Deploy to Firebase
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: firebase deploy --project tracker-187c5 --only hosting,functions,firestore
       - name: Inject build version into client
         env:
           VERSION: ${{ github.run_number }}
@@ -44,3 +34,14 @@ if marker not in text:
     raise SystemExit("Version marker not found in public/index.html")
 path.write_text(text.replace(marker, f'data-app-version="{version}"', 1))
 PY
+
+      - name: Install Functions dependencies
+        run: npm install --prefix functions
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy to Firebase
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: firebase deploy --project tracker-187c5 --only hosting,functions,firestore
