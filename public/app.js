@@ -1137,7 +1137,7 @@ function renderClientTable() {
   if (!clients.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 8;
+    cell.colSpan = 7;
     cell.className = 'empty';
     cell.textContent = 'No clients yet. Add one to get started.';
     row.appendChild(cell);
@@ -1676,11 +1676,11 @@ function renderDashboardEntitySummary() {
 }
 
 function getEntryTimestamp(entry) {
-  return (
-    timestampToMillis(entry?.updatedAt) ||
-    timestampToMillis(entry?.createdAt) ||
-    (entry?.date ? Date.parse(entry.date) : 0)
-  );
+  const recordedDate = toDateObject(entry?.date);
+  if (recordedDate) {
+    return recordedDate.getTime();
+  }
+  return timestampToMillis(entry?.updatedAt) || timestampToMillis(entry?.createdAt) || 0;
 }
 
 function getRecentTransactions(limit = 3) {
@@ -1732,7 +1732,7 @@ function renderDashboardTransactions() {
     li.className = 'dashboard-transaction-line';
     const main = document.createElement('div');
     main.className = 'transaction-main';
-    main.innerHTML = `<p class="transaction-summary">${summaryHtml}</p><span class="transaction-date">${formatDateTimeFromMillis(
+    main.innerHTML = `<p class="transaction-summary">${summaryHtml}</p><span class="transaction-date">${formatDateOnlyFromMillis(
       txn.date
     )}</span>`;
     const amount = document.createElement('span');
@@ -1765,7 +1765,11 @@ function summarizeTransaction(txn) {
     .map((impact) => `${impact.label} <span class="hint">(${impact.type})</span>`)
     .join(` ${connector} `);
   const description = txn.description || (isTransfer ? 'Transfer' : 'Entry');
-  const summaryHtml = impactText ? `<strong>${description}</strong> ${impactText}` : `<strong>${description}</strong>`;
+  const categoryLabel = txn.entries.find((entry) => entry.category)?.category;
+  const prefix = categoryLabel ? `<span class="hint">${categoryLabel} •</span> ` : '';
+  const summaryHtml = impactText
+    ? `${prefix}<strong>${description}</strong> ${impactText}`
+    : `${prefix}<strong>${description}</strong>`;
   const reference = impacts.find((impact) => impact.amount !== 0) || impacts[0] || { amount: 0 };
   const signedAmount = reference.amount || 0;
   const isPositive = signedAmount >= 0;
@@ -1847,6 +1851,13 @@ function formatDateTimeFromMillis(ms) {
   const date = new Date(ms);
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleString();
+}
+
+function formatDateOnlyFromMillis(ms) {
+  if (!ms) return '—';
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString();
 }
 
 function renderSeasonAddonsTable(seasonId) {
@@ -5249,17 +5260,42 @@ function renderLedgerTable() {
   const txnStripeMap = new Map();
   const txnActionsRendered = new Set();
   let stripeToggle = false;
-  const stripePalette = {
-    'txn-stripe-a': { background: '#ffffff', color: '#1f2937' },
-    'txn-stripe-b': { background: '#e2e8f0', color: '#1f2937' }
-  };
+const stripePalette = {
+  'txn-stripe-a': {
+    background: '#ffffff',
+    color: '#1f2937',
+    tagBackground: '#e2e8f0',
+    tagColor: '#0f172a',
+    tagBorder: 'rgba(15, 23, 42, 0.2)'
+  },
+  'txn-stripe-b': {
+    background: '#e2e8f0',
+    color: '#1f2937',
+    tagBackground: '#ffffff',
+    tagColor: '#0f172a',
+    tagBorder: 'rgba(15, 23, 42, 0.2)'
+  }
+};
 const applyStripeColors = (rowEl, stripeClass) => {
   const palette = stripePalette[stripeClass] || stripePalette['txn-stripe-a'];
   Array.from(rowEl.cells || []).forEach((cell) => {
-    cell.style.backgroundColor = palette.background;
+    if (!cell.classList.contains('tag-cell')) {
+      cell.style.backgroundColor = palette.background;
+    }
     cell.style.color = palette.color;
   });
+  styleRowTags(rowEl, palette);
   return palette;
+};
+
+const styleRowTags = (rowEl, palette) => {
+  if (!palette) return;
+  const tags = rowEl.querySelectorAll('.table-tag');
+  tags.forEach((tag) => {
+    tag.style.backgroundColor = palette.tagBackground;
+    tag.style.color = palette.tagColor;
+    tag.style.borderColor = palette.tagBorder;
+  });
 };
 
 const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
@@ -5349,10 +5385,9 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
       row.dataset.txnId = txnKey || '';
       const actionsMarkup = getTxnActionsMarkup(entry, txnKey);
       row.innerHTML = `
-        <td>${entry.isVirtualOpening ? 'Opening balance' : txnKey}</td>
         <td>${formatDate(entry.date)}</td>
         <td>${account?.name || 'Unknown'}</td>
-        <td>${renderLedgerDescription(entry)}</td>
+        <td class="description-cell">${renderLedgerDescription(entry)}</td>
         <td>${entry.category || ''}</td>
         <td class="ledger-amount">${formatCurrency(displayAmount)}</td>
         <td>${formatCurrency(balance)}</td>
@@ -5378,10 +5413,9 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
       entityRow.dataset.txnId = txnKey || '';
       const entityActionsMarkup = getTxnActionsMarkup(entry, txnKey);
       entityRow.innerHTML = `
-        <td>${entry.isVirtualOpening ? 'Opening balance' : txnKey}</td>
         <td>${formatDate(entry.date)}</td>
         <td>${entity?.name || 'Entity'}</td>
-        <td>${renderLedgerDescription(entry)}</td>
+        <td class="description-cell">${renderLedgerDescription(entry)}</td>
         <td>${entry.category || ''}</td>
         <td class="ledger-amount">${formatCurrency(entityDisplayAmount)}</td>
         <td>${formatCurrency(entityBalance)}</td>

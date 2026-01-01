@@ -907,8 +907,9 @@ th {
 }
 
 .ledger-table tr.txn-stripe-b td {
-  background-color: #e2e8f0 !important;
+  background-color: #ffffff !important;
   color: #1f2937;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 
@@ -926,10 +927,17 @@ th {
 
 .table-tag {
   background: #e2e8f0;
-  color: #334155;
+  color: #0f172a;
   border-radius: 999px;
   padding: 0.1rem 0.5rem;
   font-size: 0.75rem;
+  border: 1px solid transparent;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3rem;
+  text-align: center;
 }
 
 .return-label {
