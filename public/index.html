@@ -5,11 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tracker Expenses</title>
     <link rel="stylesheet" href="styles.css" />
+    <script>
+      window.__APP_VERSION__ = '__APP_VERSION__';
+    </script>
   </head>
   <body>
     <header>
       <div class="branding">
-        <h1>Ferme Colle Tracker</h1>
+        <h1>Ferme Colle Tracker <small id="app-version" class="app-version">dev</small></h1>
       </div>
       <div class="header-actions">
         <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-expanded="false">

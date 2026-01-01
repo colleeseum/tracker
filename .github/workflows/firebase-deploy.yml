@@ -19,6 +19,11 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Inject build version into client
+        run: |
+          VERSION="${{ github.run_number }}"
+          sed -i "s/__APP_VERSION__/${VERSION}/g" public/index.html
+
       - name: Install Functions dependencies
         run: npm install --prefix functions
 

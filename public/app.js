@@ -103,6 +103,7 @@ const publishStatusLabel = document.getElementById('publish-status');
 const addEntryButton = document.getElementById('add-entry');
 const transferButton = document.getElementById('transfer-funds');
 const newCategoryButton = document.getElementById('new-category');
+const appVersionLabel = document.getElementById('app-version');
 const dashboardView = document.getElementById('dashboard-view');
 const dashboardCashList = document.getElementById('dashboard-cash-list');
 const dashboardCashTotal = document.getElementById('dashboard-cash-total');
@@ -5061,6 +5062,10 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToExpensesStream();
   ledgerAccountSelection = [];
 setView('dashboard');
+if (appVersionLabel) {
+  const version = window.__APP_VERSION__ && window.__APP_VERSION__ !== '__APP_VERSION__' ? window.__APP_VERSION__ : 'dev';
+  appVersionLabel.textContent = `v${version}`;
+}
 });
 navLinks.forEach((link) => {
   link.addEventListener('click', () => {
