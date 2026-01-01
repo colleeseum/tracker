@@ -22,18 +22,17 @@ jobs:
       - name: Inject build version into client
         env:
           VERSION: ${{ github.run_number }}
+        shell: python
         run: |
-          python3 - <<'PY'
-import os
-from pathlib import Path
-path = Path("public/index.html")
-text = path.read_text()
-marker = 'data-app-version="__APP_VERSION__"'
-version = os.environ.get("VERSION", "dev")
-if marker not in text:
-    raise SystemExit("Version marker not found in public/index.html")
-path.write_text(text.replace(marker, f'data-app-version="{version}"', 1))
-PY
+          import os
+          from pathlib import Path
+          path = Path("public/index.html")
+          text = path.read_text()
+          marker = 'data-app-version="__APP_VERSION__"'
+          version = os.environ.get("VERSION", "dev")
+          if marker not in text:
+              raise SystemExit("Version marker not found in public/index.html")
+          path.write_text(text.replace(marker, f'data-app-version="{version}"', 1))
 
       - name: Install Functions dependencies
         run: npm install --prefix functions
