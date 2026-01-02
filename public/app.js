@@ -30,12 +30,21 @@ import {
   getFunctions,
   httpsCallable
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js';
+import {
+  connectStorageEmulator,
+  deleteObject,
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadBytes
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
 import { firebaseConfig, emulatorConfig } from './firebase-config.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const functionsApp = getFunctions(app);
+const storage = getStorage(app);
 const requestSitePublishCallable = httpsCallable(functionsApp, 'requestSitePublish');
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -67,6 +76,9 @@ if (usingEmulators) {
   connectAuthEmulator(auth, `http://${emulatorConfig.authHost}:${emulatorConfig.authPort}`);
   connectFirestoreEmulator(db, emulatorConfig.firestoreHost, emulatorConfig.firestorePort);
   connectFunctionsEmulator(functionsApp, emulatorConfig.functionsHost, emulatorConfig.functionsPort);
+  if (emulatorConfig.storagePort) {
+    connectStorageEmulator(storage, emulatorConfig.storageHost, emulatorConfig.storagePort);
+  }
 }
 
 const authSection = document.getElementById('auth-section');
@@ -376,6 +388,12 @@ const tagInput = document.getElementById('entry-tag-input');
 const tagSuggestionList = document.getElementById('tag-suggestion-list');
 const selectedTagsContainer = document.getElementById('selected-tags');
 const tagInputWrapper = document.getElementById('tag-input-wrapper');
+const entryReceiptField = document.getElementById('entry-receipt-field');
+const entryReceiptInput = document.getElementById('entry-receipt');
+const entryReceiptPreview = document.getElementById('entry-receipt-preview');
+const entryReceiptLink = document.getElementById('entry-receipt-link');
+const entryReceiptStatus = document.getElementById('entry-receipt-status');
+const entryReceiptRemoveButton = document.getElementById('entry-receipt-remove');
 const entryFormTitle = document.getElementById('entry-form-title');
 const ledgerError = document.getElementById('ledger-error');
 const transferModal = document.getElementById('transfer-modal');
@@ -415,6 +433,8 @@ function hideEntryModal() {
   updateReturnLabel();
   syncEntryClientVisibility();
   syncEntryVendorVisibility();
+  resetReceiptControls();
+  syncEntryReceiptVisibility();
   syncEntrySelectors();
 }
 
@@ -447,6 +467,9 @@ let ledgerAccountSelection = [];
 let ledgerFilterCustom = false;
 let ledgerTagFilters = [];
 let lastKnownCashTotal = 0;
+let pendingReceiptFile = null;
+let currentReceiptMeta = { url: null, path: null };
+let removeExistingReceipt = false;
 let lastKnownEntityTotal = 0;
 let expenses = [];
 let unsubscribeExpenses = null;
@@ -1951,6 +1974,37 @@ function parseMileageTags(raw) {
     .filter(Boolean);
 }
 
+function sanitizeFileName(name) {
+  return (name || 'receipt.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function buildReceiptPath(transactionId, fileName) {
+  const safeName = sanitizeFileName(fileName);
+  return `receipts/${transactionId}/${Date.now()}_${safeName}`;
+}
+
+async function uploadReceiptFile(transactionId, file) {
+  if (!transactionId || !file) return null;
+  const path = buildReceiptPath(transactionId, file.name);
+  const contentType = file.type || 'application/octet-stream';
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, file, { contentType });
+  const url = await getDownloadURL(ref);
+  return { receiptUrl: url, receiptStoragePath: path };
+}
+
+async function deleteReceiptAtPath(path) {
+  if (!path) return;
+  try {
+    const ref = storageRef(storage, path);
+    await deleteObject(ref);
+  } catch (error) {
+    if (error?.code !== 'storage/object-not-found') {
+      console.warn('Failed to delete receipt', error);
+    }
+  }
+}
+
 function syncMileageTagSuggestions() {
   if (!mileageTagDatalist) return;
   mileageTagDatalist.innerHTML = '';
@@ -2876,6 +2930,17 @@ function syncEntryVendorVisibility() {
   }
 }
 
+function syncEntryReceiptVisibility() {
+  if (!entryReceiptField) return;
+  const isExpense = entryTypeSelect?.value === 'expense';
+  entryReceiptField.classList.toggle('hidden', !isExpense);
+  if (isExpense) {
+    updateReceiptPreview();
+  } else if (entryReceiptPreview) {
+    entryReceiptPreview.classList.add('hidden');
+  }
+}
+
 function syncEntrySelectors() {
   const selectedAccount = accountLookup.get(entryAccountSelect.value);
   const selectedEntity = accountLookup.get(entryEntitySelect.value);
@@ -2904,6 +2969,78 @@ function updateReturnLabel() {
   if (!entryReturnLabel || !entryTypeSelect) return;
   const isExpense = entryTypeSelect.value === 'expense';
   entryReturnLabel.textContent = isExpense ? 'Mark as return / credit' : 'Mark as refund / debit';
+}
+
+function updateReceiptPreview() {
+  if (!entryReceiptPreview || !entryReceiptStatus || !entryReceiptRemoveButton) return;
+  const hasSelected = Boolean(pendingReceiptFile);
+  const hasExisting = Boolean(currentReceiptMeta.url) && !removeExistingReceipt;
+  if (!hasSelected && !hasExisting) {
+    entryReceiptPreview.classList.add('hidden');
+    entryReceiptLink?.classList.add('hidden');
+    entryReceiptStatus.textContent = '';
+    entryReceiptRemoveButton.classList.add('hidden');
+    return;
+  }
+  entryReceiptPreview.classList.remove('hidden');
+  entryReceiptRemoveButton.classList.remove('hidden');
+  if (hasSelected) {
+    entryReceiptLink?.classList.add('hidden');
+    entryReceiptStatus.textContent = `Ready to upload: ${pendingReceiptFile.name}`;
+    entryReceiptRemoveButton.textContent = 'Clear file';
+  } else if (hasExisting) {
+    if (entryReceiptLink) {
+      entryReceiptLink.classList.remove('hidden');
+      entryReceiptLink.href = currentReceiptMeta.url || '#';
+      entryReceiptLink.textContent = 'View current receipt';
+    }
+    entryReceiptStatus.textContent = '';
+    entryReceiptRemoveButton.textContent = 'Remove receipt';
+  }
+}
+
+function resetReceiptControls() {
+  pendingReceiptFile = null;
+  removeExistingReceipt = false;
+  currentReceiptMeta = { url: null, path: null };
+  if (entryReceiptInput) {
+    entryReceiptInput.value = '';
+  }
+  updateReceiptPreview();
+}
+
+async function processReceiptAttachment(entryType, transactionId) {
+  if (entryType !== 'expense') {
+    if (currentReceiptMeta.path) {
+      await deleteReceiptAtPath(currentReceiptMeta.path);
+    }
+    return { receiptUrl: null, receiptStoragePath: null };
+  }
+  if (pendingReceiptFile) {
+    const uploadResult = await uploadReceiptFile(transactionId, pendingReceiptFile);
+    if (currentReceiptMeta.path && currentReceiptMeta.path !== uploadResult?.receiptStoragePath) {
+      await deleteReceiptAtPath(currentReceiptMeta.path);
+    }
+    pendingReceiptFile = null;
+    currentReceiptMeta = uploadResult || { url: null, path: null };
+    if (entryReceiptInput) {
+      entryReceiptInput.value = '';
+    }
+    removeExistingReceipt = false;
+    updateReceiptPreview();
+    return uploadResult || { receiptUrl: null, receiptStoragePath: null };
+  }
+  if (removeExistingReceipt && currentReceiptMeta.path) {
+    await deleteReceiptAtPath(currentReceiptMeta.path);
+    currentReceiptMeta = { url: null, path: null };
+    removeExistingReceipt = false;
+    updateReceiptPreview();
+    return { receiptUrl: null, receiptStoragePath: null };
+  }
+  return {
+    receiptUrl: currentReceiptMeta.url || null,
+    receiptStoragePath: currentReceiptMeta.path || null
+  };
 }
 
 function updateTransferAccountOptions() {
@@ -6134,6 +6271,11 @@ function renderLedgerDescription(entry) {
   if (tagsMarkup) {
     sections.push(tagsMarkup);
   }
+  if (entry.receiptUrl) {
+    sections.push(
+      `<div class="ledger-receipt-link"><a href="${encodeURI(entry.receiptUrl)}" target="_blank" rel="noopener">View receipt</a></div>`
+    );
+  }
   return sections.join('') || '—';
 }
 
@@ -6251,6 +6393,8 @@ function openNewEntryModal() {
   }
   syncEntryClientVisibility();
   syncEntryVendorVisibility();
+  resetReceiptControls();
+  syncEntryReceiptVisibility();
   syncEntrySelectors();
   updateTagSuggestions();
   entryModal.classList.remove('hidden');
@@ -6290,9 +6434,11 @@ entryTypeSelect.addEventListener('change', () => {
   updateEntryCategoryOptions({ forceType: entryTypeSelect.value });
   syncEntryClientVisibility();
   syncEntryVendorVisibility();
+  syncEntryReceiptVisibility();
   updateReturnLabel();
 });
 updateReturnLabel();
+syncEntryReceiptVisibility();
 
 if (entryCategorySelect) {
   entryCategorySelect.addEventListener('change', () => {
@@ -6319,6 +6465,28 @@ tagInput.addEventListener('change', () => {
     addTag(tagInput.value);
   }
 });
+
+if (entryReceiptInput) {
+  entryReceiptInput.addEventListener('change', () => {
+    pendingReceiptFile = entryReceiptInput.files?.[0] || null;
+    removeExistingReceipt = false;
+    updateReceiptPreview();
+  });
+}
+
+if (entryReceiptRemoveButton) {
+  entryReceiptRemoveButton.addEventListener('click', () => {
+    if (pendingReceiptFile) {
+      pendingReceiptFile = null;
+      if (entryReceiptInput) {
+        entryReceiptInput.value = '';
+      }
+    } else if (currentReceiptMeta.path) {
+      removeExistingReceipt = true;
+    }
+    updateReceiptPreview();
+  });
+}
 
 if (dashboardAddEntryButton) {
   dashboardAddEntryButton.addEventListener('click', () => {
@@ -6363,6 +6531,15 @@ function startEditEntry(entry) {
   if (entryVendorInput) {
     entryVendorInput.value = entry.vendorTag || '';
   }
+  currentReceiptMeta = {
+    url: entry.receiptUrl || null,
+    path: entry.receiptStoragePath || null
+  };
+  pendingReceiptFile = null;
+  removeExistingReceipt = false;
+  if (entryReceiptInput) {
+    entryReceiptInput.value = '';
+  }
   entryAmountInput.value = Number(entry.amount) || 0;
   if (entryReturnInput) {
     entryReturnInput.checked = Boolean(entry.isReturn);
@@ -6377,8 +6554,10 @@ function startEditEntry(entry) {
   }
   syncEntryClientVisibility();
   syncEntryVendorVisibility();
+  syncEntryReceiptVisibility();
   syncEntrySelectors();
   updateTagSuggestions();
+  updateReceiptPreview();
   entryModal.classList.remove('hidden');
 }
 
@@ -6495,6 +6674,14 @@ entryForm.addEventListener('submit', async (event) => {
     return;
   }
 
+  let receiptMeta = { receiptUrl: null, receiptStoragePath: null };
+  try {
+    receiptMeta = await processReceiptAttachment(entryType, transactionId);
+  } catch (error) {
+    entryFormError.textContent = error.message;
+    return;
+  }
+
   const payload = {
     accountId,
     entityId,
@@ -6510,7 +6697,9 @@ entryForm.addEventListener('submit', async (event) => {
     vendorTag: entryType === 'expense' && vendorTagValue ? vendorTagValue : null,
     transactionId,
     clientId: selectedClientId || null,
-    isReturn
+    isReturn,
+    receiptUrl: receiptMeta.receiptUrl || null,
+    receiptStoragePath: receiptMeta.receiptStoragePath || null
   };
 
   try {

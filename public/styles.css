@@ -664,6 +664,23 @@ form {
   font-size: 0.9em;
 }
 
+.receipt-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+
+.receipt-preview.hidden {
+  display: none;
+}
+
+.receipt-preview a {
+  font-weight: 600;
+}
+
 .tag-suggestions {
   list-style: none;
   margin: 0.3rem 0 0;
@@ -1357,6 +1374,15 @@ th {
 .ledger-description-meta .return-label,
 .ledger-description-meta .client-label {
   margin-left: 0;
+}
+
+.ledger-receipt-link {
+  margin-top: 0.2rem;
+}
+
+.ledger-receipt-link a {
+  color: #2563eb;
+  font-weight: 600;
 }
 
 .category-label {

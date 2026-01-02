@@ -71,6 +71,7 @@ Then open `http://localhost:5000` in the browser to use the app.
 - **Browse accounts:** Scroll the list to see descriptions, current balances, and whether the account lives under `Accounts` (cash) or `Entities` (non-cash). Use the sidebar links to swap between the two.
 - **Add/edit accounts:** Use the “New account” button to open a modal where you set the name, type, optional description, and opening balance. Click “Edit” beside any row to revise it.
 - **Ledger tab:** Switch to *Ledger* to see a reverse-chronological table. Every journal entry appears twice (once for the cash account, once for the entity) so you can see both balances change in tandem. Filter the table by opening the “Filter accounts” menu and toggling one or more accounts/entities (defaults to all). Each row carries a transaction id with a delete action that removes both sides at once.
+- **Attach receipts:** When logging an expense you can capture/upload a receipt photo. The admin UI stores the image in Firebase Storage and shows a “View receipt” link beside the ledger description. Edit any expense later to replace or remove the attachment.
 - **Transfers:** Cash-to-cash movements are automated via the “Transfer funds” button (visible on the Ledger tab). Pick two cash accounts, enter an amount and optional note, and the app creates the paired income/expense entries for you.
 - **Clients tab:** Maintain tenant contact details (address, phone, email) via the Clients view. It mirrors the account modal so you can add/edit rows quickly.
 - **Storage tab:** Track seasonal storage requests (tenant info, insurance, add-ons) and move each request through the workflow statuses (New → Picked-Up).
@@ -80,7 +81,7 @@ Then open `http://localhost:5000` in the browser to use the app.
 ## Data model & rules
 
 - `accounts/{accountId}` — holds `name`, `type` (`entity` or `cash`), `description`, `openingBalance`, and bookkeeping metadata (`createdAt`, `updatedAt`, `createdBy`, `updatedBy`).
-- `expenses/{expenseId}` — ledger entry with `accountId` (cash source), `entityId`, `date`, `entryType` (expense/income), `category`, `amount`, `description`, and timestamps.
+- `expenses/{expenseId}` — ledger entry with `accountId` (cash source), `entityId`, `date`, `entryType` (expense/income), `category`, `amount`, `description`, optional tags/vendor/client references, receipt metadata (`receiptUrl`, `receiptStoragePath`), and timestamps.
 - `clients/{clientId}` — tenant address book with `name`, `email`, `phone`, `address`, `city`, `province`, `postalCode`, plus audit stamps.
 - `storageRequests/{requestId}` — seasonal storage applications linked to a `clientId`, vehicle metadata (type, brand, model, plate, etc.), insurance details, add-on booleans, `season`, and `status` (New → Picked-Up).
 - `storageSeasons/{seasonId}` — localized season metadata (names, timeframe, descriptions, ordering, active flag) used to power pricing.
@@ -308,3 +309,19 @@ This API works from `~/personal/entrepot` (just adjust the relative import path)
    ```
 
    > To allow custom `from` addresses and unrestricted recipients, attach the `isTrackerAdmin=true` custom claim to the authenticated user. Otherwise, any custom sender is restricted to the configured domain.
+## Firebase Storage rules
+
+Receipt photos live under `gs://<project-bucket>/receipts/**`. Protect them by adding Storage rules similar to the following before deploying:
+
+```javascript
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /receipts/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+```
+
+If you also run the Firebase Storage emulator locally, add `storagePort` to `public/profile-config.js` so the UI connects to it automatically (defaults to the prod bucket when no emulator is configured).

@@ -1409,6 +1409,15 @@
                 <datalist id="tag-suggestion-list"></datalist>
                 <small class="hint">Type and press Enter to add. Click suggestions to reuse existing tags.</small>
               </label>
+              <label id="entry-receipt-field" class="wide hidden">
+                Receipt photo (expense only)
+                <input type="file" id="entry-receipt" accept="image/*" capture="environment" />
+                <div id="entry-receipt-preview" class="receipt-preview hidden">
+                  <a id="entry-receipt-link" href="#" target="_blank" rel="noopener">View receipt</a>
+                  <span id="entry-receipt-status"></span>
+                  <button type="button" id="entry-receipt-remove" class="link">Remove</button>
+                </div>
+              </label>
               <label>
                 Amount
                 <input type="number" step="0.01" id="entry-amount" required />

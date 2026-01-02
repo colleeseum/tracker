@@ -40,5 +40,7 @@ export const emulatorConfig = {
   firestorePort: ACTIVE_PROFILE.emulator?.firestorePort ?? 8080,
   functionsHost: ACTIVE_PROFILE.emulator?.host || '127.0.0.1',
   functionsPort: ACTIVE_PROFILE.emulator?.functionsPort ?? 5001,
+  storageHost: ACTIVE_PROFILE.emulator?.host || '127.0.0.1',
+  storagePort: ACTIVE_PROFILE.emulator?.storagePort ?? null,
   useEmulators: Boolean(ACTIVE_PROFILE.useEmulators)
 };
