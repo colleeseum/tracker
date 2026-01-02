@@ -103,8 +103,15 @@ header h1 {
   grid-column: span 2;
 }
 
-.mileage-form button {
+.mileage-form .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   align-self: end;
+}
+
+.mileage-form .form-actions button {
+  align-self: center;
 }
 
 button {
@@ -680,22 +687,15 @@ form {
   flex-direction: column;
   align-items: flex-end;
   gap: 0.2rem;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.ledger-table tr:hover .table-actions,
-.ledger-table tr:focus-within .table-actions,
-.table-actions:focus-within {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
 }
 
 .table-actions .icon-button {
   padding: 0.15rem;
+}
+.mileage-table .table-actions {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .account-list {

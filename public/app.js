@@ -116,6 +116,8 @@ const mileageRateForm = document.getElementById('mileage-rate-form');
 const mileageRateYearInput = document.getElementById('mileage-rate-year');
 const mileageRateAmountInput = document.getElementById('mileage-rate-amount');
 const mileageRateTableBody = document.getElementById('mileage-rate-table-body');
+const mileageSubmitButton = document.getElementById('mileage-submit');
+const mileageCancelButton = document.getElementById('mileage-cancel-edit');
 applyMileageInputDefaults();
 const dashboardView = document.getElementById('dashboard-view');
 const dashboardCashList = document.getElementById('dashboard-cash-list');
@@ -476,6 +478,7 @@ let mileageRates = [];
 let unsubscribeMileageLogs = null;
 let unsubscribeMileageRates = null;
 let mileageYearToDate = 0;
+let editingMileageId = null;
 let addonPriceLookup = new Map();
 const GLOBAL_ADDON_PRICE_SCOPE = '__global__';
 let conditions = [];
@@ -1906,6 +1909,43 @@ function applyMileageInputDefaults() {
   }
 }
 
+function resetMileageFormState() {
+  editingMileageId = null;
+  if (mileageForm) {
+    mileageForm.reset();
+  }
+  applyMileageInputDefaults();
+  if (mileageSubmitButton) {
+    mileageSubmitButton.textContent = 'Log trip';
+  }
+  if (mileageCancelButton) {
+    mileageCancelButton.classList.add('hidden');
+  }
+}
+
+function beginEditMileageEntry(log) {
+  if (!log) return;
+  editingMileageId = log.id;
+  const dateObj = toDateObject(log.date) || new Date();
+  if (mileageDateInput) {
+    mileageDateInput.value = getLocalDateInputValue(dateObj);
+  }
+  if (mileagePurposeInput) {
+    mileagePurposeInput.value = log.purpose || '';
+  }
+  if (mileageKmInput) {
+    const kmValue = Number(log.kilometres ?? log.km ?? 0);
+    mileageKmInput.value = Number.isFinite(kmValue) ? kmValue : '';
+  }
+  if (mileageSubmitButton) {
+    mileageSubmitButton.textContent = 'Save changes';
+  }
+  if (mileageCancelButton) {
+    mileageCancelButton.classList.remove('hidden');
+  }
+  mileagePurposeInput?.focus();
+}
+
 function renderMileageLog() {
   if (!mileageTableBody) return;
   mileageTableBody.innerHTML = '';
@@ -1919,21 +1959,48 @@ function renderMileageLog() {
     if (logDate && logDate.getTime() >= startOfYear) {
       yearTotal += km;
     }
+    const whoLabelRaw =
+      log.loggedBy ||
+      log.createdByName ||
+      log.createdByEmail ||
+      (typeof log.createdBy === 'string' && log.createdBy.includes('@') ? log.createdBy : '');
+    const whoLabel = whoLabelRaw && typeof whoLabelRaw === 'string' ? whoLabelRaw : '—';
     const row = document.createElement('tr');
+    const actionsMarkup = `
+      <div class="table-actions">
+        <button
+          type="button"
+          class="icon-button"
+          data-action="edit-mileage"
+          data-id="${log.id}"
+          aria-label="Edit mileage entry dated ${formatDate(log.date)}"
+        >
+          <img src="icons/pencil.svg" alt="Edit mileage entry" />
+        </button>
+        <button
+          type="button"
+          class="icon-button"
+          data-action="delete-mileage"
+          data-id="${log.id}"
+          aria-label="Delete mileage entry dated ${formatDate(log.date)}"
+        >
+          <img src="icons/trash.svg" alt="Delete mileage entry" />
+        </button>
+      </div>
+    `;
     row.innerHTML = `
       <td>${formatDate(log.date)}</td>
+      <td>${whoLabel}</td>
       <td>${log.purpose || '—'}</td>
       <td>${km.toFixed(1)}</td>
-      <td>
-        <button type="button" class="link" data-action="delete-mileage" data-id="${log.id}">Delete</button>
-      </td>
+      <td class="actions-cell">${actionsMarkup}</td>
     `;
     mileageTableBody.appendChild(row);
   });
   if (!mileageLogs.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.className = 'empty';
     cell.textContent = 'No mileage entries yet.';
     row.appendChild(cell);
@@ -5089,15 +5156,33 @@ if (mileageForm) {
     }
     try {
       const parsedDate = new Date(`${dateValue}T00:00:00`);
-      await addDoc(collection(db, 'mileageLogs'), {
-        date: Timestamp.fromDate(parsedDate),
-        purpose,
-        kilometres: kmValue,
-        createdAt: serverTimestamp(),
-        createdBy: auth.currentUser?.uid || null
-      });
-      mileageForm.reset();
-      applyMileageInputDefaults();
+      const userDisplay = auth.currentUser?.displayName?.trim();
+      const userEmail = auth.currentUser?.email || null;
+      const loggedByValue = userDisplay || userEmail || null;
+      if (editingMileageId) {
+        await updateDoc(doc(db, 'mileageLogs', editingMileageId), {
+          date: Timestamp.fromDate(parsedDate),
+          purpose,
+          kilometres: kmValue,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.uid || null,
+          updatedByEmail: userEmail,
+          updatedByName: userDisplay || null,
+          loggedBy: loggedByValue
+        });
+      } else {
+        await addDoc(collection(db, 'mileageLogs'), {
+          date: Timestamp.fromDate(parsedDate),
+          purpose,
+          kilometres: kmValue,
+          createdAt: serverTimestamp(),
+          createdBy: auth.currentUser?.uid || null,
+          createdByEmail: userEmail,
+          createdByName: userDisplay || null,
+          loggedBy: loggedByValue
+        });
+      }
+      resetMileageFormState();
       mileagePurposeInput?.focus();
     } catch (error) {
       console.error('Failed to save mileage entry:', error);
@@ -5108,17 +5193,36 @@ if (mileageForm) {
 
 if (mileageTableBody) {
   mileageTableBody.addEventListener('click', async (event) => {
-    const button = event.target.closest('button[data-action="delete-mileage"]');
+    const button = event.target.closest('button[data-action]');
     if (!button) return;
-    const { id } = button.dataset;
+    const { action, id } = button.dataset;
     if (!id) return;
-    if (!window.confirm('Delete this mileage entry?')) return;
-    try {
-      await deleteDoc(doc(db, 'mileageLogs', id));
-    } catch (error) {
-      console.error('Unable to delete mileage entry:', error);
-      window.alert(`Unable to delete mileage entry: ${error.message}`);
+    if (action === 'edit-mileage') {
+      const entry = mileageLogs.find((log) => log.id === id);
+      if (entry) {
+        beginEditMileageEntry(entry);
+      }
+      return;
     }
+    if (action === 'delete-mileage') {
+      if (!window.confirm('Delete this mileage entry?')) return;
+      try {
+        await deleteDoc(doc(db, 'mileageLogs', id));
+        if (editingMileageId === id) {
+          resetMileageFormState();
+        }
+      } catch (error) {
+        console.error('Unable to delete mileage entry:', error);
+        window.alert(`Unable to delete mileage entry: ${error.message}`);
+      }
+    }
+  });
+}
+
+if (mileageCancelButton) {
+  mileageCancelButton.addEventListener('click', () => {
+    resetMileageFormState();
+    mileagePurposeInput?.focus();
   });
 }
 
@@ -6229,7 +6333,9 @@ entryForm.addEventListener('submit', async (event) => {
       await addDoc(collection(db, 'expenses'), {
         ...payload,
         createdAt: serverTimestamp(),
-        createdBy: auth.currentUser?.uid || null
+        createdBy: auth.currentUser?.uid || null,
+        createdByEmail: auth.currentUser?.email || null,
+        createdByName: auth.currentUser?.displayName || null
       });
     }
     hideEntryModal();
@@ -6335,14 +6441,18 @@ transferForm.addEventListener('submit', async (event) => {
           accountId: fromId,
           entryType: 'expense',
           createdAt: serverTimestamp(),
-          createdBy: auth.currentUser?.uid || null
+          createdBy: auth.currentUser?.uid || null,
+          createdByEmail: auth.currentUser?.email || null,
+          createdByName: auth.currentUser?.displayName || null
         }),
         addDoc(collection(db, 'expenses'), {
           ...entryPayload,
           accountId: toId,
           entryType: 'income',
           createdAt: serverTimestamp(),
-          createdBy: auth.currentUser?.uid || null
+          createdBy: auth.currentUser?.uid || null,
+          createdByEmail: auth.currentUser?.email || null,
+          createdByName: auth.currentUser?.displayName || null
         })
       ];
       await Promise.all(batch);
