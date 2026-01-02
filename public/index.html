@@ -561,16 +561,10 @@
               </div>
             </div>
 
-            <div id="mileage-view" class="card list-card hidden">
-              <div class="mileage-header">
-                <div>
-                  <h3>Mileage log</h3>
-                  <p class="hint">Track kilometres for the simplified CRA allowance.</p>
-                </div>
-                <div class="mileage-year-total">
-                  <span>Year to date</span>
-                  <strong id="mileage-year-total">0 km</strong>
-                </div>
+            <div id="mileage-view" class="card mileage-card hidden">
+              <div class="mileage-year-total">
+                <span>Year to date</span>
+                <strong id="mileage-year-total">0 km</strong>
               </div>
               <form id="mileage-form" class="mileage-form">
                 <label>
@@ -591,7 +585,7 @@
                 </div>
               </form>
               <div class="table-wrapper">
-                <table>
+                <table class="mileage-table">
                   <thead>
                     <tr>
                       <th>Date</th>
