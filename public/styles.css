@@ -63,6 +63,50 @@ header h1 {
   color: #fff;
 }
 
+.mileage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mileage-year-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.mileage-year-total strong {
+  font-size: 1.35rem;
+  color: #0f172a;
+}
+
+.mileage-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.mileage-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mileage-form label.wide {
+  grid-column: span 2;
+}
+
+.mileage-form button {
+  align-self: end;
+}
+
 button {
   cursor: pointer;
   border: none;

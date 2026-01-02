@@ -72,12 +72,14 @@
               <button type="button" class="nav-link" data-view="clients">Clients</button>
               <button type="button" class="nav-link" data-view="storage" disabled>Storage</button>
               <button type="button" class="nav-link" data-view="ledger">Ledger</button>
+              <button type="button" class="nav-link" data-view="mileage">Mileage log</button>
               <button type="button" class="nav-link" disabled>Reports</button>
               <button type="button" class="nav-link" data-view="settings">Settings</button>
             </nav>
             <nav class="nav-links hidden" id="settings-nav">
               <button type="button" class="nav-link" data-settings-target="categories">Categories</button>
               <button type="button" class="nav-link" data-settings-target="pricing">Website & Offering</button>
+              <button type="button" class="nav-link" data-settings-target="mileage">Mileage rates</button>
               <button type="button" class="nav-link secondary" id="close-settings-nav">Close</button>
             </nav>
           </aside>
@@ -114,8 +116,8 @@
                   <strong id="dashboard-kpi-cash">$0.00</strong>
                 </div>
                 <div class="kpi-pill">
-                  <span>Hybrid accounts</span>
-                  <strong id="dashboard-kpi-hybrid">0</strong>
+                  <span>KM this year</span>
+                  <strong id="dashboard-kpi-mileage">0 km</strong>
                 </div>
                 <div class="kpi-pill">
                   <span>Pending storage</span>
@@ -553,6 +555,81 @@
                   <tbody id="category-table-body">
                     <tr>
                       <td colspan="5" class="empty">No categories yet.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="mileage-view" class="card list-card hidden">
+              <div class="mileage-header">
+                <div>
+                  <h3>Mileage log</h3>
+                  <p class="hint">Track kilometres for the simplified CRA allowance.</p>
+                </div>
+                <div class="mileage-year-total">
+                  <span>Year to date</span>
+                  <strong id="mileage-year-total">0 km</strong>
+                </div>
+              </div>
+              <form id="mileage-form" class="mileage-form">
+                <label>
+                  Date
+                  <input type="date" id="mileage-date" required />
+                </label>
+                <label class="wide">
+                  Purpose
+                  <input type="text" id="mileage-purpose" placeholder="Delivery to client" required />
+                </label>
+                <label>
+                  Kilometres
+                  <input type="number" id="mileage-km" min="0" step="0.1" required />
+                </label>
+                <button type="submit">Log trip</button>
+              </form>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Purpose</th>
+                      <th>Kilometres</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="mileage-table-body">
+                    <tr>
+                      <td colspan="4" class="empty">No mileage entries yet.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="mileage-settings-view" class="card list-card hidden">
+              <form id="mileage-rate-form" class="mileage-form">
+                <label>
+                  Year
+                  <input type="number" id="mileage-rate-year" min="2000" step="1" required />
+                </label>
+                <label>
+                  Rate per km
+                  <input type="number" id="mileage-rate-amount" step="0.001" min="0" required />
+                </label>
+                <button type="submit">Save rate</button>
+              </form>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Year</th>
+                      <th>Rate per km</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="mileage-rate-table-body">
+                    <tr>
+                      <td colspan="3" class="empty">No mileage rates yet.</td>
                     </tr>
                   </tbody>
                 </table>

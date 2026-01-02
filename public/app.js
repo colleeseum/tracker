@@ -104,13 +104,26 @@ const addEntryButton = document.getElementById('add-entry');
 const transferButton = document.getElementById('transfer-funds');
 const newCategoryButton = document.getElementById('new-category');
 const appVersionLabel = document.getElementById('app-version');
+const mileageView = document.getElementById('mileage-view');
+const mileageTableBody = document.getElementById('mileage-table-body');
+const mileageForm = document.getElementById('mileage-form');
+const mileageDateInput = document.getElementById('mileage-date');
+const mileagePurposeInput = document.getElementById('mileage-purpose');
+const mileageKmInput = document.getElementById('mileage-km');
+const mileageYearTotalLabel = document.getElementById('mileage-year-total');
+const mileageSettingsView = document.getElementById('mileage-settings-view');
+const mileageRateForm = document.getElementById('mileage-rate-form');
+const mileageRateYearInput = document.getElementById('mileage-rate-year');
+const mileageRateAmountInput = document.getElementById('mileage-rate-amount');
+const mileageRateTableBody = document.getElementById('mileage-rate-table-body');
+applyMileageInputDefaults();
 const dashboardView = document.getElementById('dashboard-view');
 const dashboardCashList = document.getElementById('dashboard-cash-list');
 const dashboardCashTotal = document.getElementById('dashboard-cash-total');
 const dashboardEntityList = document.getElementById('dashboard-entity-list');
 const dashboardEntityTotal = document.getElementById('dashboard-entity-total');
 const dashboardKpiCash = document.getElementById('dashboard-kpi-cash');
-const dashboardKpiHybrid = document.getElementById('dashboard-kpi-hybrid');
+const dashboardKpiMileage = document.getElementById('dashboard-kpi-mileage');
 const dashboardKpiStorage = document.getElementById('dashboard-kpi-storage');
 const dashboardKpiOutflow = document.getElementById('dashboard-kpi-outflow');
 const dashboardKpiTopTagAmount = document.getElementById('dashboard-kpi-top-tag-amount');
@@ -458,6 +471,11 @@ let editingOfferTemplateId = null;
 let addOns = [];
 let unsubscribeAddOns = null;
 let editingAddonId = null;
+let mileageLogs = [];
+let mileageRates = [];
+let unsubscribeMileageLogs = null;
+let unsubscribeMileageRates = null;
+let mileageYearToDate = 0;
 let addonPriceLookup = new Map();
 const GLOBAL_ADDON_PRICE_SCOPE = '__global__';
 let conditions = [];
@@ -1872,6 +1890,89 @@ function renderDashboardContentStatus() {
   }
 }
 
+function getLocalDateInputValue(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60000;
+  const local = new Date(date.getTime() - offset);
+  return local.toISOString().slice(0, 10);
+}
+
+function applyMileageInputDefaults() {
+  const todayIso = getLocalDateInputValue();
+  if (mileageDateInput && !mileageDateInput.value) {
+    mileageDateInput.value = todayIso;
+  }
+  if (mileageRateYearInput && !mileageRateYearInput.value) {
+    mileageRateYearInput.value = String(new Date().getFullYear());
+  }
+}
+
+function renderMileageLog() {
+  if (!mileageTableBody) return;
+  mileageTableBody.innerHTML = '';
+  let yearTotal = 0;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const startOfYear = new Date(currentYear, 0, 1).getTime();
+  mileageLogs.forEach((log) => {
+    const logDate = toDateObject(log.date);
+    const km = Number(log.kilometres ?? log.km ?? 0);
+    if (logDate && logDate.getTime() >= startOfYear) {
+      yearTotal += km;
+    }
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${formatDate(log.date)}</td>
+      <td>${log.purpose || '—'}</td>
+      <td>${km.toFixed(1)}</td>
+      <td>
+        <button type="button" class="link" data-action="delete-mileage" data-id="${log.id}">Delete</button>
+      </td>
+    `;
+    mileageTableBody.appendChild(row);
+  });
+  if (!mileageLogs.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.className = 'empty';
+    cell.textContent = 'No mileage entries yet.';
+    row.appendChild(cell);
+    mileageTableBody.appendChild(row);
+  }
+  mileageYearToDate = yearTotal;
+  if (mileageYearTotalLabel) {
+    mileageYearTotalLabel.textContent = formatKilometres(yearTotal);
+  }
+  updateDashboardKpis({ cashTotal: lastKnownCashTotal, entityTotal: lastKnownEntityTotal });
+}
+
+function renderMileageRates() {
+  if (!mileageRateTableBody) return;
+  mileageRateTableBody.innerHTML = '';
+  if (!mileageRates.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 3;
+    cell.className = 'empty';
+    cell.textContent = 'No mileage rates yet.';
+    row.appendChild(cell);
+    mileageRateTableBody.appendChild(row);
+    return;
+  }
+  const sorted = [...mileageRates].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
+  sorted.forEach((rate) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${rate.year || '—'}</td>
+      <td>${Number(rate.rate ?? rate.amount ?? 0).toFixed(3)}</td>
+      <td>
+        <button type="button" class="link" data-action="delete-mileage-rate" data-id="${rate.id}">Delete</button>
+      </td>
+    `;
+    mileageRateTableBody.appendChild(row);
+  });
+}
+
 function formatDateTimeFromMillis(ms) {
   if (!ms) return '—';
   const date = new Date(ms);
@@ -2663,6 +2764,42 @@ function subscribeToExpensesStream() {
     },
     (error) => {
       entryFormError.textContent = error.message;
+    }
+  );
+}
+
+function subscribeToMileageLogs() {
+  if (unsubscribeMileageLogs) {
+    unsubscribeMileageLogs();
+  }
+  const ref = collection(db, 'mileageLogs');
+  const q = query(ref, orderBy('date', 'desc'));
+  unsubscribeMileageLogs = onSnapshot(
+    q,
+    (snapshot) => {
+      mileageLogs = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      renderMileageLog();
+    },
+    (error) => {
+      console.error('Failed to load mileage logs:', error);
+    }
+  );
+}
+
+function subscribeToMileageRates() {
+  if (unsubscribeMileageRates) {
+    unsubscribeMileageRates();
+  }
+  const ref = collection(db, 'mileageRates');
+  const q = query(ref, orderBy('year', 'desc'));
+  unsubscribeMileageRates = onSnapshot(
+    q,
+    (snapshot) => {
+      mileageRates = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      renderMileageRates();
+    },
+    (error) => {
+      console.error('Failed to load mileage rates:', error);
     }
   );
 }
@@ -3740,6 +3877,14 @@ function formatCurrency(value) {
     currency: 'CAD'
   });
   return formatter.format(Number(value) || 0);
+}
+
+function formatKilometres(value, fractionDigits = 1) {
+  const formatter = new Intl.NumberFormat('en-CA', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits
+  });
+  return `${formatter.format(Number(value) || 0)} km`;
 }
 
 accountList.addEventListener('click', (event) => {
@@ -4933,6 +5078,91 @@ categoryForm.addEventListener('submit', async (event) => {
   }
 });
 
+if (mileageForm) {
+  mileageForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const dateValue = mileageDateInput?.value;
+    const purpose = mileagePurposeInput?.value?.trim();
+    const kmValue = Number.parseFloat(mileageKmInput?.value ?? '');
+    if (!dateValue || !purpose || !Number.isFinite(kmValue)) {
+      return;
+    }
+    try {
+      const parsedDate = new Date(`${dateValue}T00:00:00`);
+      await addDoc(collection(db, 'mileageLogs'), {
+        date: Timestamp.fromDate(parsedDate),
+        purpose,
+        kilometres: kmValue,
+        createdAt: serverTimestamp(),
+        createdBy: auth.currentUser?.uid || null
+      });
+      mileageForm.reset();
+      applyMileageInputDefaults();
+      mileagePurposeInput?.focus();
+    } catch (error) {
+      console.error('Failed to save mileage entry:', error);
+      window.alert(`Unable to save mileage entry: ${error.message}`);
+    }
+  });
+}
+
+if (mileageTableBody) {
+  mileageTableBody.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-action="delete-mileage"]');
+    if (!button) return;
+    const { id } = button.dataset;
+    if (!id) return;
+    if (!window.confirm('Delete this mileage entry?')) return;
+    try {
+      await deleteDoc(doc(db, 'mileageLogs', id));
+    } catch (error) {
+      console.error('Unable to delete mileage entry:', error);
+      window.alert(`Unable to delete mileage entry: ${error.message}`);
+    }
+  });
+}
+
+if (mileageRateForm) {
+  mileageRateForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const yearValue = Number.parseInt(mileageRateYearInput?.value ?? '', 10);
+    const rateValue = Number.parseFloat(mileageRateAmountInput?.value ?? '');
+    if (!Number.isFinite(yearValue) || !Number.isFinite(rateValue)) {
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'mileageRates'), {
+        year: yearValue,
+        rate: rateValue,
+        createdAt: serverTimestamp(),
+        createdBy: auth.currentUser?.uid || null
+      });
+      mileageRateForm.reset();
+      applyMileageInputDefaults();
+      mileageRateYearInput?.focus();
+    } catch (error) {
+      console.error('Unable to save mileage rate:', error);
+      window.alert(`Unable to save mileage rate: ${error.message}`);
+    }
+  });
+}
+
+if (mileageRateTableBody) {
+  mileageRateTableBody.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-action="delete-mileage-rate"]');
+    if (!button) return;
+    const { id } = button.dataset;
+    if (!id) return;
+    if (!window.confirm('Delete this mileage rate?')) return;
+    try {
+      await deleteDoc(doc(db, 'mileageRates', id));
+    } catch (error) {
+      console.error('Unable to delete mileage rate:', error);
+      window.alert(`Unable to delete mileage rate: ${error.message}`);
+    }
+  });
+}
+
 if (loginForm) {
   if (allowEmailPasswordAuth) {
     loginForm.classList.remove('hidden');
@@ -5060,6 +5290,8 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToCategories();
   subscribeToPublishStatus();
   subscribeToExpensesStream();
+  subscribeToMileageLogs();
+  subscribeToMileageRates();
   ledgerAccountSelection = [];
 setView('dashboard');
 if (appVersionLabel) {
@@ -5137,6 +5369,7 @@ function setView(view) {
   });
   const showingDashboard = view === 'dashboard';
   const showingLedger = view === 'ledger';
+  const showingMileage = view === 'mileage';
   const showingAccounts = view === 'accounts';
   const showingClients = view === 'clients';
   const showingStorage = view === 'storage';
@@ -5150,6 +5383,9 @@ function setView(view) {
   }
   if (dashboardView) {
     dashboardView.classList.toggle('hidden', !showingDashboard);
+  }
+  if (mileageView) {
+    mileageView.classList.toggle('hidden', !showingMileage);
   }
   accountsView.classList.toggle('hidden', !showingAccounts);
   clientsView.classList.toggle('hidden', !showingClients);
@@ -5166,6 +5402,9 @@ function setView(view) {
     settingsNavButtons.forEach((button) => button.classList.remove('active'));
     if (settingsView) {
       settingsView.classList.add('hidden');
+    }
+    if (mileageSettingsView) {
+      mileageSettingsView.classList.add('hidden');
     }
     if (!showingPricing) {
       pricingView.classList.add('hidden');
@@ -5192,6 +5431,13 @@ function setView(view) {
     panelTitle.textContent = 'Dashboard';
     panelSubtitle.textContent = 'Overview of balances, activity, and website updates.';
     renderDashboard();
+  } else if (showingMileage) {
+    panelTitle.textContent = 'Mileage log';
+    panelSubtitle.textContent = 'Track business trips and CRA-friendly totals.';
+    if (mileageDateInput && !mileageDateInput.value) {
+      mileageDateInput.value = getLocalDateInputValue();
+    }
+    renderMileageLog();
   } else if (showingLedger) {
     panelTitle.textContent = 'Ledger';
     panelSubtitle.textContent = 'Reverse chronological table of every entry.';
@@ -5231,10 +5477,14 @@ function setSettingsSection(section) {
   });
   const showCategories = activeSettingsSection === 'categories';
   const showPricing = activeSettingsSection === 'pricing';
+  const showMileageRates = activeSettingsSection === 'mileage';
   if (settingsView) {
     settingsView.classList.toggle('hidden', !showCategories);
   }
   pricingView.classList.toggle('hidden', !(showPricing || currentView === 'pricing'));
+  if (mileageSettingsView) {
+    mileageSettingsView.classList.toggle('hidden', !showMileageRates);
+  }
   updateSettingsActionsVisibility();
   if (!activeSettingsSection) {
     panelTitle.textContent = 'Settings';
@@ -5252,6 +5502,10 @@ function setSettingsSection(section) {
     renderConditionTable();
     renderEtiquetteTable();
     renderCopyTable();
+  } else if (activeSettingsSection === 'mileage') {
+    panelTitle.textContent = 'Mileage rates';
+    panelSubtitle.textContent = 'Store CRA allowance per km by year.';
+    renderMileageRates();
   }
   updatePricingToolbarActions();
   updatePublishButtonState();
@@ -6215,9 +6469,8 @@ function updateDashboardKpis({ cashTotal = 0, entityTotal = 0 }) {
   if (dashboardKpiCash) {
     dashboardKpiCash.textContent = formatCurrency(cashTotal);
   }
-  if (dashboardKpiHybrid) {
-    const hybridCount = accounts.filter((account) => account?.type === 'cash_entity').length;
-    dashboardKpiHybrid.textContent = String(hybridCount);
+  if (dashboardKpiMileage) {
+    dashboardKpiMileage.textContent = formatKilometres(mileageYearToDate);
   }
   if (dashboardKpiStorage) {
     const pendingStorage = storageRequests.filter((request) => request?.status !== 'completed').length;
