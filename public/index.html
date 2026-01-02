@@ -562,28 +562,13 @@
             </div>
 
             <div id="mileage-view" class="card mileage-card hidden">
-              <div class="mileage-year-total">
-                <span>Year to date</span>
-                <strong id="mileage-year-total">0 km</strong>
-              </div>
-              <form id="mileage-form" class="mileage-form">
-                <label>
-                  Date
-                  <input type="date" id="mileage-date" required />
-                </label>
-                <label class="wide">
-                  Purpose
-                  <input type="text" id="mileage-purpose" placeholder="Delivery to client" required />
-                </label>
-                <label>
-                  Kilometres
-                  <input type="number" id="mileage-km" min="0" step="0.1" required />
-                </label>
-                <div class="form-actions">
-                  <button type="submit" id="mileage-submit">Log trip</button>
-                  <button type="button" id="mileage-cancel-edit" class="secondary hidden">Cancel</button>
+              <div class="mileage-header">
+                <div class="mileage-year-total">
+                  <span>Year to date</span>
+                  <strong id="mileage-year-total">0 km</strong>
                 </div>
-              </form>
+                <button type="button" id="open-mileage-modal">Log trip</button>
+              </div>
               <div class="table-wrapper">
                 <table class="mileage-table">
                   <thead>
@@ -601,6 +586,48 @@
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            <div id="mileage-modal" class="modal hidden">
+              <div class="modal-content card">
+                <div class="modal-header">
+                  <h3 id="mileage-form-title">Log mileage entry</h3>
+                  <button id="close-mileage-modal" type="button" class="link">Close</button>
+                </div>
+                <form id="mileage-form" class="grid-form">
+                  <label>
+                    Date
+                    <input type="date" id="mileage-date" required />
+                  </label>
+                  <label>
+                    Kilometres
+                    <input type="number" id="mileage-km" min="0" step="0.1" required />
+                  </label>
+                  <label class="wide">
+                    Purpose
+                    <input type="text" id="mileage-purpose" placeholder="Delivery to client" required />
+                  </label>
+                  <label class="wide">
+                    Tags
+                    <input type="text" id="mileage-tags" placeholder="maintenance, delivery" list="mileage-tag-suggestions" />
+                    <datalist id="mileage-tag-suggestions"></datalist>
+                  </label>
+                  <label class="wide">
+                    Vendor
+                    <input
+                      type="text"
+                      id="mileage-vendor-tag"
+                      placeholder="Supplier or location name"
+                      list="vendor-suggestions"
+                    />
+                  </label>
+                  <div class="form-actions">
+                    <button type="submit" id="mileage-submit">Log trip</button>
+                    <button type="button" id="mileage-cancel-edit" class="secondary hidden">Cancel edit</button>
+                  </div>
+                  <p class="hint">Tags reuse the same vocabulary as the ledger. Separate each tag with a comma.</p>
+                </form>
               </div>
             </div>
 
@@ -1362,13 +1389,24 @@
                   <option value="">Select client</option>
                 </select>
               </label>
+              <label id="entry-vendor-field" class="hidden">
+                Vendor tag
+                <input type="text" id="entry-vendor" placeholder="Supplier or location" list="vendor-suggestions" />
+                <datalist id="vendor-suggestions"></datalist>
+              </label>
               <label>
                 Tags
                 <div class="tag-input" id="tag-input-wrapper">
                   <div id="selected-tags" class="selected-tags"></div>
-                  <input type="text" id="entry-tag-input" placeholder="Add tag" />
+                  <input
+                    type="text"
+                    id="entry-tag-input"
+                    placeholder="Add tag"
+                    autocomplete="off"
+                    list="tag-suggestion-list"
+                  />
                 </div>
-                <ul id="tag-suggestion-list" class="tag-suggestions hidden"></ul>
+                <datalist id="tag-suggestion-list"></datalist>
                 <small class="hint">Type and press Enter to add. Click suggestions to reuse existing tags.</small>
               </label>
               <label>

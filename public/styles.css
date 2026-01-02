@@ -1267,8 +1267,8 @@ th {
   background: #e2e8f0;
   color: #0f172a;
   border-radius: 999px;
-  padding: 0.1rem 0.5rem;
-  font-size: 0.75rem;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.78rem;
   border: 1px solid transparent;
   transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
   display: inline-flex;
@@ -1276,6 +1276,44 @@ th {
   justify-content: center;
   min-width: 3rem;
   text-align: center;
+}
+
+.table-tag.tag-group-label {
+  background: transparent;
+  color: #94a3b8;
+  border: none;
+  padding-left: 0;
+  font-weight: 700;
+}
+
+.table-tag.vendor-tag {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.table-tag.location-tag {
+  background: #cffafe;
+  color: #155e75;
+}
+
+.inline-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: 0.35rem;
+}
+
+.mileage-inline-tag {
+  min-width: 0;
+}
+
+.mileage-purpose-text {
+  font-weight: 600;
+  color: #0f172a;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
 }
 
 .return-label {

@@ -110,7 +110,15 @@ const mileageForm = document.getElementById('mileage-form');
 const mileageDateInput = document.getElementById('mileage-date');
 const mileagePurposeInput = document.getElementById('mileage-purpose');
 const mileageKmInput = document.getElementById('mileage-km');
+const mileageTagsInput = document.getElementById('mileage-tags');
+const mileageVendorTagInput = document.getElementById('mileage-vendor-tag');
+const mileageTagDatalist = document.getElementById('mileage-tag-suggestions');
 const mileageYearTotalLabel = document.getElementById('mileage-year-total');
+const mileageModal = document.getElementById('mileage-modal');
+const mileageFormTitle = document.getElementById('mileage-form-title');
+const openMileageModalButton = document.getElementById('open-mileage-modal');
+const closeMileageModalButton = document.getElementById('close-mileage-modal');
+const vendorSuggestionList = document.getElementById('vendor-suggestions');
 const mileageSettingsView = document.getElementById('mileage-settings-view');
 const mileageRateForm = document.getElementById('mileage-rate-form');
 const mileageRateYearInput = document.getElementById('mileage-rate-year');
@@ -360,6 +368,8 @@ const entryClientSelect = document.getElementById('entry-client');
 const entryAmountInput = document.getElementById('entry-amount');
 const entryReturnInput = document.getElementById('entry-is-return');
 const entryReturnLabel = document.getElementById('entry-return-label');
+const entryVendorField = document.getElementById('entry-vendor-field');
+const entryVendorInput = document.getElementById('entry-vendor');
 const entryDescriptionInput = document.getElementById('entry-description');
 const entryFormError = document.getElementById('entry-form-error');
 const tagInput = document.getElementById('entry-tag-input');
@@ -395,7 +405,6 @@ function hideEntryModal() {
   entryFormTitle.textContent = 'Add ledger entry';
   selectedTags = [];
   renderSelectedTags();
-  tagSuggestionList.classList.add('hidden');
   updateEntryCategoryOptions({ forceType: entryTypeSelect.value, preserveSelection: false });
   if (entryClientSelect) {
     entryClientSelect.value = '';
@@ -405,6 +414,7 @@ function hideEntryModal() {
   }
   updateReturnLabel();
   syncEntryClientVisibility();
+  syncEntryVendorVisibility();
   syncEntrySelectors();
 }
 
@@ -441,6 +451,7 @@ let lastKnownEntityTotal = 0;
 let expenses = [];
 let unsubscribeExpenses = null;
 let tagSet = new Set();
+let vendorTagSet = new Set();
 let editingEntryId = null;
 let editingEntryTransactionId = null;
 let editingTransferContext = null;
@@ -1909,18 +1920,86 @@ function applyMileageInputDefaults() {
   }
 }
 
+function normalizeTagValue(tag) {
+  return (tag || '').replace(/^#+/, '').trim();
+}
+
+function normalizeTagArray(tags) {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set();
+  const normalized = [];
+  tags.forEach((tag) => {
+    const value = normalizeTagValue(tag);
+    if (value && !seen.has(value)) {
+      seen.add(value);
+      normalized.push(value);
+    }
+  });
+  return normalized;
+}
+
+function formatTagLabel(tag) {
+  const value = normalizeTagValue(tag);
+  return value ? `#${value}` : '';
+}
+
+function parseMileageTags(raw) {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((tag) => normalizeTagValue(tag))
+    .filter(Boolean);
+}
+
+function syncMileageTagSuggestions() {
+  if (!mileageTagDatalist) return;
+  mileageTagDatalist.innerHTML = '';
+  Array.from(tagSet)
+    .sort((a, b) => a.localeCompare(b))
+    .forEach((tag) => {
+      const option = document.createElement('option');
+      option.value = formatTagLabel(tag);
+      mileageTagDatalist.appendChild(option);
+    });
+}
+
 function resetMileageFormState() {
   editingMileageId = null;
   if (mileageForm) {
     mileageForm.reset();
   }
   applyMileageInputDefaults();
+  if (mileageTagsInput) {
+    mileageTagsInput.value = '';
+  }
+  if (mileageVendorTagInput) {
+    mileageVendorTagInput.value = '';
+  }
   if (mileageSubmitButton) {
     mileageSubmitButton.textContent = 'Log trip';
   }
   if (mileageCancelButton) {
     mileageCancelButton.classList.add('hidden');
   }
+  if (mileageFormTitle) {
+    mileageFormTitle.textContent = 'Log mileage entry';
+  }
+}
+
+function openMileageModal(mode = 'create') {
+  if (mileageModal) {
+    mileageModal.classList.remove('hidden');
+  }
+  if (mileageFormTitle) {
+    mileageFormTitle.textContent = mode === 'edit' ? 'Edit mileage entry' : 'Log mileage entry';
+  }
+}
+
+function closeMileageModal() {
+  if (mileageModal) {
+    mileageModal.classList.add('hidden');
+  }
+  resetMileageFormState();
 }
 
 function beginEditMileageEntry(log) {
@@ -1937,12 +2016,24 @@ function beginEditMileageEntry(log) {
     const kmValue = Number(log.kilometres ?? log.km ?? 0);
     mileageKmInput.value = Number.isFinite(kmValue) ? kmValue : '';
   }
+  if (mileageTagsInput) {
+    mileageTagsInput.value = Array.isArray(log.tags)
+      ? log.tags
+          .map((tag) => formatTagLabel(tag) || '')
+          .filter(Boolean)
+          .join(', ')
+      : '';
+  }
+  if (mileageVendorTagInput) {
+    mileageVendorTagInput.value = Array.isArray(log.vendorTags) ? log.vendorTags.join(', ') : log.vendorTag || '';
+  }
   if (mileageSubmitButton) {
     mileageSubmitButton.textContent = 'Save changes';
   }
   if (mileageCancelButton) {
     mileageCancelButton.classList.remove('hidden');
   }
+  openMileageModal('edit');
   mileagePurposeInput?.focus();
 }
 
@@ -1966,6 +2057,22 @@ function renderMileageLog() {
       (typeof log.createdBy === 'string' && log.createdBy.includes('@') ? log.createdBy : '');
     const whoLabel = whoLabelRaw && typeof whoLabelRaw === 'string' ? whoLabelRaw : '—';
     const row = document.createElement('tr');
+    const tagList = Array.isArray(log.tags) ? log.tags : [];
+    const inlineTagMarkup = tagList
+      .map((tag) => {
+        const label = formatTagLabel(tag);
+        return label ? `<span class="table-tag mileage-inline-tag">${label}</span>` : '';
+      })
+      .join('');
+    const vendorList = Array.isArray(log.vendorTags)
+      ? log.vendorTags
+      : log.vendorTag
+      ? [log.vendorTag]
+      : [];
+    const vendorMarkup = vendorList.length
+      ? `<span class="table-tag vendor-tag">${vendorList[0]}</span>`
+      : '';
+    const inlineTags = inlineTagMarkup ? `<span class="inline-tags">${inlineTagMarkup}</span>` : '';
     const actionsMarkup = `
       <div class="table-actions">
         <button
@@ -1991,7 +2098,11 @@ function renderMileageLog() {
     row.innerHTML = `
       <td>${formatDate(log.date)}</td>
       <td>${whoLabel}</td>
-      <td>${log.purpose || '—'}</td>
+      <td>
+        <div class="mileage-purpose-text">
+          ${vendorMarkup ? `${vendorMarkup} : ` : ''}${log.purpose || '—'}${inlineTags ? ` ${inlineTags}` : ''}
+        </div>
+      </td>
       <td>${km.toFixed(1)}</td>
       <td class="actions-cell">${actionsMarkup}</td>
     `;
@@ -2747,11 +2858,21 @@ function categoryRequiresClient(categoryId) {
 
 function syncEntryClientVisibility() {
   if (!entryClientField || !entryClientSelect) return;
-  const requiresClient = categoryRequiresClient(entryCategorySelect?.value);
+  const requiresClient =
+    entryTypeSelect?.value === 'income' && categoryRequiresClient(entryCategorySelect?.value);
   entryClientField.classList.toggle('hidden', !requiresClient);
   entryClientSelect.required = requiresClient;
   if (!requiresClient) {
     entryClientSelect.value = '';
+  }
+}
+
+function syncEntryVendorVisibility() {
+  if (!entryVendorField) return;
+  const shouldShow = entryTypeSelect?.value !== 'income';
+  entryVendorField.classList.toggle('hidden', !shouldShow);
+  if (!shouldShow && entryVendorInput) {
+    entryVendorInput.value = '';
   }
 }
 
@@ -2811,7 +2932,13 @@ function subscribeToExpensesStream() {
   unsubscribeExpenses = onSnapshot(
     q,
     (snapshot) => {
-      expenses = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      expenses = snapshot.docs.map((docSnap) => {
+        const data = { id: docSnap.id, ...docSnap.data() };
+        if (Array.isArray(data.tags)) {
+          data.tags = normalizeTagArray(data.tags);
+        }
+        return data;
+      });
       const { cashTotals, entityTotals } = calculateAdjustments(expenses);
       accountAdjustments = cashTotals;
       entityAdjustments = entityTotals;
@@ -2822,12 +2949,14 @@ function subscribeToExpensesStream() {
         }
       });
       updateTagSuggestions();
+      syncMileageTagSuggestions();
       if (ledgerTagFilterInput) {
         const currentValue = ledgerTagFilterInput.value;
         ledgerTagFilterInput.value = currentValue;
       }
       renderLedgerTable();
       renderAccountList();
+      rebuildVendorTagSet();
     },
     (error) => {
       entryFormError.textContent = error.message;
@@ -2844,8 +2973,15 @@ function subscribeToMileageLogs() {
   unsubscribeMileageLogs = onSnapshot(
     q,
     (snapshot) => {
-      mileageLogs = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      mileageLogs = snapshot.docs.map((docSnap) => {
+        const data = { id: docSnap.id, ...docSnap.data() };
+        if (Array.isArray(data.tags)) {
+          data.tags = normalizeTagArray(data.tags);
+        }
+        return data;
+      });
       renderMileageLog();
+      rebuildVendorTagSet();
     },
     (error) => {
       console.error('Failed to load mileage logs:', error);
@@ -2877,6 +3013,7 @@ function cleanExpensesSubscription() {
   }
   unsubscribeExpenses = null;
   expenses = [];
+  rebuildVendorTagSet();
   accountAdjustments = new Map();
   entityAdjustments = new Map();
   renderLedgerTable();
@@ -5151,6 +5288,8 @@ if (mileageForm) {
     const dateValue = mileageDateInput?.value;
     const purpose = mileagePurposeInput?.value?.trim();
     const kmValue = Number.parseFloat(mileageKmInput?.value ?? '');
+    const tags = parseMileageTags(mileageTagsInput?.value || '');
+    const vendorTags = parseMileageTags(mileageVendorTagInput?.value || '');
     if (!dateValue || !purpose || !Number.isFinite(kmValue)) {
       return;
     }
@@ -5164,6 +5303,8 @@ if (mileageForm) {
           date: Timestamp.fromDate(parsedDate),
           purpose,
           kilometres: kmValue,
+          tags,
+          vendorTags,
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser?.uid || null,
           updatedByEmail: userEmail,
@@ -5175,6 +5316,8 @@ if (mileageForm) {
           date: Timestamp.fromDate(parsedDate),
           purpose,
           kilometres: kmValue,
+          tags,
+          vendorTags,
           createdAt: serverTimestamp(),
           createdBy: auth.currentUser?.uid || null,
           createdByEmail: userEmail,
@@ -5182,8 +5325,7 @@ if (mileageForm) {
           loggedBy: loggedByValue
         });
       }
-      resetMileageFormState();
-      mileagePurposeInput?.focus();
+      closeMileageModal();
     } catch (error) {
       console.error('Failed to save mileage entry:', error);
       window.alert(`Unable to save mileage entry: ${error.message}`);
@@ -5209,7 +5351,7 @@ if (mileageTableBody) {
       try {
         await deleteDoc(doc(db, 'mileageLogs', id));
         if (editingMileageId === id) {
-          resetMileageFormState();
+          closeMileageModal();
         }
       } catch (error) {
         console.error('Unable to delete mileage entry:', error);
@@ -5223,6 +5365,27 @@ if (mileageCancelButton) {
   mileageCancelButton.addEventListener('click', () => {
     resetMileageFormState();
     mileagePurposeInput?.focus();
+  });
+}
+
+if (openMileageModalButton) {
+  openMileageModalButton.addEventListener('click', () => {
+    resetMileageFormState();
+    openMileageModal('create');
+  });
+}
+
+if (closeMileageModalButton) {
+  closeMileageModalButton.addEventListener('click', () => {
+    closeMileageModal();
+  });
+}
+
+if (mileageModal) {
+  mileageModal.addEventListener('click', (event) => {
+    if (event.target === mileageModal) {
+      closeMileageModal();
+    }
   });
 }
 
@@ -5945,8 +6108,11 @@ function formatDate(raw) {
 function renderLedgerDescription(entry) {
   const sections = [];
   const baseDescription = entry.description || (entry.isVirtualOpening ? 'Opening balance' : '');
-  if (baseDescription) {
-    sections.push(`<div class="ledger-description-text">${baseDescription}</div>`);
+  const vendorMarkup = entry.vendorTag ? `<span class="table-tag vendor-tag">${entry.vendorTag}</span>` : '';
+  if (baseDescription || vendorMarkup) {
+    const descriptionBody = baseDescription || '—';
+    const prefix = vendorMarkup ? `${vendorMarkup} : ` : '';
+    sections.push(`<div class="ledger-description-text">${prefix}${descriptionBody}</div>`);
   }
   const metaChips = [];
   if (entry.category) {
@@ -5974,9 +6140,25 @@ function renderLedgerDescription(entry) {
 function renderTagList(entry) {
   if (!Array.isArray(entry.tags) || !entry.tags.length) return '';
   const chips = entry.tags
-    .map((tag) => `<span class="table-tag">${tag}</span>`)
+    .map((tag) => {
+      const label = formatTagLabel(tag);
+      return label ? `<span class="table-tag">${label}</span>` : '';
+    })
+    .filter(Boolean)
     .join('');
   return `<div class="table-tags">${chips}</div>`;
+}
+
+function renderTagGroup(label, tags, modifier = '') {
+  if (!Array.isArray(tags) || !tags.length) return '';
+  const pills = tags
+    .map((tag) => {
+      const text = formatTagLabel(tag);
+      return text ? `<span class="table-tag ${modifier}">${text}</span>` : '';
+    })
+    .filter(Boolean)
+    .join('');
+  return `<div class="table-tags"><span class="table-tag tag-group-label">${label}</span>${pills}</div>`;
 }
 
 if (toggleLedgerFilterButton) {
@@ -6068,6 +6250,7 @@ function openNewEntryModal() {
     entryClientSelect.value = '';
   }
   syncEntryClientVisibility();
+  syncEntryVendorVisibility();
   syncEntrySelectors();
   updateTagSuggestions();
   entryModal.classList.remove('hidden');
@@ -6106,6 +6289,7 @@ entryEntitySelect.addEventListener('change', () => {
 entryTypeSelect.addEventListener('change', () => {
   updateEntryCategoryOptions({ forceType: entryTypeSelect.value });
   syncEntryClientVisibility();
+  syncEntryVendorVisibility();
   updateReturnLabel();
 });
 updateReturnLabel();
@@ -6123,17 +6307,17 @@ tagInput.addEventListener('keydown', (event) => {
   } else if (event.key === 'Backspace' && !tagInput.value && selectedTags.length) {
     selectedTags.pop();
     renderSelectedTags();
-  } else if (event.key === 'Escape') {
-    tagSuggestionList.classList.add('hidden');
   }
 });
 
-tagInput.addEventListener('input', () => {
-  updateTagSuggestions(tagInput.value);
+tagInput.addEventListener('focus', () => {
+  updateTagSuggestions();
 });
 
-tagInput.addEventListener('focus', () => {
-  updateTagSuggestions(tagInput.value);
+tagInput.addEventListener('change', () => {
+  if (tagInput.value) {
+    addTag(tagInput.value);
+  }
 });
 
 if (dashboardAddEntryButton) {
@@ -6176,12 +6360,15 @@ function startEditEntry(entry) {
     fallbackLabel: entry.category || '',
     fallbackCode: entry.categoryCode
   });
+  if (entryVendorInput) {
+    entryVendorInput.value = entry.vendorTag || '';
+  }
   entryAmountInput.value = Number(entry.amount) || 0;
   if (entryReturnInput) {
     entryReturnInput.checked = Boolean(entry.isReturn);
   }
   entryDescriptionInput.value = entry.description || '';
-  selectedTags = Array.isArray(entry.tags) ? [...entry.tags] : [];
+  selectedTags = normalizeTagArray(entry.tags);
   renderSelectedTags();
   setDateInputValue(entryDateInput, entry.date, true);
   updateEntryClientOptions();
@@ -6189,6 +6376,7 @@ function startEditEntry(entry) {
     entryClientSelect.value = entry.clientId || '';
   }
   syncEntryClientVisibility();
+  syncEntryVendorVisibility();
   syncEntrySelectors();
   updateTagSuggestions();
   entryModal.classList.remove('hidden');
@@ -6253,6 +6441,7 @@ entryForm.addEventListener('submit', async (event) => {
   const amountValue = Number(entryAmountInput.value);
   const description = entryDescriptionInput.value.trim();
   const tags = [...selectedTags];
+  const vendorTagValue = entryVendorInput?.value?.trim();
   const selectedClientId = entryClientSelect ? entryClientSelect.value : '';
   const isReturn = Boolean(entryReturnInput?.checked);
 
@@ -6318,6 +6507,7 @@ entryForm.addEventListener('submit', async (event) => {
     amount: Number(amountValue.toFixed(2)),
     description,
     tags,
+    vendorTag: entryType === 'expense' && vendorTagValue ? vendorTagValue : null,
     transactionId,
     clientId: selectedClientId || null,
     isReturn
@@ -6519,7 +6709,7 @@ function renderSelectedTags() {
   selectedTags.forEach((tag) => {
     const chip = document.createElement('span');
     chip.className = 'tag-chip';
-    chip.textContent = tag;
+    chip.textContent = formatTagLabel(tag) || tag;
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.textContent = '×';
@@ -6530,51 +6720,68 @@ function renderSelectedTags() {
     chip.appendChild(remove);
     selectedTagsContainer.appendChild(chip);
   });
+  updateTagSuggestions();
 }
 
 function addTag(value) {
-  const tag = value.trim();
+  const tag = normalizeTagValue(value);
   if (!tag || selectedTags.includes(tag)) return;
   selectedTags.push(tag);
   tagSet.add(tag);
   renderSelectedTags();
   tagInput.value = '';
   updateTagSuggestions();
-  tagSuggestionList.classList.add('hidden');
 }
 
-function updateTagSuggestions(filter = '') {
+function updateTagSuggestions() {
   if (!tagSuggestionList) return;
-  const pool = Array.from(tagSet).filter((tag) => !selectedTags.includes(tag));
-  const normalized = filter.trim().toLowerCase();
-  const matches = normalized ? pool.filter((tag) => tag.toLowerCase().includes(normalized)) : pool;
+  const available = Array.from(tagSet).filter((tag) => !selectedTags.includes(tag));
   tagSuggestionList.innerHTML = '';
-  if (!matches.length) {
-    tagSuggestionList.classList.add('hidden');
-    return;
-  }
-  matches.slice(0, 8).forEach((tag) => {
-    const item = document.createElement('li');
-    item.textContent = tag;
-    const handleSelection = (event) => {
-      event.preventDefault();
-      addTag(tag);
-    };
-    item.addEventListener('mousedown', handleSelection);
-    item.addEventListener('click', handleSelection);
-    tagSuggestionList.appendChild(item);
-  });
-  tagSuggestionList.classList.remove('hidden');
+  available
+    .sort((a, b) => a.localeCompare(b))
+    .forEach((tag) => {
+      const option = document.createElement('option');
+      option.value = formatTagLabel(tag) || tag;
+      tagSuggestionList.appendChild(option);
+    });
 }
 
-document.addEventListener('click', (event) => {
-  if (!tagSuggestionList || !tagInputWrapper) return;
-  const clickedInsideInput = tagInputWrapper.contains(event.target);
-  const clickedSuggestion = tagSuggestionList.contains(event.target);
-  if (!clickedInsideInput && !clickedSuggestion) {
-    tagSuggestionList.classList.add('hidden');
-  }
-});
+function rebuildVendorTagSet() {
+  vendorTagSet = new Set();
+  const addVendor = (value) => {
+    const normalized = (value || '').trim();
+    if (normalized) {
+      vendorTagSet.add(normalized);
+    }
+  };
+  expenses.forEach((entry) => {
+    if (entry?.vendorTag) {
+      addVendor(entry.vendorTag);
+    }
+  });
+  mileageLogs.forEach((log) => {
+    const vendors = Array.isArray(log?.vendorTags)
+      ? log.vendorTags
+      : log?.vendorTag
+      ? [log.vendorTag]
+      : [];
+    vendors.forEach(addVendor);
+  });
+  syncVendorSuggestions();
+}
+
+function syncVendorSuggestions() {
+  if (!vendorSuggestionList) return;
+  vendorSuggestionList.innerHTML = '';
+  if (!vendorTagSet.size) return;
+  Array.from(vendorTagSet)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+    .forEach((vendor) => {
+      const option = document.createElement('option');
+      option.value = vendor;
+      vendorSuggestionList.appendChild(option);
+    });
+}
 function updateDashboardKpis({ cashTotal = 0, entityTotal = 0 }) {
   if (dashboardKpiCash) {
     dashboardKpiCash.textContent = formatCurrency(cashTotal);
