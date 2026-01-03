@@ -6880,6 +6880,7 @@ function computeMissingMileageSuggestions() {
       dateDisplay: formatDate(entry.date),
       description: entry.description || entry.category || '',
       accountName: accountLookup.get(entry.accountId)?.name || '',
+      entityName: entry.entityId ? accountLookup.get(entry.entityId)?.name || '' : '',
       amount: Number(entry.amount) || 0,
       transactionId: entry.transactionId || entry.id,
       tags: Array.isArray(entry.tags) ? [...entry.tags] : []
@@ -6922,7 +6923,7 @@ function renderMissingMileageSuggestions() {
         : '';
     item.innerHTML = `
       <div class="suggestion-info">
-        <strong>${suggestion.vendorLabel || 'Vendor'}</strong>
+        <strong>${suggestion.vendorLabel || 'Vendor'}${suggestion.entityName ? ` for ${suggestion.entityName}` : ''}</strong>
         <div class="suggestion-meta">
           <span>${suggestion.dateDisplay || 'Unknown date'}</span>
           <span>${suggestion.accountName || 'Account'}</span>
