@@ -2365,8 +2365,10 @@ function addIncomeToSummary(summary, meta, amount, entry) {
   const normalizedCode = normalizeCategoryCode(meta.code);
   if (normalizedCode === OTHER_INCOME_T2042_CODE) {
     const key = meta.id || meta.label || `other-${summary.otherIncome.size}`;
-    const detail = summary.otherIncome.get(key) || { label: meta.label || 'Other Income', amount: 0, entryIds: [] };
+    const detail =
+      summary.otherIncome.get(key) || { label: meta.label || 'Other Income', amount: 0, entryIds: [], code: meta.code };
     detail.amount += amount;
+    detail.code = meta.code;
     if (entry?.id) {
       detail.entryIds.push(entry.id);
     }
@@ -2374,7 +2376,12 @@ function addIncomeToSummary(summary, meta, amount, entry) {
     summary.otherIncomeTotal += amount;
     return;
   }
-  const key = Number.isFinite(normalizedCode) ? `code-${normalizedCode}` : meta.id || meta.label;
+  let key;
+  if (Number.isFinite(normalizedCode) && normalizedCode !== 0) {
+    key = `code-${normalizedCode}`;
+  } else {
+    key = meta.id ? `id-${meta.id}` : `${meta.label || 'category'}-${normalizedCode ?? 'none'}`;
+  }
   const line = summary.income.get(key) || { label: meta.label || '—', code: meta.code, amount: 0, entryIds: [] };
   line.amount += amount;
   line.code = meta.code;
@@ -2388,7 +2395,12 @@ function addExpenseToSummary(summary, meta, amount, entry) {
   if (!amount) return;
   summary.expenseTotal += amount;
   const normalizedCode = normalizeCategoryCode(meta.code);
-  const key = Number.isFinite(normalizedCode) ? `code-${normalizedCode}` : meta.id || meta.label;
+  let key;
+  if (Number.isFinite(normalizedCode) && normalizedCode !== 0) {
+    key = `code-${normalizedCode}`;
+  } else {
+    key = meta.id ? `id-${meta.id}` : `${meta.label || 'category'}-${normalizedCode ?? 'none'}`;
+  }
   const line = summary.expenses.get(key) || { label: meta.label || '—', code: meta.code, amount: 0, entryIds: [] };
   line.amount += amount;
   line.code = meta.code;
@@ -2414,10 +2426,6 @@ function sortReportLines(lineMap) {
       }
       return (a.label || '').localeCompare(b.label || '');
     });
-}
-
-function sortOtherIncomeDetails(detailMap) {
-  return Array.from(detailMap.values()).sort((a, b) => (a.label || '').localeCompare(b.label || ''));
 }
 
 function createReportEmptyCard(message) {
@@ -2697,24 +2705,11 @@ function renderReports() {
   `;
   card.appendChild(header);
   const incomeRows = sortReportLines(summary.income);
-  const otherIncomeDetails = sortOtherIncomeDetails(summary.otherIncome);
-  const aggregatedOtherIds = otherIncomeDetails.flatMap((detail) => detail.entryIds || []);
-  const otherIncomeRow =
-    summary.otherIncomeTotal > 0
-      ? [
-          {
-            label: 'Other Income',
-            code: OTHER_INCOME_T2042_CODE,
-            amount: summary.otherIncomeTotal,
-            details: otherIncomeDetails,
-            entryIds: aggregatedOtherIds
-          }
-        ]
-      : [];
+  const otherIncomeLines = sortReportLines(summary.otherIncome);
   const expenseRows = sortReportLines(summary.expenses);
   const mileageExpenseLine = buildMileageExpenseLine(reportFilters.year);
   const expenseRowsWithMileage = mileageExpenseLine ? expenseRows.concat([mileageExpenseLine]) : expenseRows;
-  const incomeRowsWithOther = incomeRows.concat(otherIncomeRow);
+  const incomeRowsWithOther = incomeRows.concat(otherIncomeLines);
   const { t2042Rows: t2042IncomeRows, otherRows: otherIncomeRows } = partitionReportLines(incomeRowsWithOther);
   const { t2042Rows: t2042ExpenseRows, otherRows: otherExpenseRows } = partitionReportLines(expenseRowsWithMileage);
   const t2042IncomeTotal = sumLineAmounts(t2042IncomeRows);
@@ -3365,7 +3360,8 @@ function updateLedgerFilterSummary() {
         ? selectedNames.join(', ')
         : `${selectedNames.slice(0, 2).join(', ')} +${selectedNames.length - 2}`;
   if (ledgerTagFilters.length) {
-    ledgerFilterSummary.textContent = `${accountPart} • Tags: ${ledgerTagFilters.join(', ')}`;
+    const formattedTags = ledgerTagFilters.map((tag) => formatTagLabel(tag) || tag);
+    ledgerFilterSummary.textContent = `${accountPart} • Tags: ${formattedTags.join(', ')}`;
   } else {
     ledgerFilterSummary.textContent = accountPart;
   }
@@ -3378,7 +3374,8 @@ function syncLedgerFilterUI() {
     input.checked = selectionSet.has(input.value);
   });
   if (ledgerTagFilterInput) {
-    ledgerTagFilterInput.value = ledgerTagFilters.join(', ');
+    const formattedTags = ledgerTagFilters.map((tag) => formatTagLabel(tag) || tag);
+    ledgerTagFilterInput.value = formattedTags.join(', ');
   }
 }
 
@@ -7093,7 +7090,7 @@ if (ledgerTagFilterInput) {
 function setLedgerTagFiltersFromInput(value) {
   const tags = value
     .split(',')
-    .map((tag) => tag.trim().toLowerCase())
+    .map((tag) => normalizeTagValue(tag).toLowerCase())
     .filter(Boolean);
   ledgerTagFilters = Array.from(new Set(tags));
   renderLedgerTable();
