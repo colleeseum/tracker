@@ -1420,17 +1420,45 @@
                 <small class="hint">Type and press Enter to add. Click suggestions to reuse existing tags.</small>
               </label>
               <label id="entry-receipt-field" class="wide hidden">
-                Receipt file (expense only)
-                <input
-                  type="file"
-                  id="entry-receipt"
-                  accept="image/*,application/pdf"
-                  capture="environment"
-                />
+                Receipt
+                <div id="entry-receipt-upload">
+                  <input
+                    type="file"
+                    id="entry-receipt"
+                    accept="image/*,application/pdf"
+                    capture="environment"
+                  />
+                </div>
                 <div id="entry-receipt-preview" class="receipt-preview hidden">
-                  <a id="entry-receipt-link" href="#" target="_blank" rel="noopener">View receipt</a>
+                  <div id="entry-receipt-actions" class="receipt-actions hidden" aria-label="Receipt actions">
+                    <button
+                      type="button"
+                      id="entry-receipt-link"
+                      class="icon-button"
+                      title="View receipt"
+                    >
+                      <img src="icons/eye.svg" alt="View receipt" />
+                    </button>
+                    <a
+                      id="entry-receipt-download"
+                      class="icon-link"
+                      href="#"
+                      target="_blank"
+                      rel="noopener"
+                      title="Download receipt"
+                    >
+                      <img src="icons/download.svg" alt="Download receipt" />
+                    </a>
+                    <button
+                      type="button"
+                      id="entry-receipt-remove"
+                      class="icon-button"
+                      title="Remove receipt"
+                    >
+                      <img src="icons/trash.svg" alt="Remove receipt" />
+                    </button>
+                  </div>
                   <span id="entry-receipt-status"></span>
-                  <button type="button" id="entry-receipt-remove" class="link">Remove</button>
                 </div>
               </label>
               <label>

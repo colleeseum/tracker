@@ -390,8 +390,11 @@ const selectedTagsContainer = document.getElementById('selected-tags');
 const tagInputWrapper = document.getElementById('tag-input-wrapper');
 const entryReceiptField = document.getElementById('entry-receipt-field');
 const entryReceiptInput = document.getElementById('entry-receipt');
+const entryReceiptUploadWrapper = document.getElementById('entry-receipt-upload');
 const entryReceiptPreview = document.getElementById('entry-receipt-preview');
+const entryReceiptActions = document.getElementById('entry-receipt-actions');
 const entryReceiptLink = document.getElementById('entry-receipt-link');
+const entryReceiptDownloadLink = document.getElementById('entry-receipt-download');
 const entryReceiptStatus = document.getElementById('entry-receipt-status');
 const entryReceiptRemoveButton = document.getElementById('entry-receipt-remove');
 const entryFormTitle = document.getElementById('entry-form-title');
@@ -2228,13 +2231,22 @@ function renderMileageRates() {
   const sorted = [...mileageRates].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
   sorted.forEach((rate) => {
     const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>${rate.year || '—'}</td>
-      <td>${Number(rate.rate ?? rate.amount ?? 0).toFixed(3)}</td>
-      <td>
-        <button type="button" class="link" data-action="delete-mileage-rate" data-id="${rate.id}">Delete</button>
-      </td>
-    `;
+    const yearCell = document.createElement('td');
+    yearCell.textContent = rate.year || '—';
+    row.appendChild(yearCell);
+    const rateCell = document.createElement('td');
+    rateCell.textContent = Number(rate.rate ?? rate.amount ?? 0).toFixed(3);
+    row.appendChild(rateCell);
+    const actionCell = document.createElement('td');
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-button';
+    deleteButton.dataset.action = 'delete-mileage-rate';
+    deleteButton.dataset.id = rate.id;
+    deleteButton.setAttribute('aria-label', `Delete mileage rate for ${rate.year || 'year'}`);
+    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete mileage rate" data-icon="trash" />';
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
     mileageRateTableBody.appendChild(row);
   });
 }
@@ -2737,10 +2749,23 @@ function renderCategoryTable() {
     requiresClientCell.textContent = category.requiresClient ? 'Yes' : 'No';
     row.appendChild(requiresClientCell);
     const actionCell = document.createElement('td');
-    actionCell.innerHTML = `
-      <button type="button" class="link" data-action="edit-category" data-id="${category.id}">Edit</button>
-      <button type="button" class="link" data-action="delete-category" data-id="${category.id}">Delete</button>
-    `;
+    const categoryLabel = category.label || '';
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'icon-button';
+    editButton.dataset.action = 'edit-category';
+    editButton.dataset.id = category.id;
+    editButton.setAttribute('aria-label', `Edit category ${categoryLabel}`.trim() || 'Edit category');
+    editButton.innerHTML = '<img src="icons/pencil.svg" alt="Edit category" />';
+    actionCell.appendChild(editButton);
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-button';
+    deleteButton.dataset.action = 'delete-category';
+    deleteButton.dataset.id = category.id;
+    deleteButton.setAttribute('aria-label', `Delete category ${categoryLabel}`.trim() || 'Delete category');
+    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete category" data-icon="trash" />';
+    actionCell.appendChild(deleteButton);
     row.appendChild(actionCell);
     categoryTableBody.appendChild(row);
   });
@@ -3009,27 +3034,55 @@ function updateReceiptPreview() {
   if (!entryReceiptPreview || !entryReceiptStatus || !entryReceiptRemoveButton) return;
   const hasSelected = Boolean(pendingReceiptFile);
   const hasExisting = Boolean(currentReceiptMeta.url) && !removeExistingReceipt;
+  if (entryReceiptUploadWrapper) {
+    entryReceiptUploadWrapper.classList.toggle('hidden', hasExisting);
+  }
   if (!hasSelected && !hasExisting) {
     entryReceiptPreview.classList.add('hidden');
-    entryReceiptLink?.classList.add('hidden');
+    if (entryReceiptActions) entryReceiptActions.classList.add('hidden');
     entryReceiptStatus.textContent = '';
     entryReceiptRemoveButton.classList.add('hidden');
     return;
   }
   entryReceiptPreview.classList.remove('hidden');
+  if (entryReceiptActions) entryReceiptActions.classList.remove('hidden');
   entryReceiptRemoveButton.classList.remove('hidden');
   if (hasSelected) {
-    entryReceiptLink?.classList.add('hidden');
-    entryReceiptStatus.textContent = `Ready to upload: ${pendingReceiptFile.name}`;
-    entryReceiptRemoveButton.textContent = 'Clear file';
-  } else if (hasExisting) {
     if (entryReceiptLink) {
-      entryReceiptLink.classList.remove('hidden');
-      entryReceiptLink.href = currentReceiptMeta.url || '#';
-      entryReceiptLink.textContent = 'View current receipt';
+      entryReceiptLink.dataset.url = '';
+      entryReceiptLink.classList.add('hidden');
+    }
+    if (entryReceiptDownloadLink) {
+      entryReceiptDownloadLink.removeAttribute('href');
+      entryReceiptDownloadLink.classList.add('hidden');
+    }
+    entryReceiptStatus.textContent = `Ready to upload: ${pendingReceiptFile.name}`;
+    entryReceiptRemoveButton.title = 'Clear file';
+    entryReceiptRemoveButton.setAttribute('aria-label', 'Clear selected receipt');
+  } else if (hasExisting) {
+    const receiptUrl = currentReceiptMeta.url || '';
+    if (entryReceiptLink) {
+      if (receiptUrl) {
+        entryReceiptLink.dataset.url = receiptUrl;
+        entryReceiptLink.classList.remove('hidden');
+      } else {
+        entryReceiptLink.dataset.url = '';
+        entryReceiptLink.classList.add('hidden');
+      }
+    }
+    if (entryReceiptDownloadLink) {
+      if (receiptUrl) {
+        const downloadUrl = receiptUrl.includes('?') ? `${receiptUrl}&download=1` : `${receiptUrl}?download=1`;
+        entryReceiptDownloadLink.href = downloadUrl;
+        entryReceiptDownloadLink.classList.remove('hidden');
+      } else {
+        entryReceiptDownloadLink.removeAttribute('href');
+        entryReceiptDownloadLink.classList.add('hidden');
+      }
     }
     entryReceiptStatus.textContent = '';
-    entryReceiptRemoveButton.textContent = 'Remove receipt';
+    entryReceiptRemoveButton.title = 'Remove receipt';
+    entryReceiptRemoveButton.setAttribute('aria-label', 'Remove receipt');
   }
 }
 
@@ -6567,9 +6620,18 @@ if (entryReceiptRemoveButton) {
       }
     } else if (currentReceiptMeta.path) {
       removeExistingReceipt = true;
+  }
+  updateReceiptPreview();
+});
+
+if (entryReceiptLink) {
+  entryReceiptLink.addEventListener('click', () => {
+    const url = entryReceiptLink.dataset.url;
+    if (url) {
+      window.open(url, '_blank', 'noopener');
     }
-    updateReceiptPreview();
   });
+}
 }
 
 if (mileageSuggestionList) {

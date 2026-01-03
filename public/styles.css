@@ -657,6 +657,10 @@ form {
   flex-wrap: wrap;
 }
 
+#entry-receipt-upload.hidden {
+  display: none;
+}
+
 .tag-chip {
   background: #e0edff;
   color: #1d4ed8;
@@ -690,12 +694,18 @@ form {
   display: none;
 }
 
-.receipt-preview a {
-  font-weight: 600;
-}
-
 .receipt-preview span {
   color: #475569;
+}
+
+.receipt-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.receipt-actions.hidden {
+  display: none;
 }
 
 .mileage-suggestions {
@@ -1297,6 +1307,29 @@ table {
 #season-table-body tr.active td {
   background: #dbeafe;
   font-weight: 600;
+}
+
+.pricing-section table td:last-child,
+#settings-view table td:last-child,
+#mileage-settings-view table td:last-child {
+  text-align: center;
+  vertical-align: middle;
+  min-width: 48px;
+  width: 48px;
+}
+
+.pricing-section table td:last-child .icon-button,
+#settings-view table td:last-child .icon-button,
+#mileage-settings-view table td:last-child .icon-button {
+  display: block;
+  margin: 0.1rem auto;
+}
+
+.pricing-section table td:last-child .icon-button img,
+#settings-view table td:last-child .icon-button img,
+#mileage-settings-view table td:last-child .icon-button img {
+  width: 1.2rem;
+  height: 1.2rem;
 }
 
 .pricing-tabs-header {
