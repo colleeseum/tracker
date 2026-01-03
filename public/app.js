@@ -411,6 +411,9 @@ const storageSubmitButton = storageForm?.querySelector('button[type="submit"]');
 const pricingTabs = document.getElementById('pricing-tabs');
 const pricingPanels = Array.from(document.querySelectorAll('.pricing-panel'));
 const pricingTabButtons = Array.from(pricingTabs?.querySelectorAll('button[data-panel]') ?? []);
+const mileageSuggestionSection = document.getElementById('mileage-suggestions');
+const mileageSuggestionList = document.getElementById('mileage-suggestion-list');
+const dismissMileageSuggestionsButton = document.getElementById('dismiss-mileage-suggestions');
 
 function hideEntryModal() {
   entryModal.classList.add('hidden');
@@ -479,6 +482,8 @@ let editingEntryId = null;
 let editingEntryTransactionId = null;
 let editingTransferContext = null;
 let selectedTags = [];
+let missingMileageSuggestions = [];
+let hideMileageSuggestions = false;
 let clients = [];
 let clientLookup = new Map();
 let unsubscribeClients = null;
@@ -1966,6 +1971,18 @@ function formatTagLabel(tag) {
   return value ? `#${value}` : '';
 }
 
+function normalizeVendorKey(value) {
+  return (value || '').trim().toLowerCase();
+}
+
+function getDateKey(value) {
+  const date = toDateObject(value);
+  if (!date) return null;
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 function parseMileageTags(raw) {
   if (!raw) return [];
   return raw
@@ -2091,6 +2108,21 @@ function beginEditMileageEntry(log) {
   mileagePurposeInput?.focus();
 }
 
+function openMileageModalForSuggestion(suggestion) {
+  if (!suggestion) return;
+  openMileageModal('create');
+  if (mileageDateInput && suggestion.dateKey) {
+    mileageDateInput.value = suggestion.dateKey;
+  }
+  if (mileageVendorTagInput) {
+    mileageVendorTagInput.value = suggestion.vendorLabel || '';
+  }
+  if (mileagePurposeInput) {
+    mileagePurposeInput.value = suggestion.description || `Trip for ${suggestion.vendorLabel || 'vendor'}`;
+  }
+  mileageKmInput?.focus();
+}
+
 function renderMileageLog() {
   if (!mileageTableBody) return;
   mileageTableBody.innerHTML = '';
@@ -2176,6 +2208,8 @@ function renderMileageLog() {
     mileageYearTotalLabel.textContent = formatKilometres(yearTotal);
   }
   updateDashboardKpis({ cashTotal: lastKnownCashTotal, entityTotal: lastKnownEntityTotal });
+  computeMissingMileageSuggestions();
+  renderMissingMileageSuggestions();
 }
 
 function renderMileageRates() {
@@ -3094,6 +3128,8 @@ function subscribeToExpensesStream() {
       renderLedgerTable();
       renderAccountList();
       rebuildVendorTagSet();
+      computeMissingMileageSuggestions();
+      renderMissingMileageSuggestions();
     },
     (error) => {
       entryFormError.textContent = error.message;
@@ -3119,6 +3155,8 @@ function subscribeToMileageLogs() {
       });
       renderMileageLog();
       rebuildVendorTagSet();
+      computeMissingMileageSuggestions();
+      renderMissingMileageSuggestions();
     },
     (error) => {
       console.error('Failed to load mileage logs:', error);
@@ -6016,6 +6054,9 @@ const styleRowTags = (rowEl, palette) => {
   if (!palette) return;
   const tags = rowEl.querySelectorAll('.table-tag');
   tags.forEach((tag) => {
+    if (tag.classList.contains('vendor-tag')) {
+      return;
+    }
     tag.style.backgroundColor = palette.tagBackground;
     tag.style.color = palette.tagColor;
     tag.style.borderColor = palette.tagBorder;
@@ -6038,24 +6079,69 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
     if (entry.isVirtualOpening) return '';
     if (txnActionsRendered.has(txnKey)) return '';
     txnActionsRendered.add(txnKey);
+    const editButton = `
+      <button
+        type="button"
+        class="icon-button edit-txn"
+        data-id="${entry.id}"
+        aria-label="Edit transaction ${txnKey}"
+      >
+        <img src="icons/pencil.svg" alt="Edit transaction ${txnKey}" />
+      </button>
+    `;
+    const deleteButton = `
+      <button
+        type="button"
+        class="icon-button delete-txn"
+        data-txn="${txnKey}"
+        aria-label="Delete transaction ${txnKey}"
+      >
+        <img src="icons/trash.svg" alt="Delete transaction ${txnKey}" />
+      </button>
+    `;
+    if (entry.receiptUrl) {
+      const encodedUrl = encodeURI(entry.receiptUrl);
+      const downloadUrl = encodedUrl.includes('?') ? `${encodedUrl}&download=1` : `${encodedUrl}?download=1`;
+      const receiptName = (entry.receiptStoragePath || '').split('/').pop() || `receipt-${txnKey}`;
+      const viewButton = `
+        <button
+          type="button"
+          class="icon-button view-receipt"
+          data-receipt-url="${encodedUrl}"
+          title="View receipt"
+        >
+          <img src="icons/eye.svg" alt="View receipt" />
+        </button>
+      `;
+      const downloadLink = `
+        <a
+          class="icon-link download-receipt"
+          href="${downloadUrl}"
+          role="button"
+          data-download-url="${downloadUrl}"
+          data-file-name="${receiptName}"
+          title="Download receipt"
+        >
+          <img src="icons/download.svg" alt="Download receipt" />
+        </a>
+      `;
+      return `
+        <div class="table-actions has-receipt">
+          <div class="action-pair">
+            ${viewButton}
+            ${editButton}
+          </div>
+          <div class="action-pair">
+            ${downloadLink}
+            ${deleteButton}
+          </div>
+        </div>
+      `;
+    }
     return `
       <div class="table-actions">
-        <button
-          type="button"
-          class="icon-button edit-txn"
-          data-id="${entry.id}"
-          aria-label="Edit transaction ${txnKey}"
-        >
-          <img src="icons/pencil.svg" alt="Edit transaction ${txnKey}" />
-        </button>
-        <button
-          type="button"
-          class="icon-button delete-txn"
-          data-txn="${txnKey}"
-          aria-label="Delete transaction ${txnKey}"
-        >
-          <img src="icons/trash.svg" alt="Delete transaction ${txnKey}" />
-        </button>
+        ${editButton}
+        ${deleteButton}
       </div>
     `;
   };
@@ -6245,15 +6331,16 @@ function formatDate(raw) {
 function renderLedgerDescription(entry) {
   const sections = [];
   const baseDescription = entry.description || (entry.isVirtualOpening ? 'Opening balance' : '');
-  const vendorMarkup = entry.vendorTag ? `<span class="table-tag vendor-tag">${entry.vendorTag}</span>` : '';
-  if (baseDescription || vendorMarkup) {
+  if (baseDescription) {
     const descriptionBody = baseDescription || '—';
-    const prefix = vendorMarkup ? `${vendorMarkup} : ` : '';
-    sections.push(`<div class="ledger-description-text">${prefix}${descriptionBody}</div>`);
+    sections.push(`<div class="ledger-description-text">${descriptionBody}</div>`);
   }
   const metaChips = [];
   if (entry.category) {
     metaChips.push(`<span class="category-label">${entry.category}</span>`);
+  }
+  if (entry.vendorTag) {
+    metaChips.push(`<span class="table-tag vendor-tag">${entry.vendorTag}</span>`);
   }
   if (entry.isReturn) {
     metaChips.push(
@@ -6270,11 +6357,6 @@ function renderLedgerDescription(entry) {
   const tagsMarkup = renderTagList(entry);
   if (tagsMarkup) {
     sections.push(tagsMarkup);
-  }
-  if (entry.receiptUrl) {
-    sections.push(
-      `<div class="ledger-receipt-link"><a href="${encodeURI(entry.receiptUrl)}" target="_blank" rel="noopener">View receipt</a></div>`
-    );
   }
   return sections.join('') || '—';
 }
@@ -6488,6 +6570,27 @@ if (entryReceiptRemoveButton) {
   });
 }
 
+if (mileageSuggestionList) {
+  mileageSuggestionList.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const suggestion = missingMileageSuggestions.find((item) => item.id === button.dataset.id);
+    if (!suggestion) return;
+    if (button.dataset.action === 'log-missing-mileage') {
+      openMileageModalForSuggestion(suggestion);
+    } else if (button.dataset.action === 'ignore-missing-mileage') {
+      ignoreMissingMileageSuggestion(suggestion.id);
+    }
+  });
+}
+
+if (dismissMileageSuggestionsButton) {
+  dismissMileageSuggestionsButton.addEventListener('click', () => {
+    hideMileageSuggestions = !hideMileageSuggestions;
+    renderMissingMileageSuggestions();
+  });
+}
+
 if (dashboardAddEntryButton) {
   dashboardAddEntryButton.addEventListener('click', () => {
     openNewEntryModal();
@@ -6664,7 +6767,7 @@ entryForm.addEventListener('submit', async (event) => {
   const categoryCodeRaw = linkedCategory?.code ?? selectedCategoryOption?.dataset?.code;
   const categoryCodeNumber = Number(categoryCodeRaw);
   const normalizedCategoryCode = Number.isFinite(categoryCodeNumber) ? categoryCodeNumber : null;
-  const requiresClientForEntry = Boolean(linkedCategory?.requiresClient);
+  const requiresClientForEntry = entryType === 'income' && Boolean(linkedCategory?.requiresClient);
   if (!resolvedCategoryLabel) {
     entryFormError.textContent = 'Select a category.';
     return;
@@ -6842,6 +6945,39 @@ transferForm.addEventListener('submit', async (event) => {
   }
 });
 ledgerTableBody.addEventListener('click', async (event) => {
+  const viewReceiptButton = event.target.closest('.view-receipt');
+  if (viewReceiptButton) {
+    const receiptUrl = viewReceiptButton.dataset.receiptUrl;
+    if (receiptUrl) {
+      window.open(receiptUrl, '_blank', 'noopener');
+    }
+    return;
+  }
+  const downloadReceiptLink = event.target.closest('.download-receipt');
+  if (downloadReceiptLink) {
+    event.preventDefault();
+    const downloadUrl = downloadReceiptLink.dataset.downloadUrl || downloadReceiptLink.href;
+    const fileName = downloadReceiptLink.dataset.fileName || 'receipt';
+    if (downloadUrl) {
+      try {
+        const response = await fetch(downloadUrl);
+        if (!response.ok) throw new Error('Unable to download receipt.');
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      } catch (error) {
+        ledgerError.textContent = error.message;
+        ledgerErrorModal.classList.remove('hidden');
+      }
+    }
+    return;
+  }
   const deleteButton = event.target.closest('.delete-txn');
   const editButton = event.target.closest('.edit-txn');
   if (!deleteButton && !editButton) return;
@@ -6971,6 +7107,103 @@ function syncVendorSuggestions() {
       vendorSuggestionList.appendChild(option);
     });
 }
+
+function computeMissingMileageSuggestions() {
+  const coverage = new Set();
+  mileageLogs.forEach((log) => {
+    const dateKey = getDateKey(log.date);
+    if (!dateKey) return;
+    const vendorList = Array.isArray(log.vendorTags)
+      ? log.vendorTags
+      : log.vendorTag
+      ? [log.vendorTag]
+      : [];
+    vendorList
+      .map((vendor) => normalizeVendorKey(vendor))
+      .filter(Boolean)
+      .forEach((vendorKey) => coverage.add(`${vendorKey}__${dateKey}`));
+  });
+  missingMileageSuggestions = [];
+  expenses.forEach((entry) => {
+    if (entry.entryType !== 'expense') return;
+    const vendorLabel = entry.vendorTag;
+    const vendorKey = normalizeVendorKey(vendorLabel);
+    if (!vendorKey) return;
+    if (entry.ignoreMissingMileage) return;
+    const dateKey = getDateKey(entry.date);
+    if (!dateKey) return;
+    const coverageKey = `${vendorKey}__${dateKey}`;
+    if (coverage.has(coverageKey)) return;
+    missingMileageSuggestions.push({
+      id: entry.id,
+      vendorLabel,
+      vendorKey,
+      dateKey,
+      dateDisplay: formatDate(entry.date),
+      description: entry.description || entry.category || '',
+      accountName: accountLookup.get(entry.accountId)?.name || '',
+      entityName: entry.entityId ? accountLookup.get(entry.entityId)?.name || '' : '',
+      amount: Number(entry.amount) || 0,
+      transactionId: entry.transactionId || entry.id,
+      tags: Array.isArray(entry.tags) ? [...entry.tags] : []
+    });
+  });
+}
+
+function renderMissingMileageSuggestions() {
+  if (!mileageSuggestionSection || !mileageSuggestionList) return;
+  const hasSuggestions = missingMileageSuggestions.length > 0;
+  if (!hasSuggestions) {
+    mileageSuggestionSection.classList.add('hidden');
+    mileageSuggestionList.innerHTML = '';
+    hideMileageSuggestions = false;
+    if (dismissMileageSuggestionsButton) {
+      dismissMileageSuggestionsButton.classList.add('hidden');
+    }
+    return;
+  }
+  mileageSuggestionSection.classList.remove('hidden');
+  if (dismissMileageSuggestionsButton) {
+    dismissMileageSuggestionsButton.classList.remove('hidden');
+    dismissMileageSuggestionsButton.textContent = hideMileageSuggestions ? 'Show' : 'Hide';
+  }
+  if (hideMileageSuggestions) {
+    mileageSuggestionList.innerHTML =
+      '<li class="suggestion-item">Suggestions hidden. Click "Show" to view them.</li>';
+    return;
+  }
+  mileageSuggestionList.innerHTML = '';
+  missingMileageSuggestions.forEach((suggestion) => {
+    const item = document.createElement('li');
+    item.className = 'suggestion-item';
+    item.dataset.id = suggestion.id;
+    const tagsMarkup =
+      Array.isArray(suggestion.tags) && suggestion.tags.length
+        ? `<div class="suggestion-tags">${suggestion.tags
+            .map((tag) => `<span class="table-tag">${formatTagLabel(tag)}</span>`)
+            .join('')}</div>`
+        : '';
+    item.innerHTML = `
+      <div class="suggestion-info">
+        <strong>${suggestion.vendorLabel || 'Vendor'}${suggestion.entityName ? ` for ${suggestion.entityName}` : ''}</strong>
+        <div class="suggestion-meta">
+          <span>${suggestion.dateDisplay || 'Unknown date'}</span>
+          <span>${suggestion.accountName || 'Account'}</span>
+          <span>${formatCurrency(suggestion.amount)}</span>
+        </div>
+        <p>${suggestion.description || 'Add notes to remember this trip.'}</p>
+        ${tagsMarkup}
+      </div>
+      <div class="suggestion-actions">
+        <button type="button" data-action="log-missing-mileage" data-id="${suggestion.id}">Log mileage</button>
+        <button type="button" class="secondary" data-action="ignore-missing-mileage" data-id="${suggestion.id}">
+          Ignore
+        </button>
+      </div>
+    `;
+    mileageSuggestionList.appendChild(item);
+  });
+}
 function updateDashboardKpis({ cashTotal = 0, entityTotal = 0 }) {
   if (dashboardKpiCash) {
     dashboardKpiCash.textContent = formatCurrency(cashTotal);
@@ -7025,4 +7258,15 @@ function getMonthlyTagMetrics() {
     }
   });
   return { totalOutflow, topTag, topTagAmount };
+}
+async function ignoreMissingMileageSuggestion(expenseId) {
+  if (!expenseId) return;
+  try {
+    await updateDoc(doc(db, 'expenses', expenseId), {
+      ignoreMissingMileage: true,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    window.alert(`Unable to ignore suggestion: ${error.message}`);
+  }
 }

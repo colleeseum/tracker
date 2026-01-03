@@ -569,6 +569,16 @@
                 </div>
                 <button type="button" id="open-mileage-modal">Log trip</button>
               </div>
+              <div id="mileage-suggestions" class="mileage-suggestions hidden">
+                <div class="suggestion-header">
+                  <div>
+                    <h4>Potential missing mileage log entries</h4>
+                    <p>Vendor expenses without a matching mileage entry on the same date.</p>
+                  </div>
+                  <button type="button" id="dismiss-mileage-suggestions" class="link">Hide</button>
+                </div>
+                <ul id="mileage-suggestion-list"></ul>
+              </div>
               <div class="table-wrapper">
                 <table class="mileage-table">
                   <thead>
@@ -1410,8 +1420,13 @@
                 <small class="hint">Type and press Enter to add. Click suggestions to reuse existing tags.</small>
               </label>
               <label id="entry-receipt-field" class="wide hidden">
-                Receipt photo (expense only)
-                <input type="file" id="entry-receipt" accept="image/*" capture="environment" />
+                Receipt file (expense only)
+                <input
+                  type="file"
+                  id="entry-receipt"
+                  accept="image/*,application/pdf"
+                  capture="environment"
+                />
                 <div id="entry-receipt-preview" class="receipt-preview hidden">
                   <a id="entry-receipt-link" href="#" target="_blank" rel="noopener">View receipt</a>
                   <span id="entry-receipt-status"></span>

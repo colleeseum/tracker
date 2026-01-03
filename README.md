@@ -77,6 +77,7 @@ Then open `http://localhost:5000` in the browser to use the app.
 - **Storage tab:** Track seasonal storage requests (tenant info, insurance, add-ons) and move each request through the workflow statuses (New → Picked-Up).
 - **Pricing tab:** Manage seasons, storage offers, and add-on service pricing (battery maintenance, propane storage, etc.) with built-in Firestore CRUD.
 - **Settings:** Use the Settings link at the bottom of the sidebar to manage ledger categories (label, income/expense type, numeric code). The Ledger “Add entry” form only shows categories that match the selected entry type.
+- **Mileage log:** Keep CRA-friendly mileage totals. The mileage view now surfaces vendor expenses without a same-day mileage log so you can quickly log the trip or mark the reminder as ignored.
 
 ## Data model & rules
 

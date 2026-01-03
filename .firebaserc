@@ -1,6 +1,7 @@
 {
   "projects": {
     "local": "expense-tracker-local",
-    "prod": "tracker-187c5"
+    "prod": "tracker-187c5",
+    "default": "tracker-187c5"
   }
 }

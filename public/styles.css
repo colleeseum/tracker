@@ -162,6 +162,19 @@ button.link {
   height: 1.7rem;
 }
 
+.icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem;
+}
+
+.icon-link img {
+  width: 1.4rem;
+  height: 1.4rem;
+  display: block;
+}
+
 button.secondary {
   background: #e2e8f0;
   color: #0f172a;
@@ -681,6 +694,96 @@ form {
   font-weight: 600;
 }
 
+.receipt-preview span {
+  color: #475569;
+}
+
+.mileage-suggestions {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.9rem;
+  padding: 1rem;
+  background: #f8fafc;
+  margin-bottom: 1.25rem;
+}
+
+.mileage-suggestions.hidden {
+  display: none;
+}
+
+.suggestion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.suggestion-header h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.suggestion-header p {
+  margin: 0.1rem 0 0;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+#mileage-suggestion-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.suggestion-item {
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.suggestion-info {
+  flex: 1 1 240px;
+}
+
+.suggestion-info strong {
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.suggestion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.suggestion-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.suggestion-actions button {
+  min-width: 140px;
+}
+
+.suggestion-tags {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .tag-suggestions {
   list-style: none;
   margin: 0.3rem 0 0;
@@ -714,6 +817,17 @@ form {
 .table-actions .icon-button {
   padding: 0.15rem;
 }
+
+.table-actions.has-receipt {
+  gap: 0.3rem;
+}
+
+.table-actions.has-receipt .action-pair {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .mileage-table .table-actions {
   flex-direction: row;
   align-items: center;
@@ -1303,9 +1417,11 @@ th {
   font-weight: 700;
 }
 
-.table-tag.vendor-tag {
-  background: #fef3c7;
+.table-tag.vendor-tag,
+.vendor-tag {
+  background: #fef08a;
   color: #92400e;
+  border-color: #facc15;
 }
 
 .table-tag.location-tag {
@@ -1374,15 +1490,6 @@ th {
 .ledger-description-meta .return-label,
 .ledger-description-meta .client-label {
   margin-left: 0;
-}
-
-.ledger-receipt-link {
-  margin-top: 0.2rem;
-}
-
-.ledger-receipt-link a {
-  color: #2563eb;
-  font-weight: 600;
 }
 
 .category-label {
