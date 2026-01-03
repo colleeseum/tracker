@@ -6100,14 +6100,16 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
       </button>
     `;
     if (entry.receiptUrl) {
-      const encodedUrl = encodeURI(entry.receiptUrl);
-      const downloadUrl = encodedUrl.includes('?') ? `${encodedUrl}&download=1` : `${encodedUrl}?download=1`;
+      const rawReceiptUrl = entry.receiptUrl;
+      const downloadUrl = rawReceiptUrl.includes('?') ? `${rawReceiptUrl}&download=1` : `${rawReceiptUrl}?download=1`;
+      const htmlReceiptUrl = rawReceiptUrl.replace(/&/g, '&amp;');
+      const htmlDownloadUrl = downloadUrl.replace(/&/g, '&amp;');
       const receiptName = (entry.receiptStoragePath || '').split('/').pop() || `receipt-${txnKey}`;
       const viewButton = `
         <button
           type="button"
           class="icon-button view-receipt"
-          data-receipt-url="${encodedUrl}"
+          data-receipt-url="${htmlReceiptUrl}"
           title="View receipt"
         >
           <img src="icons/eye.svg" alt="View receipt" />
@@ -6116,9 +6118,9 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
       const downloadLink = `
         <a
           class="icon-link download-receipt"
-          href="${downloadUrl}"
+          href="${htmlDownloadUrl}"
           role="button"
-          data-download-url="${downloadUrl}"
+          data-download-url="${htmlDownloadUrl}"
           data-file-name="${receiptName}"
           title="Download receipt"
         >
