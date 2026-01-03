@@ -73,7 +73,7 @@
               <button type="button" class="nav-link" data-view="storage" disabled>Storage</button>
               <button type="button" class="nav-link" data-view="ledger">Ledger</button>
               <button type="button" class="nav-link" data-view="mileage">Mileage log</button>
-              <button type="button" class="nav-link" disabled>Reports</button>
+              <button type="button" class="nav-link" data-view="reports">Reports</button>
               <button type="button" class="nav-link" data-view="settings">Settings</button>
             </nav>
             <nav class="nav-links hidden" id="settings-nav">
@@ -668,6 +668,64 @@
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            <div id="reports-view" class="reports-view hidden">
+              <section class="card report-controls tight">
+                <form id="report-filter-form" class="report-filter">
+                  <div class="report-filter-field">
+                    <label for="report-type-select">Report type</label>
+                    <select id="report-type-select">
+                      <option value="balance">Balance sheet (T2042)</option>
+                    </select>
+                  </div>
+                  <div class="report-filter-field">
+                    <label for="report-entity-select">Entity</label>
+                    <select id="report-entity-select"></select>
+                  </div>
+                  <div class="report-filter-field">
+                    <label for="report-year-select">Year</label>
+                    <select id="report-year-select"></select>
+                  </div>
+                  <div class="report-filter-actions">
+                    <button type="submit" id="generate-report">Generate</button>
+                  </div>
+                </form>
+              </section>
+              <div id="reports-output" class="report-entity-container">
+                <section class="card">
+                  <p class="empty">Choose an entity and year to generate a report.</p>
+                </section>
+              </div>
+            </div>
+
+            <div id="report-detail-modal" class="modal hidden">
+              <div class="modal-content card report-detail-card">
+                <div class="modal-header">
+                  <div>
+                    <h3 id="report-detail-title">Category details</h3>
+                    <p class="hint" id="report-detail-subtitle"></p>
+                  </div>
+                  <button type="button" id="close-report-detail-modal" class="link">Close</button>
+                </div>
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th>Account</th>
+                        <th>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody id="report-detail-table-body">
+                      <tr>
+                        <td colspan="4" class="empty">No matching entries.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 

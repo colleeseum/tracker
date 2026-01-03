@@ -139,6 +139,13 @@ const mileageRateTableBody = document.getElementById('mileage-rate-table-body');
 const mileageSubmitButton = document.getElementById('mileage-submit');
 const mileageCancelButton = document.getElementById('mileage-cancel-edit');
 applyMileageInputDefaults();
+const reportsView = document.getElementById('reports-view');
+const reportsOutput = document.getElementById('reports-output');
+const reportFilterForm = document.getElementById('report-filter-form');
+const reportTypeSelect = document.getElementById('report-type-select');
+const reportEntitySelect = document.getElementById('report-entity-select');
+const reportYearSelect = document.getElementById('report-year-select');
+const generateReportButton = document.getElementById('generate-report');
 const dashboardView = document.getElementById('dashboard-view');
 const dashboardCashList = document.getElementById('dashboard-cash-list');
 const dashboardCashTotal = document.getElementById('dashboard-cash-total');
@@ -158,6 +165,11 @@ const dashboardPublishedAt = document.getElementById('dashboard-published-at');
 const dashboardPublishedBy = document.getElementById('dashboard-published-by');
 const dashboardAddEntryButton = document.getElementById('dashboard-add-entry');
 const dashboardTransferButton = document.getElementById('dashboard-transfer');
+const reportDetailModal = document.getElementById('report-detail-modal');
+const closeReportDetailModalButton = document.getElementById('close-report-detail-modal');
+const reportDetailTableBody = document.getElementById('report-detail-table-body');
+const reportDetailTitle = document.getElementById('report-detail-title');
+const reportDetailSubtitle = document.getElementById('report-detail-subtitle');
 const accountList = document.getElementById('account-list');
 const clientsView = document.getElementById('clients-view');
 const clientTableBody = document.getElementById('client-table-body');
@@ -521,8 +533,27 @@ let unsubscribeMileageLogs = null;
 let unsubscribeMileageRates = null;
 let mileageYearToDate = 0;
 let editingMileageId = null;
+let mileageKilometreTotalsByYear = new Map();
+let mileageRateLookup = new Map();
 let addonPriceLookup = new Map();
 const GLOBAL_ADDON_PRICE_SCOPE = '__global__';
+const OTHER_INCOME_T2042_CODE = 9600;
+const MOTOR_VEHICLE_T2042_CODE = 9819;
+const MIN_REPORT_YEAR = 2025;
+let reportFilters = {
+  type: 'balance',
+  entityId: null,
+  year: new Date().getFullYear()
+};
+let reportGeneratedOnce = false;
+let reportDrilldownLookup = new Map();
+let reportDrilldownCounter = 1;
+
+function normalizeCategoryCode(value) {
+  if (value === null || value === undefined) return null;
+  const match = String(value).match(/-?\d+/);
+  return match ? Number(match[0]) : null;
+}
 let conditions = [];
 let unsubscribeConditions = null;
 let editingConditionId = null;
@@ -803,6 +834,8 @@ function subscribeToAccounts() {
       updateTransferAccountOptions();
       addEntryButton.disabled = cashAccounts.length === 0 || entityAccounts.length === 0;
       transferButton.disabled = cashAccounts.length < 2;
+      populateReportControls();
+      maybeRenderReports();
     },
     (error) => {
       accountFormError.textContent = error.message;
@@ -984,6 +1017,7 @@ function subscribeToCategories() {
       categoryLookup = new Map(categories.map((category) => [category.id, category]));
       renderCategoryTable();
       updateEntryCategoryOptions({ preserveSelection: true });
+      maybeRenderReports();
     },
     (error) => {
       categoryFormError.textContent = error.message;
@@ -2127,12 +2161,11 @@ function openMileageModalForSuggestion(suggestion) {
 }
 
 function renderMileageLog() {
-  if (!mileageTableBody) return;
-  mileageTableBody.innerHTML = '';
   let yearTotal = 0;
   const now = new Date();
   const currentYear = now.getFullYear();
   const startOfYear = new Date(currentYear, 0, 1).getTime();
+  const renderedRows = [];
   mileageLogs.forEach((log) => {
     const logDate = toDateObject(log.date);
     const km = Number(log.kilometres ?? log.km ?? 0);
@@ -2195,9 +2228,33 @@ function renderMileageLog() {
       <td>${km.toFixed(1)}</td>
       <td class="actions-cell">${actionsMarkup}</td>
     `;
-    mileageTableBody.appendChild(row);
+    renderedRows.push(row);
   });
-  if (!mileageLogs.length) {
+  mileageYearToDate = yearTotal;
+  if (mileageYearTotalLabel) {
+    mileageYearTotalLabel.textContent = formatKilometres(yearTotal);
+  }
+  mileageKilometreTotalsByYear = mileageLogs.reduce((acc, log) => {
+    const date = toDateObject(log.date);
+    const year = date?.getFullYear();
+    if (!Number.isFinite(year)) {
+      return acc;
+    }
+    const kmValue = Number(log.kilometres ?? log.km ?? 0);
+    if (!Number.isFinite(kmValue)) {
+      return acc;
+    }
+    acc.set(year, (acc.get(year) || 0) + kmValue);
+    return acc;
+  }, new Map());
+  updateDashboardKpis({ cashTotal: lastKnownCashTotal, entityTotal: lastKnownEntityTotal });
+  computeMissingMileageSuggestions();
+  renderMissingMileageSuggestions();
+  if (!mileageTableBody) {
+    return;
+  }
+  mileageTableBody.innerHTML = '';
+  if (!renderedRows.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
     cell.colSpan = 5;
@@ -2205,20 +2262,42 @@ function renderMileageLog() {
     cell.textContent = 'No mileage entries yet.';
     row.appendChild(cell);
     mileageTableBody.appendChild(row);
+    return;
   }
-  mileageYearToDate = yearTotal;
-  if (mileageYearTotalLabel) {
-    mileageYearTotalLabel.textContent = formatKilometres(yearTotal);
-  }
-  updateDashboardKpis({ cashTotal: lastKnownCashTotal, entityTotal: lastKnownEntityTotal });
-  computeMissingMileageSuggestions();
-  renderMissingMileageSuggestions();
+  renderedRows.forEach((row) => mileageTableBody.appendChild(row));
 }
 
 function renderMileageRates() {
-  if (!mileageRateTableBody) return;
+  const renderedRows = [];
+  if (mileageRates.length) {
+    const sorted = [...mileageRates].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
+    sorted.forEach((rate) => {
+      const row = document.createElement('tr');
+      const yearCell = document.createElement('td');
+      yearCell.textContent = rate.year || '—';
+      row.appendChild(yearCell);
+      const rateCell = document.createElement('td');
+      rateCell.textContent = Number(rate.rate ?? rate.amount ?? 0).toFixed(3);
+      row.appendChild(rateCell);
+      const actionCell = document.createElement('td');
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'icon-button';
+      deleteButton.dataset.action = 'delete-mileage-rate';
+      deleteButton.dataset.id = rate.id;
+      deleteButton.setAttribute('aria-label', `Delete mileage rate for ${rate.year || 'year'}`);
+      deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete mileage rate" data-icon="trash" />';
+      actionCell.appendChild(deleteButton);
+      row.appendChild(actionCell);
+      renderedRows.push(row);
+    });
+  }
+  rebuildMileageRateLookup();
+  if (!mileageRateTableBody) {
+    return;
+  }
   mileageRateTableBody.innerHTML = '';
-  if (!mileageRates.length) {
+  if (!renderedRows.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
     cell.colSpan = 3;
@@ -2228,27 +2307,507 @@ function renderMileageRates() {
     mileageRateTableBody.appendChild(row);
     return;
   }
-  const sorted = [...mileageRates].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
-  sorted.forEach((rate) => {
-    const row = document.createElement('tr');
-    const yearCell = document.createElement('td');
-    yearCell.textContent = rate.year || '—';
-    row.appendChild(yearCell);
-    const rateCell = document.createElement('td');
-    rateCell.textContent = Number(rate.rate ?? rate.amount ?? 0).toFixed(3);
-    row.appendChild(rateCell);
-    const actionCell = document.createElement('td');
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'icon-button';
-    deleteButton.dataset.action = 'delete-mileage-rate';
-    deleteButton.dataset.id = rate.id;
-    deleteButton.setAttribute('aria-label', `Delete mileage rate for ${rate.year || 'year'}`);
-    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete mileage rate" data-icon="trash" />';
-    actionCell.appendChild(deleteButton);
-    row.appendChild(actionCell);
-    mileageRateTableBody.appendChild(row);
+  renderedRows.forEach((row) => mileageRateTableBody.appendChild(row));
+}
+
+function getCategoryMetaForEntry(entry) {
+  const linked = entry?.categoryId ? categoryLookup.get(entry.categoryId) : null;
+  const resolvedCode = linked?.code ?? entry?.categoryCode ?? null;
+  const resolvedType = linked?.type || entry?.categoryType || entry?.entryType || null;
+  return {
+    id: entry?.categoryId || linked?.id || null,
+    label: linked?.label || entry?.category || '—',
+    code: resolvedCode,
+    type: resolvedType
+  };
+}
+
+function createEmptyEntityReport(account) {
+  return {
+    account,
+    income: new Map(),
+    expenses: new Map(),
+    otherIncome: new Map(),
+    otherIncomeTotal: 0,
+    incomeTotal: 0,
+    expenseTotal: 0
+  };
+}
+
+function buildEntityReportSummary(entityId, year) {
+  const account = accountLookup.get(entityId);
+  if (!account) return null;
+  const summary = createEmptyEntityReport(account);
+  if (!entityAccounts.some((entityAccount) => entityAccount.id === entityId)) {
+    return summary;
+  }
+  const start = new Date(year, 0, 1);
+  const end = new Date(year + 1, 0, 1);
+  expenses.forEach((entry) => {
+    if (!entry || entry.isVirtualOpening || entry.entityId !== entityId) return;
+    const entryDate = toDateObject(entry.date);
+    if (!entryDate || entryDate < start || entryDate >= end) return;
+    const meta = getCategoryMetaForEntry(entry);
+    if (!meta.type || (meta.type !== 'income' && meta.type !== 'expense')) return;
+    const delta = getEntryDelta(entry);
+    if (meta.type === 'income') {
+      addIncomeToSummary(summary, meta, delta, entry);
+    } else if (meta.type === 'expense') {
+      addExpenseToSummary(summary, meta, -delta, entry);
+    }
   });
+  return summary;
+}
+
+function addIncomeToSummary(summary, meta, amount, entry) {
+  if (!amount) return;
+  summary.incomeTotal += amount;
+  const normalizedCode = normalizeCategoryCode(meta.code);
+  if (normalizedCode === OTHER_INCOME_T2042_CODE) {
+    const key = meta.id || meta.label || `other-${summary.otherIncome.size}`;
+    const detail = summary.otherIncome.get(key) || { label: meta.label || 'Other Income', amount: 0, entryIds: [] };
+    detail.amount += amount;
+    if (entry?.id) {
+      detail.entryIds.push(entry.id);
+    }
+    summary.otherIncome.set(key, detail);
+    summary.otherIncomeTotal += amount;
+    return;
+  }
+  const key = Number.isFinite(normalizedCode) ? `code-${normalizedCode}` : meta.id || meta.label;
+  const line = summary.income.get(key) || { label: meta.label || '—', code: meta.code, amount: 0, entryIds: [] };
+  line.amount += amount;
+  line.code = meta.code;
+  if (entry?.id) {
+    line.entryIds.push(entry.id);
+  }
+  summary.income.set(key, line);
+}
+
+function addExpenseToSummary(summary, meta, amount, entry) {
+  if (!amount) return;
+  summary.expenseTotal += amount;
+  const normalizedCode = normalizeCategoryCode(meta.code);
+  const key = Number.isFinite(normalizedCode) ? `code-${normalizedCode}` : meta.id || meta.label;
+  const line = summary.expenses.get(key) || { label: meta.label || '—', code: meta.code, amount: 0, entryIds: [] };
+  line.amount += amount;
+  line.code = meta.code;
+  if (entry?.id) {
+    line.entryIds.push(entry.id);
+  }
+  summary.expenses.set(key, line);
+}
+
+function sortReportLines(lineMap) {
+  return Array.from(lineMap.values())
+    .filter((line) => Math.abs(Number(line.amount) || 0) > 0.0001)
+    .sort((a, b) => {
+      const codeA = normalizeCategoryCode(a.code);
+      const codeB = normalizeCategoryCode(b.code);
+      const hasCodeA = Number.isFinite(codeA);
+      const hasCodeB = Number.isFinite(codeB);
+      if (hasCodeA && hasCodeB && codeA !== codeB) {
+        return codeA - codeB;
+      }
+      if (hasCodeA !== hasCodeB) {
+        return hasCodeA ? -1 : 1;
+      }
+      return (a.label || '').localeCompare(b.label || '');
+    });
+}
+
+function sortOtherIncomeDetails(detailMap) {
+  return Array.from(detailMap.values()).sort((a, b) => (a.label || '').localeCompare(b.label || ''));
+}
+
+function createReportEmptyCard(message) {
+  const section = document.createElement('section');
+  section.className = 'card';
+  const paragraph = document.createElement('p');
+  paragraph.className = 'report-empty';
+  paragraph.textContent = message;
+  section.appendChild(paragraph);
+  return section;
+}
+
+function buildReportSection(title, total, rows, contextMeta = {}) {
+  const section = document.createElement('div');
+  section.className = 'report-section';
+  const header = document.createElement('div');
+  header.className = 'report-section-header';
+  header.innerHTML = `<h4>${title}</h4><span class="report-section-total">${formatCurrency(total)}</span>`;
+  section.appendChild(header);
+  const table = document.createElement('table');
+  table.className = 'report-table';
+  const tbody = document.createElement('tbody');
+  let hasContent = false;
+  rows.forEach((line) => {
+    const row = document.createElement('tr');
+    const displayCode = normalizeCategoryCode(line.code);
+    row.innerHTML = `
+      <td class="report-label">${line.label || '—'}</td>
+      <td class="report-code">${Number.isFinite(displayCode) ? displayCode : '—'}</td>
+      <td class="report-amount">${formatCurrency(line.amount)}</td>
+    `;
+    const drillId = registerReportDrilldown(line.entryIds, line.label || title, contextMeta);
+    if (drillId) {
+      row.dataset.drilldownId = drillId;
+      row.classList.add('report-row-clickable');
+    }
+    tbody.appendChild(row);
+    hasContent = true;
+    if (Array.isArray(line.details) && line.details.length) {
+      line.details.forEach((detail) => {
+        const detailRow = document.createElement('tr');
+        detailRow.className = 'report-subrow';
+        detailRow.innerHTML = `
+          <td class="report-label">${detail.label || '—'}</td>
+          <td class="report-code">—</td>
+          <td class="report-amount">${formatCurrency(detail.amount)}</td>
+        `;
+        const detailDrillId = registerReportDrilldown(detail.entryIds, detail.label || line.label || title, contextMeta);
+        if (detailDrillId) {
+          detailRow.dataset.drilldownId = detailDrillId;
+          detailRow.classList.add('report-row-clickable');
+        }
+        tbody.appendChild(detailRow);
+      });
+    }
+  });
+  if (!hasContent) {
+    const emptyRow = document.createElement('tr');
+    emptyRow.innerHTML = `<td colspan="3" class="report-empty">No ${title.toLowerCase()} entries yet.</td>`;
+    tbody.appendChild(emptyRow);
+  }
+  const totalRow = document.createElement('tr');
+  totalRow.className = 'report-total-row';
+  totalRow.innerHTML = `<td class="report-label">Total</td><td class="report-code">—</td><td class="report-amount">${formatCurrency(total)}</td>`;
+  tbody.appendChild(totalRow);
+  table.appendChild(tbody);
+  section.appendChild(table);
+  return section;
+}
+
+function partitionReportLines(rows) {
+  const t2042Rows = [];
+  const otherRows = [];
+  rows.forEach((row) => {
+    const codeNumber = normalizeCategoryCode(row.code);
+    if (codeNumber === 0) {
+      otherRows.push(row);
+    } else {
+      t2042Rows.push(row);
+    }
+  });
+  return { t2042Rows, otherRows };
+}
+
+function sumLineAmounts(rows) {
+  return rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+}
+
+function buildReportGroup(title, incomeRows, incomeTotal, expenseRows, expenseTotal, contextMeta) {
+  const group = document.createElement('section');
+  group.className = 'report-group';
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  group.appendChild(heading);
+  group.appendChild(buildReportSection('Income', incomeTotal, incomeRows, contextMeta));
+  group.appendChild(buildReportSection('Expenses', expenseTotal, expenseRows, contextMeta));
+  return group;
+}
+
+function registerReportDrilldown(entryIds, label, contextMeta = {}) {
+  if (!Array.isArray(entryIds) || entryIds.length === 0) {
+    return null;
+  }
+  const uniqueIds = Array.from(new Set(entryIds.filter(Boolean)));
+  if (!uniqueIds.length) {
+    return null;
+  }
+  const id = `report-drill-${reportDrilldownCounter++}`;
+  reportDrilldownLookup.set(id, {
+    entryIds: uniqueIds,
+    label,
+    entityName: contextMeta.entityName || '',
+    year: contextMeta.year || reportFilters.year
+  });
+  return id;
+}
+
+function openReportDetailModalById(drilldownId) {
+  if (!reportDetailModal || !reportDetailTableBody) return;
+  const context = reportDrilldownLookup.get(drilldownId);
+  if (!context) return;
+  const entrySet = new Set(context.entryIds);
+  const matching = expenses
+    .filter((entry) => entrySet.has(entry.id))
+    .sort((a, b) => {
+      const dateA = toDateObject(a.date)?.getTime() || 0;
+      const dateB = toDateObject(b.date)?.getTime() || 0;
+      return dateB - dateA;
+    });
+  reportDetailTableBody.innerHTML = '';
+  if (!matching.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.className = 'empty';
+    cell.textContent = 'No matching entries.';
+    row.appendChild(cell);
+    reportDetailTableBody.appendChild(row);
+  } else {
+    matching.forEach((entry) => {
+      const row = document.createElement('tr');
+      const account = accountLookup.get(entry.accountId);
+      const signedAmount = getEntryDelta(entry);
+      row.innerHTML = `
+        <td>${formatDate(entry.date)}</td>
+        <td>${entry.description || entry.category || '—'}</td>
+        <td>${account?.name || '—'}</td>
+        <td class="report-amount">${formatCurrency(signedAmount)}</td>
+      `;
+      reportDetailTableBody.appendChild(row);
+    });
+  }
+  if (reportDetailTitle) {
+    reportDetailTitle.textContent = context.label || 'Category details';
+  }
+  if (reportDetailSubtitle) {
+    const bits = [];
+    if (context.entityName) bits.push(context.entityName);
+    if (context.year) bits.push(context.year);
+    reportDetailSubtitle.textContent = bits.join(' • ');
+  }
+  reportDetailModal.classList.remove('hidden');
+}
+
+function closeReportDetailModal() {
+  if (!reportDetailModal) return;
+  reportDetailModal.classList.add('hidden');
+}
+
+function getMileageRateForYear(year) {
+  const targetYear = Number(year);
+  if (!Number.isFinite(targetYear)) return 0;
+  if (mileageRateLookup.has(targetYear)) {
+    return mileageRateLookup.get(targetYear) || 0;
+  }
+  const fallbackRate = mileageRates.find((rate) => Number(rate.year) === targetYear);
+  const amount = Number(fallbackRate?.amount ?? fallbackRate?.rate ?? 0) || 0;
+  mileageRateLookup.set(targetYear, amount);
+  return amount;
+}
+
+function getMileageKilometresForYear(year) {
+  const targetYear = Number(year);
+  if (!Number.isFinite(targetYear)) return 0;
+  if (mileageKilometreTotalsByYear.has(targetYear)) {
+    return mileageKilometreTotalsByYear.get(targetYear) || 0;
+  }
+  const computed = mileageLogs.reduce((sum, log) => {
+    const date = toDateObject(log.date);
+    if (!date || date.getFullYear() !== targetYear) {
+      return sum;
+    }
+    const kmValue = Number(log.kilometres ?? log.km ?? 0);
+    return Number.isFinite(kmValue) ? sum + kmValue : sum;
+  }, 0);
+  mileageKilometreTotalsByYear.set(targetYear, computed);
+  return computed;
+}
+
+function buildMileageExpenseLine(year) {
+  const kms = getMileageKilometresForYear(year);
+  const rate = getMileageRateForYear(year);
+  if (!kms || !rate) return null;
+  const amount = kms * rate;
+  const detail = `${formatKilometres(kms)} @ ${formatCurrency(rate)}/km`;
+  return {
+    label: `Motor vehicle expense (${detail})`,
+    code: MOTOR_VEHICLE_T2042_CODE,
+    amount
+  };
+}
+
+function rebuildMileageRateLookup() {
+  mileageRateLookup = mileageRates.reduce((acc, rate) => {
+    const year = Number(rate.year);
+    const amount = Number(rate.amount ?? rate.rate);
+    if (!Number.isFinite(year) || !Number.isFinite(amount)) {
+      return acc;
+    }
+    acc.set(year, amount);
+    return acc;
+  }, new Map());
+}
+
+function buildReportTotalsSummary(data) {
+  const { totalIncome, totalExpenses, netIncome } = data;
+  const section = document.createElement('div');
+  section.className = 'report-totals';
+  section.innerHTML = `
+    <div>
+      <span>Total income</span>
+      <strong>${formatCurrency(totalIncome)}</strong>
+    </div>
+    <div>
+      <span>Total expenses</span>
+      <strong>${formatCurrency(totalExpenses)}</strong>
+    </div>
+    <div>
+      <span>Net total</span>
+      <strong>${formatCurrency(netIncome)}</strong>
+    </div>
+  `;
+  return section;
+}
+
+function renderReports() {
+  if (!reportsOutput) return;
+  reportsOutput.innerHTML = '';
+  reportDrilldownLookup.clear();
+  reportDrilldownCounter = 1;
+  if (!entityAccounts.length) {
+    reportsOutput.appendChild(createReportEmptyCard('Add at least one entity account to build a T2042 report.'));
+    return;
+  }
+  if (!reportGeneratedOnce) {
+    reportsOutput.appendChild(createReportEmptyCard('Choose filters and click Generate to see a report.'));
+    return;
+  }
+  if (!reportFilters.entityId) {
+    reportsOutput.appendChild(createReportEmptyCard('Select an entity to generate a report.'));
+    return;
+  }
+  const summary = buildEntityReportSummary(reportFilters.entityId, reportFilters.year);
+  if (!summary) {
+    reportsOutput.appendChild(createReportEmptyCard('Selected entity not found.'));
+    return;
+  }
+  const card = document.createElement('section');
+  card.className = 'card report-entity-card';
+  const header = document.createElement('div');
+  header.className = 'report-entity-header';
+  header.innerHTML = `
+    <div>
+      <h3>${summary.account?.name || 'Entity'}</h3>
+      <p class="hint">T2042 income & expenses for ${reportFilters.year}</p>
+    </div>
+  `;
+  card.appendChild(header);
+  const incomeRows = sortReportLines(summary.income);
+  const otherIncomeDetails = sortOtherIncomeDetails(summary.otherIncome);
+  const aggregatedOtherIds = otherIncomeDetails.flatMap((detail) => detail.entryIds || []);
+  const otherIncomeRow =
+    summary.otherIncomeTotal > 0
+      ? [
+          {
+            label: 'Other Income',
+            code: OTHER_INCOME_T2042_CODE,
+            amount: summary.otherIncomeTotal,
+            details: otherIncomeDetails,
+            entryIds: aggregatedOtherIds
+          }
+        ]
+      : [];
+  const expenseRows = sortReportLines(summary.expenses);
+  const mileageExpenseLine = buildMileageExpenseLine(reportFilters.year);
+  const expenseRowsWithMileage = mileageExpenseLine ? expenseRows.concat([mileageExpenseLine]) : expenseRows;
+  const incomeRowsWithOther = incomeRows.concat(otherIncomeRow);
+  const { t2042Rows: t2042IncomeRows, otherRows: otherIncomeRows } = partitionReportLines(incomeRowsWithOther);
+  const { t2042Rows: t2042ExpenseRows, otherRows: otherExpenseRows } = partitionReportLines(expenseRowsWithMileage);
+  const t2042IncomeTotal = sumLineAmounts(t2042IncomeRows);
+  const otherIncomeTotal = sumLineAmounts(otherIncomeRows);
+  const t2042ExpenseTotal = sumLineAmounts(t2042ExpenseRows);
+  const otherExpenseTotal = sumLineAmounts(otherExpenseRows);
+  const totalIncome = t2042IncomeTotal + otherIncomeTotal;
+  const totalExpenses = t2042ExpenseTotal + otherExpenseTotal;
+  const netIncome = totalIncome - totalExpenses;
+  header.insertAdjacentHTML(
+    'beforeend',
+    `
+      <div class="report-entity-net">
+        <span>Net income</span>
+        <strong>${formatCurrency(netIncome)}</strong>
+      </div>
+    `
+  );
+  const groupContext = { entityName: summary.account?.name || '', year: reportFilters.year };
+  card.appendChild(
+    buildReportGroup('T2042 categories', t2042IncomeRows, t2042IncomeTotal, t2042ExpenseRows, t2042ExpenseTotal, groupContext)
+  );
+  card.appendChild(
+    buildReportGroup('Other (code 0)', otherIncomeRows, otherIncomeTotal, otherExpenseRows, otherExpenseTotal, groupContext)
+  );
+  card.appendChild(
+    buildReportTotalsSummary({
+      totalIncome,
+      totalExpenses,
+      netIncome
+    })
+  );
+  if (!incomeRows.length && !otherIncomeDetails.length && !expenseRows.length) {
+    const empty = document.createElement('p');
+    empty.className = 'report-empty';
+    empty.textContent = 'No ledger activity for this entity and year.';
+    card.appendChild(empty);
+  }
+  reportsOutput.appendChild(card);
+}
+
+function populateReportControls() {
+  if (!reportEntitySelect || !reportYearSelect || !reportTypeSelect) return;
+  if (reportTypeSelect) {
+    reportTypeSelect.value = reportFilters.type;
+  }
+  const previousEntity = reportFilters.entityId;
+  reportEntitySelect.innerHTML = '';
+  if (!entityAccounts.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No entity accounts available';
+    reportEntitySelect.appendChild(option);
+    reportEntitySelect.disabled = true;
+    reportFilters.entityId = null;
+    if (generateReportButton) generateReportButton.disabled = true;
+  } else {
+    const defaultEntityId = getDefaultEntityAccountId();
+    const defaultExists = defaultEntityId && entityAccounts.some((account) => account.id === defaultEntityId);
+    entityAccounts.forEach((account) => {
+      const option = document.createElement('option');
+      option.value = account.id;
+      option.textContent = account.name;
+      reportEntitySelect.appendChild(option);
+    });
+    const hasPrevious = previousEntity && entityAccounts.some((account) => account.id === previousEntity);
+    const fallbackEntityId = defaultExists ? defaultEntityId : entityAccounts[0].id;
+    reportFilters.entityId = hasPrevious ? previousEntity : fallbackEntityId;
+    reportEntitySelect.disabled = false;
+    reportEntitySelect.value = reportFilters.entityId;
+    if (generateReportButton) generateReportButton.disabled = false;
+  }
+  const currentYear = new Date().getFullYear();
+  const clampedYear = Math.min(Math.max(reportFilters.year, MIN_REPORT_YEAR), currentYear);
+  reportFilters.year = clampedYear;
+  reportYearSelect.innerHTML = '';
+  for (let year = MIN_REPORT_YEAR; year <= currentYear; year += 1) {
+    const option = document.createElement('option');
+    option.value = String(year);
+    option.textContent = year;
+    reportYearSelect.appendChild(option);
+  }
+  reportYearSelect.value = String(reportFilters.year);
+  reportYearSelect.disabled = !reportFilters.entityId;
+  if (generateReportButton) {
+    generateReportButton.disabled = !reportFilters.entityId;
+  }
+}
+
+function maybeRenderReports() {
+  if (currentView === 'reports') {
+    renderReports();
+  }
 }
 
 function formatDateTimeFromMillis(ms) {
@@ -3183,6 +3742,7 @@ function subscribeToExpensesStream() {
       rebuildVendorTagSet();
       computeMissingMileageSuggestions();
       renderMissingMileageSuggestions();
+      maybeRenderReports();
     },
     (error) => {
       entryFormError.textContent = error.message;
@@ -3210,6 +3770,7 @@ function subscribeToMileageLogs() {
       rebuildVendorTagSet();
       computeMissingMileageSuggestions();
       renderMissingMileageSuggestions();
+      maybeRenderReports();
     },
     (error) => {
       console.error('Failed to load mileage logs:', error);
@@ -3228,6 +3789,7 @@ function subscribeToMileageRates() {
     (snapshot) => {
       mileageRates = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       renderMileageRates();
+      maybeRenderReports();
     },
     (error) => {
       console.error('Failed to load mileage rates:', error);
@@ -5658,6 +6220,47 @@ if (mileageRateTableBody) {
   });
 }
 
+if (reportsOutput) {
+  reportsOutput.addEventListener('click', (event) => {
+    const trigger = event.target.closest('[data-drilldown-id]');
+    if (!trigger) return;
+    const drilldownId = trigger.dataset.drilldownId;
+    if (drilldownId) {
+      openReportDetailModalById(drilldownId);
+    }
+  });
+}
+
+if (closeReportDetailModalButton) {
+  closeReportDetailModalButton.addEventListener('click', closeReportDetailModal);
+}
+
+if (reportDetailModal) {
+  reportDetailModal.addEventListener('click', (event) => {
+    if (event.target === reportDetailModal) {
+      closeReportDetailModal();
+    }
+  });
+}
+
+if (reportFilterForm) {
+  reportFilterForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const nextType = reportTypeSelect?.value || 'balance';
+    const nextEntity = reportEntitySelect?.value || '';
+    const parsedYear = reportYearSelect ? parseInt(reportYearSelect.value, 10) : NaN;
+    const fallbackYear = new Date().getFullYear();
+    reportFilters.type = nextType;
+    reportFilters.entityId = nextEntity || null;
+    reportFilters.year = Number.isFinite(parsedYear) ? parsedYear : fallbackYear;
+    if (reportYearSelect) {
+      reportYearSelect.value = String(reportFilters.year);
+    }
+    reportGeneratedOnce = true;
+    renderReports();
+  });
+}
+
 if (loginForm) {
   if (allowEmailPasswordAuth) {
     loginForm.classList.remove('hidden');
@@ -5870,6 +6473,7 @@ function setView(view) {
   const showingStorage = view === 'storage';
   const showingPricing = view === 'pricing';
   const showingSettings = view === 'settings';
+  const showingReports = view === 'reports';
   if (mainNav) {
     mainNav.classList.toggle('hidden', showingSettings);
   }
@@ -5887,6 +6491,9 @@ function setView(view) {
   storageView.classList.toggle('hidden', !showingStorage);
   const pricingVisible = showingPricing || (showingSettings && activeSettingsSection === 'pricing');
   pricingView.classList.toggle('hidden', !pricingVisible);
+  if (reportsView) {
+    reportsView.classList.toggle('hidden', !showingReports);
+  }
   ledgerView.classList.toggle('hidden', !showingLedger);
   if (settingsView) {
     const showCategories = showingSettings && activeSettingsSection === 'categories';
@@ -5954,6 +6561,11 @@ function setView(view) {
     renderConditionTable();
     renderEtiquetteTable();
     renderCopyTable();
+  } else if (showingReports) {
+    panelTitle.textContent = 'Reports';
+    panelSubtitle.textContent = 'Balance sheet and CRA T2042 totals per entity.';
+    populateReportControls();
+    renderReports();
   } else if (!showingSettings) {
     panelTitle.textContent = 'Accounts';
     panelSubtitle.textContent = 'Cash, entity, and hybrid accounts.';
