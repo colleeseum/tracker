@@ -30,7 +30,7 @@ export const PROFILE_CONFIG = {
         "apiKey": "AIzaSyAEtdh7DvpbC4T4HaQ646alWA1T9iSfz3o",
         "authDomain": "tracker-187c5.firebaseapp.com",
         "projectId": "tracker-187c5",
-        "storageBucket": "tracker-187c5.appspot.com",
+        "storageBucket": "tracker-187c5.firebasestorage.app",
         "messagingSenderId": "1044638579272",
         "appId": "1:1044638579272:web:cc555fd460b3783b70f67d",
         "measurementId": "G-EB48QYSZ9Z"
