@@ -194,6 +194,32 @@ const copyTableBody = document.getElementById('copy-table-body');
 const conditionTableBody = document.getElementById('condition-table-body');
 const etiquetteTableBody = document.getElementById('etiquette-table-body');
 const categoryTableBody = document.getElementById('category-table-body');
+const ccaSettingsView = document.getElementById('cca-settings-view');
+const ccaPoolForm = document.getElementById('cca-pool-form');
+const ccaPoolFormTitle = document.getElementById('cca-pool-form-title');
+const ccaPoolEntitySelect = document.getElementById('cca-pool-entity');
+const ccaPoolCodeInput = document.getElementById('cca-pool-code');
+const ccaPoolLabelInput = document.getElementById('cca-pool-label');
+const ccaPoolRateInput = document.getElementById('cca-pool-rate');
+const ccaPoolOrderInput = document.getElementById('cca-pool-order');
+const ccaPoolSubmitButton = document.getElementById('cca-pool-submit');
+const ccaPoolCancelButton = document.getElementById('cca-pool-cancel');
+const ccaPoolFormError = document.getElementById('cca-pool-error');
+const ccaPoolTableBody = document.getElementById('cca-pool-table-body');
+const ccaRecordModal = document.getElementById('cca-record-modal');
+const closeCcaRecordModalButton = document.getElementById('close-cca-record-modal');
+const ccaRecordForm = document.getElementById('cca-record-form');
+const ccaRecordFormTitle = document.getElementById('cca-record-form-title');
+const ccaRecordPoolLabel = document.getElementById('cca-record-pool-label');
+const ccaRecordYearLabel = document.getElementById('cca-record-year-label');
+const ccaOpeningInput = document.getElementById('cca-opening-input');
+const ccaAdditionsInput = document.getElementById('cca-additions-input');
+const ccaDispositionsInput = document.getElementById('cca-dispositions-input');
+const ccaClaimInput = document.getElementById('cca-claim-input');
+const ccaClosingPreview = document.getElementById('cca-closing-preview');
+const ccaOpeningHint = document.getElementById('cca-opening-hint');
+const ccaRecordError = document.getElementById('cca-record-error');
+const ccaRecordCancelButton = document.getElementById('cca-record-cancel');
 const modal = document.getElementById('account-modal');
 const closeModalButton = document.getElementById('close-modal');
 const accountForm = document.getElementById('account-form');
@@ -410,6 +436,8 @@ const entryReceiptDownloadLink = document.getElementById('entry-receipt-download
 const entryReceiptStatus = document.getElementById('entry-receipt-status');
 const entryReceiptRemoveButton = document.getElementById('entry-receipt-remove');
 const entryFormTitle = document.getElementById('entry-form-title');
+const entryCcaField = document.getElementById('entry-cca-field');
+const entryCcaSelect = document.getElementById('entry-cca-pool');
 const ledgerError = document.getElementById('ledger-error');
 const transferModal = document.getElementById('transfer-modal');
 const closeTransferModalButton = document.getElementById('close-transfer-modal');
@@ -470,6 +498,30 @@ function generateTransactionId() {
   return `txn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function rebuildExpenseLookup() {
+  expenseLookup = new Map(expenses.map((entry) => [entry.id, entry]));
+}
+
+function rebuildCcaPoolLookup() {
+  ccaPoolLookup = new Map(ccaPools.map((pool) => [pool.id, pool]));
+}
+
+function getCcaRecordKey(entityId, poolId, year) {
+  return `${entityId || ''}::${poolId || ''}::${year}`;
+}
+
+function rebuildCcaRecordLookup() {
+  ccaRecordLookup = new Map();
+  ccaRecords.forEach((record) => {
+    const key = getCcaRecordKey(record.entityId, record.poolId, record.year);
+    ccaRecordLookup.set(key, record);
+  });
+}
+
+function getCcaRecord(entityId, poolId, year) {
+  return ccaRecordLookup.get(getCcaRecordKey(entityId, poolId, year)) || null;
+}
+
 let unsubscribeAccounts = null;
 let accounts = [];
 let accountLookup = new Map();
@@ -490,6 +542,7 @@ let currentReceiptMeta = { url: null, path: null };
 let removeExistingReceipt = false;
 let lastKnownEntityTotal = 0;
 let expenses = [];
+let expenseLookup = new Map();
 let unsubscribeExpenses = null;
 let tagSet = new Set();
 let vendorTagSet = new Set();
@@ -539,6 +592,7 @@ let addonPriceLookup = new Map();
 const GLOBAL_ADDON_PRICE_SCOPE = '__global__';
 const OTHER_INCOME_T2042_CODE = 9600;
 const MOTOR_VEHICLE_T2042_CODE = 9819;
+const CCA_T2042_CODE = 9936;
 const MIN_REPORT_YEAR = 2025;
 let reportFilters = {
   type: 'balance',
@@ -548,6 +602,17 @@ let reportFilters = {
 let reportGeneratedOnce = false;
 let reportDrilldownLookup = new Map();
 let reportDrilldownCounter = 1;
+let reportDetailRowCounter = 1;
+let ccaPools = [];
+let ccaPoolLookup = new Map();
+let unsubscribeCcaPools = null;
+let editingCcaPoolId = null;
+let ccaRecords = [];
+let ccaRecordLookup = new Map();
+resetCcaPoolForm();
+let unsubscribeCcaRecords = null;
+let editingCcaRecordContext = null;
+resetCcaClassForm();
 
 function normalizeCategoryCode(value) {
   if (value === null || value === undefined) return null;
@@ -832,6 +897,7 @@ function subscribeToAccounts() {
       updateLedgerAccountOptions();
       updateEntryAccountOptions();
       updateTransferAccountOptions();
+      updateCcaPoolEntityOptions();
       addEntryButton.disabled = cashAccounts.length === 0 || entityAccounts.length === 0;
       transferButton.disabled = cashAccounts.length < 2;
       populateReportControls();
@@ -1025,6 +1091,45 @@ function subscribeToCategories() {
   );
 }
 
+function subscribeToCcaPools() {
+  cleanCcaPoolSubscription();
+  const ref = collection(db, 'ccaPools');
+  const q = query(ref, orderBy('entityId'));
+  unsubscribeCcaPools = onSnapshot(
+    q,
+    (snapshot) => {
+      ccaPools = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      rebuildCcaPoolLookup();
+      renderCcaPoolTable();
+      maybeRenderReports();
+    },
+    (error) => {
+      if (ccaPoolFormError) {
+        ccaPoolFormError.textContent = error.message;
+      } else {
+        console.error('Failed to load CCA pools:', error);
+      }
+    }
+  );
+}
+
+function subscribeToCcaRecords() {
+  cleanCcaRecordSubscription();
+  const ref = collection(db, 'ccaRecords');
+  const q = query(ref, orderBy('entityId'));
+  unsubscribeCcaRecords = onSnapshot(
+    q,
+    (snapshot) => {
+      ccaRecords = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      rebuildCcaRecordLookup();
+      maybeRenderReports();
+    },
+    (error) => {
+      console.error('Failed to load CCA records:', error);
+    }
+  );
+}
+
 function subscribeToConditions() {
   cleanConditionSubscription();
   const ref = collection(db, 'storageConditions');
@@ -1145,6 +1250,26 @@ function cleanEtiquetteSubscription() {
     unsubscribeEtiquette();
   }
   unsubscribeEtiquette = null;
+}
+
+function cleanCcaPoolSubscription() {
+  if (unsubscribeCcaPools) {
+    unsubscribeCcaPools();
+  }
+  unsubscribeCcaPools = null;
+  ccaPools = [];
+  ccaPoolLookup = new Map();
+  renderCcaPoolTable();
+}
+
+function cleanCcaRecordSubscription() {
+  if (unsubscribeCcaRecords) {
+    unsubscribeCcaRecords();
+  }
+  unsubscribeCcaRecords = null;
+  ccaRecords = [];
+  ccaRecordLookup = new Map();
+  updateCcaRecordPreview();
 }
 
 function cleanMarketingCopySubscription() {
@@ -2356,7 +2481,41 @@ function buildEntityReportSummary(entityId, year) {
       addExpenseToSummary(summary, meta, -delta, entry);
     }
   });
+  const ccaExpenseLines = buildCcaExpenseLines(entityId, year);
+  ccaExpenseLines.forEach((line) => {
+    addExpenseToSummary(summary, line.meta, line.amount, null);
+  });
   return summary;
+}
+
+function computeEntityYearBalances(entityId, year) {
+  const account = accountLookup.get(entityId);
+  const openingBalance = Number(account?.openingBalance) || 0;
+  if (!account) {
+    return { openingBalance: 0, closingBalance: 0 };
+  }
+  const start = new Date(year, 0, 1);
+  const end = new Date(year + 1, 0, 1);
+  let deltaBeforeStart = 0;
+  let deltaBeforeEnd = 0;
+  expenses.forEach((entry) => {
+    if (!entry || entry.isVirtualOpening || entry.entityId !== entityId) return;
+    const entryDate = toDateObject(entry.date);
+    if (!entryDate) return;
+    const delta = getEntryDelta(entry);
+    if (entryDate < start) {
+      deltaBeforeStart += delta;
+      deltaBeforeEnd += delta;
+      return;
+    }
+    if (entryDate < end) {
+      deltaBeforeEnd += delta;
+    }
+  });
+  return {
+    openingBalance: openingBalance + deltaBeforeStart,
+    closingBalance: openingBalance + deltaBeforeEnd
+  };
 }
 
 function addIncomeToSummary(summary, meta, amount, entry) {
@@ -2438,6 +2597,41 @@ function createReportEmptyCard(message) {
   return section;
 }
 
+function buildReportEntryList(entryIds) {
+  if (!Array.isArray(entryIds) || !entryIds.length) {
+    return '';
+  }
+  const uniqueIds = Array.from(new Set(entryIds.filter(Boolean)));
+  if (!uniqueIds.length) {
+    return '';
+  }
+  const entries = uniqueIds
+    .map((id) => expenseLookup.get(id))
+    .filter(Boolean)
+    .sort((a, b) => {
+      const dateA = toDateObject(a.date)?.getTime() || 0;
+      const dateB = toDateObject(b.date)?.getTime() || 0;
+      return dateB - dateA;
+    });
+  if (!entries.length) {
+    return '<div class="report-entry-list"><div class="report-entry-row empty">No transactions</div></div>';
+  }
+  const rows = entries
+    .map((entry) => {
+      const account = accountLookup.get(entry.accountId);
+      return `
+        <div class="report-entry-row">
+          <span>${formatDate(entry.date)}</span>
+          <span>${entry.description || entry.category || '—'}</span>
+          <span>${account?.name || '—'}</span>
+          <span class="report-entry-amount">${renderSignedCurrency(getEntryDelta(entry))}</span>
+        </div>
+      `;
+    })
+    .join('');
+  return `<div class="report-entry-list">${rows}</div>`;
+}
+
 function buildReportSection(title, total, rows, contextMeta = {}) {
   const section = document.createElement('div');
   section.className = 'report-section';
@@ -2451,35 +2645,36 @@ function buildReportSection(title, total, rows, contextMeta = {}) {
   let hasContent = false;
   rows.forEach((line) => {
     const row = document.createElement('tr');
+    row.className = 'report-summary-row';
+    const detailMarkup = buildReportEntryList(line.entryIds);
+    const hasDetails = Boolean(detailMarkup);
     const displayCode = normalizeCategoryCode(line.code);
+    const summaryId = hasDetails ? `report-detail-${reportDetailRowCounter++}` : null;
+    const labelContent = `
+      <div class="report-label-content">
+        ${
+          hasDetails
+            ? `<button type="button" class="report-toggle" data-action="toggle-report-category" data-target="${summaryId}" aria-label="Toggle category" aria-expanded="false">
+                <img src="icons/arrow_open.svg" alt="Expand details" />
+              </button>`
+            : ''
+        }
+        <span>${line.label || '—'}</span>
+      </div>
+    `;
     row.innerHTML = `
-      <td class="report-label">${line.label || '—'}</td>
+      <td class="report-label">${labelContent}</td>
       <td class="report-code">${Number.isFinite(displayCode) ? displayCode : '—'}</td>
       <td class="report-amount">${formatCurrency(line.amount)}</td>
     `;
-    const drillId = registerReportDrilldown(line.entryIds, line.label || title, contextMeta);
-    if (drillId) {
-      row.dataset.drilldownId = drillId;
-      row.classList.add('report-row-clickable');
-    }
     tbody.appendChild(row);
     hasContent = true;
-    if (Array.isArray(line.details) && line.details.length) {
-      line.details.forEach((detail) => {
-        const detailRow = document.createElement('tr');
-        detailRow.className = 'report-subrow';
-        detailRow.innerHTML = `
-          <td class="report-label">${detail.label || '—'}</td>
-          <td class="report-code">—</td>
-          <td class="report-amount">${formatCurrency(detail.amount)}</td>
-        `;
-        const detailDrillId = registerReportDrilldown(detail.entryIds, detail.label || line.label || title, contextMeta);
-        if (detailDrillId) {
-          detailRow.dataset.drilldownId = detailDrillId;
-          detailRow.classList.add('report-row-clickable');
-        }
-        tbody.appendChild(detailRow);
-      });
+    if (hasDetails && summaryId) {
+      const detailRow = document.createElement('tr');
+      detailRow.className = 'report-detail-row collapsed';
+      detailRow.dataset.reportDetail = summaryId;
+      detailRow.innerHTML = `<td colspan="3">${detailMarkup}</td>`;
+      tbody.appendChild(detailRow);
     }
   });
   if (!hasContent) {
@@ -2638,6 +2833,28 @@ function buildMileageExpenseLine(year) {
   };
 }
 
+function buildCcaExpenseLines(entityId, year) {
+  const pools = getCcaPoolsForEntity(entityId);
+  if (!pools.length) return [];
+  return pools
+    .map((pool) => {
+      const record = getCcaRecord(entityId, pool.id, year);
+      const amount = Number(record?.ccaClaim) || 0;
+      if (!amount) return null;
+      const label = pool.label || `Class ${pool.classCode || ''}`.trim();
+      return {
+        meta: {
+          id: pool.id,
+          label: label ? `CCA ${label}` : 'CCA deduction',
+          code: CCA_T2042_CODE
+        },
+        amount,
+        entryIds: []
+      };
+    })
+    .filter(Boolean);
+}
+
 function rebuildMileageRateLookup() {
   mileageRateLookup = mileageRates.reduce((acc, rate) => {
     const year = Number(rate.year);
@@ -2671,11 +2888,90 @@ function buildReportTotalsSummary(data) {
   return section;
 }
 
+function buildCcaReportCard(entityId, year) {
+  const pools = getCcaPoolsForEntity(entityId);
+  if (!pools.length) return null;
+  const card = document.createElement('section');
+  card.className = 'card cca-card';
+  const entityName = accountLookup.get(entityId)?.name || 'Entity';
+  card.innerHTML = `
+    <div class="cca-card-header">
+      <div>
+        <h3>Capital cost allowance</h3>
+        <p class="hint">${entityName} • ${year}</p>
+      </div>
+      <button type="button" class="link" data-action="manage-cca-pools">Manage pools</button>
+    </div>
+  `;
+  const table = document.createElement('table');
+  table.className = 'cca-table';
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Class</th>
+        <th>Label</th>
+        <th>Rate</th>
+        <th>Opening</th>
+        <th>Additions</th>
+        <th>Dispositions</th>
+        <th>CCA claimed</th>
+        <th>Closing</th>
+        <th></th>
+      </tr>
+    </thead>
+  `;
+  const tbody = document.createElement('tbody');
+  pools.forEach((pool) => {
+    const values = resolveCcaValuesForPool(pool, year);
+    const row = document.createElement('tr');
+    const classCell = document.createElement('td');
+    classCell.textContent = pool.classCode || '—';
+    row.appendChild(classCell);
+    const labelCell = document.createElement('td');
+    labelCell.textContent = pool.label || '—';
+    row.appendChild(labelCell);
+    const rateCell = document.createElement('td');
+    rateCell.textContent = formatPercentage(pool.rate);
+    row.appendChild(rateCell);
+    const openingCell = document.createElement('td');
+    openingCell.textContent = formatCurrency(values.opening);
+    row.appendChild(openingCell);
+    const additionsCell = document.createElement('td');
+    additionsCell.textContent = formatCurrency(values.additions);
+    row.appendChild(additionsCell);
+    const dispositionsCell = document.createElement('td');
+    dispositionsCell.textContent = formatCurrency(values.dispositions);
+    row.appendChild(dispositionsCell);
+    const claimCell = document.createElement('td');
+    claimCell.textContent = formatCurrency(values.ccaClaim);
+    row.appendChild(claimCell);
+    const closingCell = document.createElement('td');
+    closingCell.textContent = formatCurrency(values.closing);
+    row.appendChild(closingCell);
+    const actionCell = document.createElement('td');
+    actionCell.className = 'actions-cell';
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'icon-button';
+    editButton.dataset.action = 'edit-cca-record';
+    editButton.dataset.poolId = pool.id;
+    editButton.dataset.year = year;
+    editButton.innerHTML = '<img src="icons/pencil.svg" alt="Edit CCA values" />';
+    actionCell.appendChild(editButton);
+    row.appendChild(actionCell);
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  card.appendChild(table);
+  return card;
+}
+
 function renderReports() {
   if (!reportsOutput) return;
   reportsOutput.innerHTML = '';
   reportDrilldownLookup.clear();
   reportDrilldownCounter = 1;
+  reportDetailRowCounter = 1;
   if (!entityAccounts.length) {
     reportsOutput.appendChild(createReportEmptyCard('Add at least one entity account to build a T2042 report.'));
     return;
@@ -2686,6 +2982,10 @@ function renderReports() {
   }
   if (!reportFilters.entityId) {
     reportsOutput.appendChild(createReportEmptyCard('Select an entity to generate a report.'));
+    return;
+  }
+  if (reportFilters.type === 'tags') {
+    renderTagReport();
     return;
   }
   const summary = buildEntityReportSummary(reportFilters.entityId, reportFilters.year);
@@ -2728,6 +3028,24 @@ function renderReports() {
       </div>
     `
   );
+  const balances = computeEntityYearBalances(reportFilters.entityId, reportFilters.year);
+  if (balances) {
+    header.insertAdjacentHTML(
+      'beforeend',
+      `
+        <div class="report-entity-balances">
+          <div>
+            <span>Opening balance (Jan 1 ${reportFilters.year})</span>
+            <strong>${formatCurrency(balances.openingBalance)}</strong>
+          </div>
+          <div>
+            <span>Closing balance (Dec 31 ${reportFilters.year})</span>
+            <strong>${formatCurrency(balances.closingBalance)}</strong>
+          </div>
+        </div>
+      `
+    );
+  }
   const groupContext = { entityName: summary.account?.name || '', year: reportFilters.year };
   card.appendChild(
     buildReportGroup('T2042 categories', t2042IncomeRows, t2042IncomeTotal, t2042ExpenseRows, t2042ExpenseTotal, groupContext)
@@ -2742,13 +3060,154 @@ function renderReports() {
       netIncome
     })
   );
-  if (!incomeRows.length && !otherIncomeDetails.length && !expenseRows.length) {
+  if (!incomeRows.length && !otherIncomeRows.length && !expenseRows.length) {
     const empty = document.createElement('p');
     empty.className = 'report-empty';
     empty.textContent = 'No ledger activity for this entity and year.';
     card.appendChild(empty);
   }
   reportsOutput.appendChild(card);
+  const ccaCard = buildCcaReportCard(reportFilters.entityId, reportFilters.year);
+  if (ccaCard) {
+    reportsOutput.appendChild(ccaCard);
+  }
+}
+
+function buildTagReportData(entityId, year) {
+  const account = accountLookup.get(entityId);
+  if (!account) return { account: null, tags: [] };
+  const start = new Date(year, 0, 1);
+  const end = new Date(year + 1, 0, 1);
+  const tagMap = new Map();
+  expenses.forEach((entry) => {
+    if (!entry || entry.isVirtualOpening || entry.entityId !== entityId) return;
+    const entryDate = toDateObject(entry.date);
+    if (!entryDate || entryDate < start || entryDate >= end) return;
+    const tags = normalizeTagArray(entry.tags);
+    if (!tags.length) return;
+    const meta = getCategoryMetaForEntry(entry);
+    const delta = getEntryDelta(entry);
+    const categoryLabel = meta.label || entry.category || 'Uncategorized';
+    const accountName = accountLookup.get(entry.accountId)?.name || '';
+    tags.forEach((rawTag) => {
+      const normalized = normalizeTagValue(rawTag);
+      if (!normalized) return;
+      const tagKey = normalized.toLowerCase();
+      const existing =
+        tagMap.get(tagKey) || {
+          tag: tagKey,
+          label: formatTagLabel(tagKey) || `#${normalized}`,
+          income: 0,
+          expense: 0,
+          categories: new Map()
+        };
+      if (delta >= 0) {
+        existing.income += delta;
+      } else {
+        existing.expense += -delta;
+      }
+      const categoryInfo =
+        existing.categories.get(categoryLabel) || { label: categoryLabel, income: 0, expense: 0, entries: [] };
+      if (delta >= 0) {
+        categoryInfo.income += delta;
+      } else {
+        categoryInfo.expense += -delta;
+      }
+      categoryInfo.entries.push({
+        id: entry.id,
+        date: entry.date,
+        description: entry.description || entry.category || '—',
+        accountName,
+        amount: delta
+      });
+      existing.categories.set(categoryLabel, categoryInfo);
+      tagMap.set(tagKey, existing);
+    });
+  });
+  const tags = Array.from(tagMap.values()).sort((a, b) => {
+    const absA = Math.abs(a.income - a.expense);
+    const absB = Math.abs(b.income - b.expense);
+    return absB - absA;
+  });
+  tags.forEach((tag) => {
+    tag.categories = Array.from(tag.categories.values()).sort((a, b) => {
+      const absA = Math.abs(a.income - a.expense);
+      const absB = Math.abs(b.income - b.expense);
+      return absB - absA;
+    });
+  });
+  return { account, tags };
+}
+
+function renderTagReport() {
+  const { account, tags } = buildTagReportData(reportFilters.entityId, reportFilters.year);
+  if (!account) {
+    reportsOutput.appendChild(createReportEmptyCard('Selected entity not found.'));
+    return;
+  }
+  if (!tags.length) {
+    reportsOutput.appendChild(createReportEmptyCard('No tagged entries for this entity and year.'));
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'tag-report-table';
+  const tbody = document.createElement('tbody');
+  tags.forEach((tag) => {
+    const net = tag.income - tag.expense;
+    const summaryRow = document.createElement('tr');
+    summaryRow.className = 'tag-summary-row';
+    summaryRow.innerHTML = `
+      <td class="tag-label"><strong>${tag.label}</strong></td>
+      <td class="tag-metric">Income ${renderSignedCurrency(tag.income)}</td>
+      <td class="tag-metric">Expenses ${renderSignedCurrency(-Math.abs(tag.expense))}</td>
+      <td class="tag-metric">Net ${renderSignedCurrency(net)}</td>
+    `;
+    tbody.appendChild(summaryRow);
+
+    const detailRow = document.createElement('tr');
+    detailRow.className = 'tag-detail-row';
+    const detailCell = document.createElement('td');
+    detailCell.colSpan = 4;
+    detailCell.innerHTML =
+      tag.categories
+        .map((category) => {
+          const categoryNet = category.income - category.expense;
+          const entryMarkup =
+            category.entries
+              .map(
+                (entry) => `
+                  <div class="tag-entry-row">
+                    <span>${formatDate(entry.date)}</span>
+                    <span>${entry.description}</span>
+                    <span>${entry.accountName}</span>
+                    <span>${renderSignedCurrency(entry.amount)}</span>
+                  </div>
+                `
+              )
+              .join('') || '<div class="tag-entry-row empty">No transactions</div>';
+          return `
+            <div class="tag-category-chip collapsed">
+              <div class="chip-header">
+                <button type="button" class="chip-toggle" data-action="toggle-tag-category" aria-label="Toggle category">
+                  <img src="icons/arrow_open.svg" alt="" />
+                </button>
+                <div class="chip-header-text">
+                  <span>${category.label}</span>
+                  ${renderSignedCurrency(categoryNet)}
+                </div>
+              </div>
+              <div class="chip-entries">
+                ${entryMarkup}
+              </div>
+            </div>
+          `;
+        })
+        .join('') || '<div class="tag-category-chip empty">No category details</div>';
+    detailRow.appendChild(detailCell);
+    tbody.appendChild(detailRow);
+  });
+  table.appendChild(tbody);
+  reportsOutput.appendChild(table);
 }
 
 function populateReportControls() {
@@ -3325,6 +3784,215 @@ function renderCategoryTable() {
   });
 }
 
+function updateCcaPoolEntityOptions() {
+  if (!ccaPoolEntitySelect) return;
+  const previousValue = ccaPoolEntitySelect.value;
+  ccaPoolEntitySelect.innerHTML = '';
+  if (!entityAccounts.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Add an entity account first';
+    ccaPoolEntitySelect.appendChild(option);
+    ccaPoolEntitySelect.disabled = true;
+    if (ccaPoolSubmitButton) {
+      ccaPoolSubmitButton.disabled = true;
+    }
+    return;
+  }
+  ccaPoolEntitySelect.disabled = false;
+  if (ccaPoolSubmitButton) {
+    ccaPoolSubmitButton.disabled = false;
+  }
+  entityAccounts.forEach((account) => {
+    const option = document.createElement('option');
+    option.value = account.id;
+    option.textContent = account.name || 'Entity';
+    ccaPoolEntitySelect.appendChild(option);
+  });
+  if (previousValue && entityAccounts.some((account) => account.id === previousValue)) {
+    ccaPoolEntitySelect.value = previousValue;
+  } else {
+    ccaPoolEntitySelect.value = entityAccounts[0].id;
+  }
+}
+
+function resetCcaClassForm() {
+
+}
+
+function resetCcaPoolForm() {
+  if (!ccaPoolForm) return;
+  ccaPoolForm.reset();
+  editingCcaPoolId = null;
+  if (ccaPoolFormTitle) {
+    ccaPoolFormTitle.textContent = 'Add CCA pool';
+  }
+  if (ccaPoolCancelButton) {
+    ccaPoolCancelButton.classList.add('hidden');
+  }
+  if (ccaPoolFormError) {
+    ccaPoolFormError.textContent = '';
+  }
+  updateCcaPoolEntityOptions();
+}
+
+function renderCcaPoolTable() {
+  if (!ccaPoolTableBody) return;
+  ccaPoolTableBody.innerHTML = '';
+  if (!ccaPools.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.className = 'empty';
+    cell.textContent = 'Define at least one CCA pool.';
+    row.appendChild(cell);
+    ccaPoolTableBody.appendChild(row);
+    return;
+  }
+  const sorted = [...ccaPools].sort((a, b) => {
+    if (a.entityId !== b.entityId) {
+      const nameA = accountLookup.get(a.entityId)?.name || '';
+      const nameB = accountLookup.get(b.entityId)?.name || '';
+      return nameA.localeCompare(nameB);
+    }
+    const orderA = Number(a.order) || 0;
+    const orderB = Number(b.order) || 0;
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    return (a.classCode || '').localeCompare(b.classCode || '');
+  });
+  sorted.forEach((pool) => {
+    const entity = accountLookup.get(pool.entityId);
+    const row = document.createElement('tr');
+    const entityCell = document.createElement('td');
+    entityCell.textContent = entity?.name || 'Entity';
+    row.appendChild(entityCell);
+    const classCell = document.createElement('td');
+    classCell.textContent = pool.classCode || '—';
+    row.appendChild(classCell);
+    const labelCell = document.createElement('td');
+    labelCell.textContent = pool.label || '—';
+    row.appendChild(labelCell);
+    const actionCell = document.createElement('td');
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'icon-button';
+    editButton.dataset.action = 'edit-cca-pool';
+    editButton.dataset.id = pool.id;
+    editButton.innerHTML = '<img src="icons/pencil.svg" alt="Edit CCA pool" />';
+    actionCell.appendChild(editButton);
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-button';
+    deleteButton.dataset.action = 'delete-cca-pool';
+    deleteButton.dataset.id = pool.id;
+    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete CCA pool" data-icon="trash" />';
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
+    ccaPoolTableBody.appendChild(row);
+  });
+}
+
+function getCcaPoolsForEntity(entityId) {
+  return ccaPools.filter((pool) => pool.entityId === entityId);
+}
+
+function resolveCcaValuesForPool(pool, year) {
+  const entityId = pool.entityId;
+  const current = getCcaRecord(entityId, pool.id, year);
+  const previous = getCcaRecord(entityId, pool.id, year - 1);
+  const openingValue = toFiniteNumber(current?.openingBalance);
+  const previousClosing = toFiniteNumber(previous?.closingBalance);
+  const opening = openingValue ?? previousClosing ?? 0;
+  const additions = toFiniteNumber(current?.additions) ?? 0;
+  const dispositions = toFiniteNumber(current?.dispositions) ?? 0;
+  const ccaClaim = toFiniteNumber(current?.ccaClaim) ?? 0;
+  const closingValue = toFiniteNumber(current?.closingBalance);
+  const closing = closingValue ?? opening + additions - dispositions - ccaClaim;
+  return {
+    record: current,
+    opening,
+    additions,
+    dispositions,
+    ccaClaim,
+    closing,
+    previousClosing: previousClosing ?? 0
+  };
+}
+
+function openCcaRecordModal(poolId, year) {
+  if (!ccaRecordModal) return;
+  const pool = ccaPoolLookup.get(poolId);
+  if (!pool) return;
+  const entity = accountLookup.get(pool.entityId);
+  editingCcaRecordContext = {
+    poolId,
+    entityId: pool.entityId,
+    year,
+    recordId: null
+  };
+  const current = getCcaRecord(pool.entityId, poolId, year);
+  if (current?.id) {
+    editingCcaRecordContext.recordId = current.id;
+  }
+  const previous = getCcaRecord(pool.entityId, poolId, year - 1);
+  const defaultOpening = toFiniteNumber(current?.openingBalance);
+  const previousClosing = toFiniteNumber(previous?.closingBalance);
+  const resolvedOpening = defaultOpening ?? previousClosing ?? 0;
+  if (ccaRecordFormTitle) {
+    ccaRecordFormTitle.textContent = 'Edit CCA values';
+  }
+  if (ccaRecordPoolLabel) {
+    const classLabel = pool.label || pool.classCode || 'CCA class';
+    ccaRecordPoolLabel.textContent = `${classLabel} • ${entity?.name || 'Entity'}`;
+  }
+  if (ccaRecordYearLabel) {
+    ccaRecordYearLabel.textContent = `Year ${year}`;
+  }
+  setNumericInputValue(ccaOpeningInput, resolvedOpening);
+  setNumericInputValue(ccaAdditionsInput, toFiniteNumber(current?.additions) ?? 0);
+  setNumericInputValue(ccaDispositionsInput, toFiniteNumber(current?.dispositions) ?? 0);
+  setNumericInputValue(ccaClaimInput, toFiniteNumber(current?.ccaClaim) ?? 0);
+  if (ccaOpeningHint) {
+    if (previous) {
+      const prevText = formatCurrency(previousClosing ?? 0);
+      ccaOpeningHint.textContent = `Defaulted to ${prevText} from ${year - 1} closing.`;
+    } else {
+      ccaOpeningHint.textContent = 'Enter the opening balance for this class.';
+    }
+  }
+  if (ccaRecordError) {
+    ccaRecordError.textContent = '';
+  }
+  updateCcaRecordPreview();
+  ccaRecordModal.classList.remove('hidden');
+}
+
+function closeCcaRecordModal() {
+  if (!ccaRecordModal) return;
+  ccaRecordModal.classList.add('hidden');
+  editingCcaRecordContext = null;
+  if (ccaRecordForm) {
+    ccaRecordForm.reset();
+  }
+  if (ccaRecordError) {
+    ccaRecordError.textContent = '';
+  }
+  updateCcaRecordPreview();
+}
+
+function updateCcaRecordPreview() {
+  if (!ccaClosingPreview) return;
+  const opening = Number(ccaOpeningInput?.value) || 0;
+  const additions = Number(ccaAdditionsInput?.value) || 0;
+  const dispositions = Number(ccaDispositionsInput?.value) || 0;
+  const claim = Number(ccaClaimInput?.value) || 0;
+  const closing = opening + additions - dispositions - claim;
+  ccaClosingPreview.textContent = formatCurrency(closing);
+  return closing;
+}
+
 function updateStorageClientOptions() {
   if (!storageClientSelect) return;
   const previousValue = storageClientSelect.value;
@@ -3719,6 +4387,7 @@ function subscribeToExpensesStream() {
         }
         return data;
       });
+      rebuildExpenseLookup();
       const { cashTotals, entityTotals } = calculateAdjustments(expenses);
       accountAdjustments = cashTotals;
       entityAdjustments = entityTotals;
@@ -3800,6 +4469,7 @@ function cleanExpensesSubscription() {
   }
   unsubscribeExpenses = null;
   expenses = [];
+  rebuildExpenseLookup();
   rebuildVendorTagSet();
   accountAdjustments = new Map();
   entityAdjustments = new Map();
@@ -4870,12 +5540,35 @@ function formatCurrency(value) {
   return formatter.format(Number(value) || 0);
 }
 
+function renderSignedCurrency(value) {
+  const amount = Number(value) || 0;
+  const cls = amount >= 0 ? 'amount-positive' : 'amount-negative';
+  return `<span class="${cls}">${formatCurrency(amount)}</span>`;
+}
+
+function formatPercentage(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '—';
+  return `${num.toFixed(2)}%`;
+}
+
 function formatKilometres(value, fractionDigits = 1) {
   const formatter = new Intl.NumberFormat('en-CA', {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits
   });
   return `${formatter.format(Number(value) || 0)} km`;
+}
+
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function setNumericInputValue(input, value) {
+  if (!input) return;
+  const num = toFiniteNumber(value);
+  input.value = num ?? '';
 }
 
 accountList.addEventListener('click', (event) => {
@@ -6219,6 +6912,51 @@ if (mileageRateTableBody) {
 
 if (reportsOutput) {
   reportsOutput.addEventListener('click', (event) => {
+    const manageCcaButton = event.target.closest('[data-action="manage-cca-pools"]');
+    if (manageCcaButton) {
+      setView('settings');
+      setSettingsSection('cca');
+      return;
+    }
+    const editCcaButton = event.target.closest('[data-action="edit-cca-record"]');
+    if (editCcaButton) {
+      const poolId = editCcaButton.dataset.poolId;
+      const yearValue = Number(editCcaButton.dataset.year);
+      if (poolId && Number.isFinite(yearValue)) {
+        openCcaRecordModal(poolId, yearValue);
+      }
+      return;
+    }
+    const reportToggle = event.target.closest('[data-action="toggle-report-category"]');
+    if (reportToggle) {
+      const targetId = reportToggle.dataset.target;
+      if (targetId) {
+        const detailRow = reportsOutput.querySelector(`[data-report-detail="${targetId}"]`);
+        if (detailRow) {
+          const collapsed = detailRow.classList.toggle('collapsed');
+          const icon = reportToggle.querySelector('img');
+          if (icon) {
+            icon.src = collapsed ? 'icons/arrow_open.svg' : 'icons/arrow_close.svg';
+            icon.alt = collapsed ? 'Expand details' : 'Collapse details';
+          }
+          reportToggle.setAttribute('aria-expanded', String(!collapsed));
+        }
+      }
+      return;
+    }
+    const toggleButton = event.target.closest('[data-action="toggle-tag-category"]');
+    if (toggleButton) {
+      const chip = toggleButton.closest('.tag-category-chip');
+      if (chip) {
+        const collapsed = chip.classList.toggle('collapsed');
+        const icon = toggleButton.querySelector('img');
+        if (icon) {
+          icon.src = collapsed ? 'icons/arrow_open.svg' : 'icons/arrow_close.svg';
+          icon.alt = collapsed ? 'Expand' : 'Collapse';
+        }
+      }
+      return;
+    }
     const trigger = event.target.closest('[data-drilldown-id]');
     if (!trigger) return;
     const drilldownId = trigger.dataset.drilldownId;
@@ -6317,6 +7055,9 @@ onAuthStateChanged(auth, async (user) => {
     cleanEtiquetteSubscription();
     cleanMarketingCopySubscription();
     cleanCategorySubscription();
+    cleanCcaClassSubscription();
+    cleanCcaPoolSubscription();
+    cleanCcaRecordSubscription();
     cleanAccounts();
     cleanClients();
     cleanStorageRequests();
@@ -6387,6 +7128,9 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToExpensesStream();
   subscribeToMileageLogs();
   subscribeToMileageRates();
+  subscribeToCcaClasses();
+  subscribeToCcaPools();
+  subscribeToCcaRecords();
   ledgerAccountSelection = [];
 setView('dashboard');
 if (appVersionLabel) {
@@ -6505,6 +7249,9 @@ function setView(view) {
     if (mileageSettingsView) {
       mileageSettingsView.classList.add('hidden');
     }
+    if (ccaSettingsView) {
+      ccaSettingsView.classList.add('hidden');
+    }
     if (!showingPricing) {
       pricingView.classList.add('hidden');
     }
@@ -6582,12 +7329,16 @@ function setSettingsSection(section) {
   const showCategories = activeSettingsSection === 'categories';
   const showPricing = activeSettingsSection === 'pricing';
   const showMileageRates = activeSettingsSection === 'mileage';
+  const showCcaPools = activeSettingsSection === 'cca';
   if (settingsView) {
     settingsView.classList.toggle('hidden', !showCategories);
   }
   pricingView.classList.toggle('hidden', !(showPricing || currentView === 'pricing'));
   if (mileageSettingsView) {
     mileageSettingsView.classList.toggle('hidden', !showMileageRates);
+  }
+  if (ccaSettingsView) {
+    ccaSettingsView.classList.toggle('hidden', !showCcaPools);
   }
   updateSettingsActionsVisibility();
   if (!activeSettingsSection) {
@@ -6610,6 +7361,11 @@ function setSettingsSection(section) {
     panelTitle.textContent = 'Mileage rates';
     panelSubtitle.textContent = 'Store CRA allowance per km by year.';
     renderMileageRates();
+  } else if (activeSettingsSection === 'cca') {
+    panelTitle.textContent = 'CCA pools';
+    panelSubtitle.textContent = 'Define capital cost allowance pools per entity.';
+    renderCcaPoolTable();
+    updateCcaPoolEntityOptions();
   }
   updatePricingToolbarActions();
   updatePublishButtonState();
@@ -7212,6 +7968,291 @@ tagInput.addEventListener('change', () => {
   }
 });
 
+if (ccaClassForm) {
+  ccaClassForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!ccaClassCodeInput || !ccaClassRateInput) return;
+    const code = ccaClassCodeInput.value.trim();
+    const rate = Number(ccaClassRateInput.value);
+    const description = ccaClassDescriptionInput?.value.trim() || '';
+    if (!code || !Number.isFinite(rate)) {
+      if (ccaClassError) {
+        ccaClassError.textContent = 'Provide a class code and valid rate.';
+      }
+      return;
+    }
+    try {
+      if (editingCcaClassId) {
+        await updateDoc(doc(db, 'ccaClasses', editingCcaClassId), {
+          code,
+          rate,
+          description
+        });
+      } else {
+        await addDoc(collection(db, 'ccaClasses'), {
+          code,
+          rate,
+          description
+        });
+      }
+      resetCcaClassForm();
+    } catch (error) {
+      if (ccaClassError) {
+        ccaClassError.textContent = error.message;
+      }
+    }
+  });
+}
+
+if (ccaClassCancelButton) {
+  ccaClassCancelButton.addEventListener('click', () => {
+    resetCcaClassForm();
+  });
+}
+
+if (ccaClassTableBody) {
+  ccaClassTableBody.addEventListener('click', async (event) => {
+    const editButton = event.target.closest('button[data-action="edit-cca-class"]');
+    if (editButton) {
+      const entry = ccaClasses.find((item) => item.id === editButton.dataset.id);
+      if (!entry) return;
+      editingCcaClassId = entry.id;
+      if (ccaClassFormTitle) {
+        ccaClassFormTitle.textContent = `Edit CCA class ${entry.code || ''}`.trim();
+      }
+      if (ccaClassCodeInput) {
+        ccaClassCodeInput.value = entry.code || '';
+      }
+      if (ccaClassRateInput) {
+        ccaClassRateInput.value = Number(entry.rate) || 0;
+      }
+      if (ccaClassDescriptionInput) {
+        ccaClassDescriptionInput.value = entry.description || '';
+      }
+      if (ccaClassCancelButton) {
+        ccaClassCancelButton.classList.remove('hidden');
+      }
+      if (ccaClassError) {
+        ccaClassError.textContent = '';
+      }
+      return;
+    }
+    const deleteButton = event.target.closest('button[data-action="delete-cca-class"]');
+    if (deleteButton) {
+      const entry = ccaClasses.find((item) => item.id === deleteButton.dataset.id);
+      if (!entry) return;
+      const label = entry.description || entry.code || 'class';
+      if (!window.confirm(`Delete CCA class "${label}"?`)) return;
+      try {
+        await deleteDoc(doc(db, 'ccaClasses', entry.id));
+        if (editingCcaClassId === entry.id) {
+          resetCcaClassForm();
+        }
+      } catch (error) {
+        window.alert(error.message);
+      }
+    }
+  });
+}
+
+if (ccaClassToggle && ccaClassPanel) {
+  setCcaClassPanelCollapsed(true);
+  ccaClassToggle.addEventListener('click', () => {
+    const currentlyCollapsed = ccaClassPanel.classList.contains('hidden');
+    setCcaClassPanelCollapsed(!currentlyCollapsed);
+  });
+}
+
+if (ccaPoolCodeInput) {
+  const syncClassDefaults = () => {
+    applyCcaClassDefaults(ccaPoolCodeInput.value.trim());
+  };
+  ccaPoolCodeInput.addEventListener('change', syncClassDefaults);
+  ccaPoolCodeInput.addEventListener('blur', syncClassDefaults);
+}
+
+if (ccaPoolForm) {
+  ccaPoolForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!ccaPoolEntitySelect || !ccaPoolCodeInput || !ccaPoolLabelInput || !ccaPoolRateInput) return;
+    if (!entityAccounts.length) {
+      if (ccaPoolFormError) {
+        ccaPoolFormError.textContent = 'Create an entity account before adding CCA pools.';
+      }
+      return;
+    }
+    const entityId = ccaPoolEntitySelect.value;
+    const classCode = ccaPoolCodeInput.value.trim();
+    const label = ccaPoolLabelInput.value.trim();
+    const rate = Number(ccaPoolRateInput.value);
+    const orderValue = ccaPoolOrderInput ? Number(ccaPoolOrderInput.value) : NaN;
+    if (!entityId || !classCode || !label || !Number.isFinite(rate)) {
+      if (ccaPoolFormError) {
+        ccaPoolFormError.textContent = 'Fill out all required fields.';
+      }
+      return;
+    }
+    const payload = {
+      entityId,
+      classCode,
+      label,
+      rate,
+      order: Number.isFinite(orderValue) ? orderValue : null,
+      updatedAt: serverTimestamp()
+    };
+    try {
+      if (editingCcaPoolId) {
+        await updateDoc(doc(db, 'ccaPools', editingCcaPoolId), payload);
+      } else {
+        await addDoc(collection(db, 'ccaPools'), {
+          ...payload,
+          createdAt: serverTimestamp()
+        });
+      }
+      resetCcaPoolForm();
+    } catch (error) {
+      if (ccaPoolFormError) {
+        ccaPoolFormError.textContent = error.message;
+      } else {
+        console.error('Unable to save CCA pool:', error);
+      }
+    }
+  });
+}
+
+if (ccaPoolCancelButton) {
+  ccaPoolCancelButton.addEventListener('click', () => {
+    resetCcaPoolForm();
+  });
+}
+
+if (ccaPoolTableBody) {
+  ccaPoolTableBody.addEventListener('click', async (event) => {
+    const editButton = event.target.closest('button[data-action="edit-cca-pool"]');
+    if (editButton) {
+      const pool = ccaPools.find((item) => item.id === editButton.dataset.id);
+      if (!pool) return;
+      editingCcaPoolId = pool.id;
+      if (ccaPoolFormTitle) {
+        ccaPoolFormTitle.textContent = 'Edit CCA pool';
+      }
+      if (ccaPoolCancelButton) {
+        ccaPoolCancelButton.classList.remove('hidden');
+      }
+      if (ccaPoolFormError) {
+        ccaPoolFormError.textContent = '';
+      }
+      updateCcaPoolEntityOptions();
+      if (ccaPoolEntitySelect) {
+        ccaPoolEntitySelect.value = pool.entityId || '';
+      }
+      if (ccaPoolCodeInput) {
+        ccaPoolCodeInput.value = pool.classCode || '';
+      }
+      if (ccaPoolLabelInput) {
+        ccaPoolLabelInput.value = pool.label || '';
+      }
+      if (ccaPoolRateInput) {
+        ccaPoolRateInput.value = pool.rate != null ? pool.rate : '';
+      }
+      if (ccaPoolOrderInput) {
+        ccaPoolOrderInput.value = Number.isFinite(pool.order) ? pool.order : '';
+      }
+      return;
+    }
+    const deleteButton = event.target.closest('button[data-action="delete-cca-pool"]');
+    if (deleteButton) {
+      const poolId = deleteButton.dataset.id;
+      const pool = ccaPools.find((item) => item.id === poolId);
+      if (!poolId || !pool) return;
+      const label = pool.label || pool.classCode || 'CCA pool';
+      if (
+        !window.confirm(
+          `Delete ${label}? Related yearly records will remain in CCA history until removed manually.`
+        )
+      ) {
+        return;
+      }
+      try {
+        await deleteDoc(doc(db, 'ccaPools', poolId));
+        if (editingCcaPoolId === poolId) {
+          resetCcaPoolForm();
+        }
+      } catch (error) {
+        window.alert(`Unable to delete CCA pool: ${error.message}`);
+      }
+    }
+  });
+}
+
+if (ccaRecordForm) {
+  ccaRecordForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!editingCcaRecordContext) return;
+    const { entityId, poolId, year, recordId } = editingCcaRecordContext;
+    const openingBalance = Number(ccaOpeningInput?.value) || 0;
+    const additions = Number(ccaAdditionsInput?.value) || 0;
+    const dispositions = Number(ccaDispositionsInput?.value) || 0;
+    const ccaClaim = Number(ccaClaimInput?.value) || 0;
+    const closingBalance = openingBalance + additions - dispositions - ccaClaim;
+    const payload = {
+      entityId,
+      poolId,
+      year,
+      openingBalance,
+      additions,
+      dispositions,
+      ccaClaim,
+      closingBalance,
+      updatedAt: serverTimestamp()
+    };
+    try {
+      if (recordId) {
+        await updateDoc(doc(db, 'ccaRecords', recordId), payload);
+      } else {
+        await addDoc(collection(db, 'ccaRecords'), {
+          ...payload,
+          createdAt: serverTimestamp()
+        });
+      }
+      closeCcaRecordModal();
+    } catch (error) {
+      if (ccaRecordError) {
+        ccaRecordError.textContent = error.message;
+      } else {
+        console.error('Unable to save CCA record:', error);
+      }
+    }
+  });
+}
+
+if (ccaRecordCancelButton) {
+  ccaRecordCancelButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    closeCcaRecordModal();
+  });
+}
+
+if (closeCcaRecordModalButton) {
+  closeCcaRecordModalButton.addEventListener('click', () => {
+    closeCcaRecordModal();
+  });
+}
+
+if (ccaRecordModal) {
+  ccaRecordModal.addEventListener('click', (event) => {
+    if (event.target === ccaRecordModal) {
+      closeCcaRecordModal();
+    }
+  });
+}
+
+[ccaOpeningInput, ccaAdditionsInput, ccaDispositionsInput, ccaClaimInput].forEach((input) => {
+  if (input) {
+    input.addEventListener('input', () => updateCcaRecordPreview());
+  }
+});
+
 if (entryReceiptInput) {
   entryReceiptInput.addEventListener('change', () => {
     pendingReceiptFile = entryReceiptInput.files?.[0] || null;
@@ -7681,6 +8722,7 @@ ledgerTableBody.addEventListener('click', async (event) => {
       await deleteDoc(doc(db, 'expenses', txnId));
     }
     expenses = expenses.filter((entry) => entry.transactionId !== txnId && entry.id !== txnId);
+    rebuildExpenseLookup();
     const { cashTotals, entityTotals } = calculateAdjustments(expenses);
     accountAdjustments = cashTotals;
     entityAdjustments = entityTotals;

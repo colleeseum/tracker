@@ -554,6 +554,10 @@ form {
   padding: 0;
 }
 
+.list-card.padded-card {
+  padding: 1.5rem;
+}
+
 .mileage-card {
   padding: 1.5rem;
 }
@@ -1013,6 +1017,80 @@ form {
   display: block;
 }
 
+#cca-settings-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.cca-card {
+  margin-top: 1rem;
+}
+
+.cca-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.cca-card-header .link {
+  align-self: flex-start;
+}
+
+.cca-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cca-table th,
+.cca-table td {
+  padding: 0.4rem 0.3rem;
+  text-align: right;
+  border-bottom: 1px solid #e2e8f0;
+  font-variant-numeric: tabular-nums;
+}
+
+.cca-table th:first-child,
+.cca-table td:first-child,
+.cca-table th:nth-child(2),
+.cca-table td:nth-child(2) {
+  text-align: left;
+}
+
+.cca-table td:last-child {
+  text-align: center;
+}
+
+.cca-table tr:last-child td {
+  border-bottom: none;
+}
+
+.cca-table .empty {
+  text-align: center;
+  color: #94a3b8;
+  padding: 0.5rem 0;
+}
+
+.report-entity-balances {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.report-entity-balances span {
+  display: block;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.report-entity-balances strong {
+  font-size: 1rem;
+}
+
 .report-section {
   border-top: 1px solid #e2e8f0;
   padding-top: 0.75rem;
@@ -1053,6 +1131,26 @@ form {
   font-weight: 500;
 }
 
+.report-label-content {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.report-toggle {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.report-toggle img {
+  width: 14px;
+  height: 14px;
+}
+
 .report-table .report-code {
   width: 15%;
   color: #475569;
@@ -1065,13 +1163,46 @@ form {
   font-variant-numeric: tabular-nums;
 }
 
-.report-row-clickable {
-  cursor: pointer;
-  transition: background-color 0.15s ease;
+.report-summary-row td {
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.report-row-clickable:hover {
+.report-detail-row td {
+  padding: 0;
+  border-bottom: none;
+}
+
+.report-detail-row .report-entry-list {
+  margin: 0.4rem 0;
   background-color: #f8fafc;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.report-detail-row.collapsed .report-entry-list {
+  display: none;
+}
+
+.report-entry-row {
+  display: grid;
+  grid-template-columns: 95px 1fr 150px 120px;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  padding: 0.2rem 0;
+}
+
+.report-entry-row + .report-entry-row {
+  border-top: 1px solid #e2e8f0;
+}
+
+.report-entry-row.empty {
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.report-entry-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .report-detail-card table th,
@@ -1079,10 +1210,110 @@ form {
   text-align: left;
 }
 
-.report-table .report-subrow td {
-  padding-left: 1.25rem;
-  color: #475569;
+.amount-positive {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.amount-negative {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.tag-report-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tag-report-table td {
+  padding: 0.4rem 0.25rem;
+  vertical-align: top;
+}
+
+.tag-summary-row td {
+  border-bottom: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  font-weight: 500;
+}
+
+.tag-label {
+  width: 18%;
+}
+
+.tag-metric {
   font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.tag-detail-row td {
+  padding-bottom: 0.8rem;
+}
+
+.tag-category-chip {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  margin: 0.35rem 0;
+}
+
+.chip-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.chip-header-text {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  gap: 0.35rem;
+}
+
+.chip-toggle {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  margin-right: 0.4rem;
+}
+
+.chip-toggle img {
+  width: 14px;
+  height: 14px;
+}
+
+.tag-category-chip.collapsed .chip-entries {
+  display: none;
+}
+
+.tag-entry-row {
+  display: grid;
+  grid-template-columns: 95px 1fr 150px 110px;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  padding: 0.15rem 0;
+}
+
+.tag-entry-row.empty {
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.tag-entry-row + .tag-entry-row {
+  border-top: 1px solid #e2e8f0;
+}
+
+.tag-entry-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cca-closing-preview {
+  margin-top: 0.5rem;
+  text-align: right;
+  font-weight: 600;
 }
 
 .report-table .report-total-row td {
