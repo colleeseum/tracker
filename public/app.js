@@ -7133,7 +7133,6 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToExpensesStream();
   subscribeToMileageLogs();
   subscribeToMileageRates();
-  subscribeToCcaClasses();
   subscribeToCcaPools();
   subscribeToCcaRecords();
   ledgerAccountSelection = [];
