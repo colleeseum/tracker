@@ -7060,7 +7060,6 @@ onAuthStateChanged(auth, async (user) => {
     cleanEtiquetteSubscription();
     cleanMarketingCopySubscription();
     cleanCategorySubscription();
-    cleanCcaClassSubscription();
     cleanCcaPoolSubscription();
     cleanCcaRecordSubscription();
     cleanAccounts();
