@@ -3819,6 +3819,11 @@ function updateCcaPoolEntityOptions() {
 function resetCcaClassForm() {
 
 }
+function ccaClassForm() {
+
+}
+
+ccaClassForm.addEventListener
 
 function resetCcaPoolForm() {
   if (!ccaPoolForm) return;
@@ -7967,101 +7972,6 @@ tagInput.addEventListener('change', () => {
     addTag(tagInput.value);
   }
 });
-
-if (ccaClassForm) {
-  ccaClassForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (!ccaClassCodeInput || !ccaClassRateInput) return;
-    const code = ccaClassCodeInput.value.trim();
-    const rate = Number(ccaClassRateInput.value);
-    const description = ccaClassDescriptionInput?.value.trim() || '';
-    if (!code || !Number.isFinite(rate)) {
-      if (ccaClassError) {
-        ccaClassError.textContent = 'Provide a class code and valid rate.';
-      }
-      return;
-    }
-    try {
-      if (editingCcaClassId) {
-        await updateDoc(doc(db, 'ccaClasses', editingCcaClassId), {
-          code,
-          rate,
-          description
-        });
-      } else {
-        await addDoc(collection(db, 'ccaClasses'), {
-          code,
-          rate,
-          description
-        });
-      }
-      resetCcaClassForm();
-    } catch (error) {
-      if (ccaClassError) {
-        ccaClassError.textContent = error.message;
-      }
-    }
-  });
-}
-
-if (ccaClassCancelButton) {
-  ccaClassCancelButton.addEventListener('click', () => {
-    resetCcaClassForm();
-  });
-}
-
-if (ccaClassTableBody) {
-  ccaClassTableBody.addEventListener('click', async (event) => {
-    const editButton = event.target.closest('button[data-action="edit-cca-class"]');
-    if (editButton) {
-      const entry = ccaClasses.find((item) => item.id === editButton.dataset.id);
-      if (!entry) return;
-      editingCcaClassId = entry.id;
-      if (ccaClassFormTitle) {
-        ccaClassFormTitle.textContent = `Edit CCA class ${entry.code || ''}`.trim();
-      }
-      if (ccaClassCodeInput) {
-        ccaClassCodeInput.value = entry.code || '';
-      }
-      if (ccaClassRateInput) {
-        ccaClassRateInput.value = Number(entry.rate) || 0;
-      }
-      if (ccaClassDescriptionInput) {
-        ccaClassDescriptionInput.value = entry.description || '';
-      }
-      if (ccaClassCancelButton) {
-        ccaClassCancelButton.classList.remove('hidden');
-      }
-      if (ccaClassError) {
-        ccaClassError.textContent = '';
-      }
-      return;
-    }
-    const deleteButton = event.target.closest('button[data-action="delete-cca-class"]');
-    if (deleteButton) {
-      const entry = ccaClasses.find((item) => item.id === deleteButton.dataset.id);
-      if (!entry) return;
-      const label = entry.description || entry.code || 'class';
-      if (!window.confirm(`Delete CCA class "${label}"?`)) return;
-      try {
-        await deleteDoc(doc(db, 'ccaClasses', entry.id));
-        if (editingCcaClassId === entry.id) {
-          resetCcaClassForm();
-        }
-      } catch (error) {
-        window.alert(error.message);
-      }
-    }
-  });
-}
-
-if (ccaClassToggle && ccaClassPanel) {
-  setCcaClassPanelCollapsed(true);
-  ccaClassToggle.addEventListener('click', () => {
-    const currentlyCollapsed = ccaClassPanel.classList.contains('hidden');
-    setCcaClassPanelCollapsed(!currentlyCollapsed);
-  });
-}
 
 if (ccaPoolCodeInput) {
   const syncClassDefaults = () => {
