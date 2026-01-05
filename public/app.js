@@ -138,6 +138,7 @@ const mileageRateAmountInput = document.getElementById('mileage-rate-amount');
 const mileageRateTableBody = document.getElementById('mileage-rate-table-body');
 const mileageSubmitButton = document.getElementById('mileage-submit');
 const mileageCancelButton = document.getElementById('mileage-cancel-edit');
+const mileageDefaultEntitySelect = document.getElementById('mileage-default-entity');
 applyMileageInputDefaults();
 const reportsView = document.getElementById('reports-view');
 const reportsOutput = document.getElementById('reports-output');
@@ -197,11 +198,15 @@ const categoryTableBody = document.getElementById('category-table-body');
 const ccaSettingsView = document.getElementById('cca-settings-view');
 const ccaPoolForm = document.getElementById('cca-pool-form');
 const ccaPoolFormTitle = document.getElementById('cca-pool-form-title');
+const openCcaPoolModalButton = document.getElementById('open-cca-pool-modal');
+const ccaPoolModal = document.getElementById('cca-pool-modal');
+const closeCcaPoolModalButton = document.getElementById('close-cca-pool-modal');
 const ccaPoolEntitySelect = document.getElementById('cca-pool-entity');
 const ccaPoolCodeInput = document.getElementById('cca-pool-code');
 const ccaPoolLabelInput = document.getElementById('cca-pool-label');
 const ccaPoolRateInput = document.getElementById('cca-pool-rate');
-const ccaPoolOrderInput = document.getElementById('cca-pool-order');
+const ccaPoolInitialYearInput = document.getElementById('cca-pool-initial-year');
+const ccaPoolStartingAmountInput = document.getElementById('cca-pool-starting-amount');
 const ccaPoolSubmitButton = document.getElementById('cca-pool-submit');
 const ccaPoolCancelButton = document.getElementById('cca-pool-cancel');
 const ccaPoolFormError = document.getElementById('cca-pool-error');
@@ -506,8 +511,24 @@ function rebuildCcaPoolLookup() {
   ccaPoolLookup = new Map(ccaPools.map((pool) => [pool.id, pool]));
 }
 
+function normalizeCcaRecordYear(year) {
+  if (year === null || year === undefined) return '';
+  if (typeof year === 'number') {
+    return Number.isFinite(year) ? year : '';
+  }
+  if (typeof year === 'string') {
+    const trimmed = year.trim();
+    if (!trimmed) return '';
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : trimmed;
+  }
+  const parsed = Number(year);
+  return Number.isFinite(parsed) ? parsed : String(year);
+}
+
 function getCcaRecordKey(entityId, poolId, year) {
-  return `${entityId || ''}::${poolId || ''}::${year}`;
+  const normalizedYear = normalizeCcaRecordYear(year);
+  return `${entityId || ''}::${poolId || ''}::${normalizedYear}`;
 }
 
 function rebuildCcaRecordLookup() {
@@ -584,6 +605,8 @@ let mileageLogs = [];
 let mileageRates = [];
 let unsubscribeMileageLogs = null;
 let unsubscribeMileageRates = null;
+let mileageSettings = { defaultEntityId: '' };
+let unsubscribeMileageSettings = null;
 let mileageYearToDate = 0;
 let editingMileageId = null;
 let mileageKilometreTotalsByYear = new Map();
@@ -593,6 +616,26 @@ const GLOBAL_ADDON_PRICE_SCOPE = '__global__';
 const OTHER_INCOME_T2042_CODE = 9600;
 const MOTOR_VEHICLE_T2042_CODE = 9819;
 const CCA_T2042_CODE = 9936;
+const CCA_CLASS_PRESETS = [
+  { code: '1', label: 'Class 1 - Buildings (pre-1988)', rate: 4 },
+  { code: '1A', label: 'Class 1 - Buildings (acquired after 1987)', rate: 4 },
+  { code: '3', label: 'Class 3 - Buildings (1988 and later)', rate: 5 },
+  { code: '6', label: 'Class 6 - Frame buildings, greenhouses', rate: 10 },
+  { code: '8', label: 'Class 8 - Furniture and equipment', rate: 20 },
+  { code: '10', label: 'Class 10 - General-purpose vehicles', rate: 30 },
+  { code: '10.1', label: 'Class 10.1 - Passenger vehicles', rate: 30 },
+  { code: '12', label: 'Class 12 - Tools, medical instruments, china', rate: 100 },
+  { code: '13', label: 'Class 13 - Leasehold improvements', rate: 100 },
+  { code: '43', label: 'Class 43 - Manufacturing machinery', rate: 30 },
+  { code: '43.1', label: 'Class 43.1 - Clean energy equipment', rate: 30 },
+  { code: '45', label: 'Class 45 - Computer and system software', rate: 45 },
+  { code: '50', label: 'Class 50 - Computer equipment', rate: 55 },
+  { code: '54', label: 'Class 54 - Zero-emission vehicles', rate: 30 },
+  { code: '55', label: 'Class 55 - Zero-emission vehicles (light)', rate: 40 }
+];
+const ccaClassPresetLookup = new Map(
+  CCA_CLASS_PRESETS.map((preset) => [String(preset.code).trim().toUpperCase(), preset])
+);
 const MIN_REPORT_YEAR = 2025;
 let reportFilters = {
   type: 'balance',
@@ -898,6 +941,7 @@ function subscribeToAccounts() {
       updateEntryAccountOptions();
       updateTransferAccountOptions();
       updateCcaPoolEntityOptions();
+      updateMileageDefaultEntityOptions();
       addEntryButton.disabled = cashAccounts.length === 0 || entityAccounts.length === 0;
       transferButton.disabled = cashAccounts.length < 2;
       populateReportControls();
@@ -1101,6 +1145,7 @@ function subscribeToCcaPools() {
       ccaPools = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       rebuildCcaPoolLookup();
       renderCcaPoolTable();
+      updateEntryCategoryOptions({ preserveSelection: true, forceType: entryTypeSelect?.value });
       maybeRenderReports();
     },
     (error) => {
@@ -1260,6 +1305,7 @@ function cleanCcaPoolSubscription() {
   ccaPools = [];
   ccaPoolLookup = new Map();
   renderCcaPoolTable();
+  updateEntryCategoryOptions({ preserveSelection: true, forceType: entryTypeSelect?.value });
 }
 
 function cleanCcaRecordSubscription() {
@@ -2153,6 +2199,43 @@ function parseMileageTags(raw) {
     .filter(Boolean);
 }
 
+function getResolvedMileageEntityId() {
+  return mileageSettings?.defaultEntityId || getDefaultEntityAccountId() || '';
+}
+
+function updateMileageDefaultEntityOptions() {
+  if (!mileageDefaultEntitySelect) return;
+  const previousValue = mileageDefaultEntitySelect.value;
+  mileageDefaultEntitySelect.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = entityAccounts.length ? 'Select default entity' : 'Add an entity account first';
+  mileageDefaultEntitySelect.appendChild(placeholder);
+  entityAccounts.forEach((account) => {
+    const option = document.createElement('option');
+    option.value = account.id;
+    option.textContent = account.name || 'Entity';
+    mileageDefaultEntitySelect.appendChild(option);
+  });
+  let targetValue = mileageSettings?.defaultEntityId || previousValue;
+  if (!targetValue && entityAccounts.length) {
+    targetValue = getDefaultEntityAccountId() || entityAccounts[0].id || '';
+  }
+  if (targetValue && !entityAccounts.some((account) => account.id === targetValue)) {
+    const fallbackLabel = accountLookup.get(targetValue)?.name || 'Former entity';
+    const orphanOption = document.createElement('option');
+    orphanOption.value = targetValue;
+    orphanOption.textContent = fallbackLabel;
+    mileageDefaultEntitySelect.appendChild(orphanOption);
+  }
+  mileageDefaultEntitySelect.value = targetValue || '';
+  mileageDefaultEntitySelect.disabled = entityAccounts.length === 0;
+}
+
+function syncMileageSettingsUI() {
+  updateMileageDefaultEntityOptions();
+}
+
 function sanitizeFileName(name) {
   return (name || 'receipt.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
 }
@@ -2226,6 +2309,7 @@ function openMileageModal(mode = 'create') {
   if (mileageFormTitle) {
     mileageFormTitle.textContent = mode === 'edit' ? 'Edit mileage entry' : 'Log mileage entry';
   }
+  syncMileageEntityFieldVisibility();
 }
 
 function closeMileageModal() {
@@ -2472,6 +2556,7 @@ function buildEntityReportSummary(entityId, year) {
     if (!entry || entry.isVirtualOpening || entry.entityId !== entityId) return;
     const entryDate = toDateObject(entry.date);
     if (!entryDate || entryDate < start || entryDate >= end) return;
+    if (entry.ccaPoolId || entry.isCcaClass) return;
     const meta = getCategoryMetaForEntry(entry);
     if (!meta.type || (meta.type !== 'income' && meta.type !== 'expense')) return;
     const delta = getEntryDelta(entry);
@@ -2480,10 +2565,6 @@ function buildEntityReportSummary(entityId, year) {
     } else if (meta.type === 'expense') {
       addExpenseToSummary(summary, meta, -delta, entry);
     }
-  });
-  const ccaExpenseLines = buildCcaExpenseLines(entityId, year);
-  ccaExpenseLines.forEach((line) => {
-    addExpenseToSummary(summary, line.meta, line.amount, null);
   });
   return summary;
 }
@@ -2619,12 +2700,16 @@ function buildReportEntryList(entryIds) {
   const rows = entries
     .map((entry) => {
       const account = accountLookup.get(entry.accountId);
+      const editButton = `<button type="button" class="icon-button small" data-action="edit-entry-inline" data-entry-id="${entry.id}" aria-label="Edit entry ${entry.description || entry.category || ''}">
+        <img src="icons/pencil.svg" alt="Edit entry" />
+      </button>`;
       return `
         <div class="report-entry-row">
           <span>${formatDate(entry.date)}</span>
           <span>${entry.description || entry.category || '—'}</span>
           <span>${account?.name || '—'}</span>
           <span class="report-entry-amount">${renderSignedCurrency(getEntryDelta(entry))}</span>
+          <span class="report-entry-actions">${editButton}</span>
         </div>
       `;
     })
@@ -2644,12 +2729,14 @@ function buildReportSection(title, total, rows, contextMeta = {}) {
   const tbody = document.createElement('tbody');
   let hasContent = false;
   rows.forEach((line) => {
+    const isSubtotal = Boolean(line.isSubtotal);
     const row = document.createElement('tr');
-    row.className = 'report-summary-row';
+    row.className = `report-summary-row${isSubtotal ? ' report-subtotal-row' : ''}`;
     const detailMarkup = buildReportEntryList(line.entryIds);
-    const hasDetails = Boolean(detailMarkup);
+    const hasDetails = Boolean(detailMarkup) && !isSubtotal;
     const displayCode = normalizeCategoryCode(line.code);
     const summaryId = hasDetails ? `report-detail-${reportDetailRowCounter++}` : null;
+    const labelText = isSubtotal ? `<strong>${line.label || 'Subtotal'}</strong>` : line.label || '—';
     const labelContent = `
       <div class="report-label-content">
         ${
@@ -2659,12 +2746,12 @@ function buildReportSection(title, total, rows, contextMeta = {}) {
               </button>`
             : ''
         }
-        <span>${line.label || '—'}</span>
+        <span>${labelText}</span>
       </div>
     `;
     row.innerHTML = `
       <td class="report-label">${labelContent}</td>
-      <td class="report-code">${Number.isFinite(displayCode) ? displayCode : '—'}</td>
+      <td class="report-code">${isSubtotal ? '—' : Number.isFinite(displayCode) ? displayCode : '—'}</td>
       <td class="report-amount">${formatCurrency(line.amount)}</td>
     `;
     tbody.appendChild(row);
@@ -2706,7 +2793,12 @@ function partitionReportLines(rows) {
 }
 
 function sumLineAmounts(rows) {
-  return rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  return rows.reduce((sum, row) => {
+    if (row && row.excludeFromTotals) {
+      return sum;
+    }
+    return sum + (Number(row?.amount) || 0);
+  }, 0);
 }
 
 function buildReportGroup(title, incomeRows, incomeTotal, expenseRows, expenseTotal, contextMeta) {
@@ -2754,7 +2846,7 @@ function openReportDetailModalById(drilldownId) {
   if (!matching.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.className = 'empty';
     cell.textContent = 'No matching entries.';
     row.appendChild(cell);
@@ -2769,6 +2861,11 @@ function openReportDetailModalById(drilldownId) {
         <td>${entry.description || entry.category || '—'}</td>
         <td>${account?.name || '—'}</td>
         <td class="report-amount">${formatCurrency(signedAmount)}</td>
+        <td class="report-entry-action-cell">
+          <button type="button" class="icon-button small" data-action="edit-entry-inline" data-entry-id="${entry.id}">
+            <img src="icons/pencil.svg" alt="Edit entry" />
+          </button>
+        </td>
       `;
       reportDetailTableBody.appendChild(row);
     });
@@ -2820,7 +2917,11 @@ function getMileageKilometresForYear(year) {
   return computed;
 }
 
-function buildMileageExpenseLine(year) {
+function buildMileageExpenseLine(entityId, year) {
+  const resolvedEntityId = getResolvedMileageEntityId();
+  if (!resolvedEntityId || entityId !== resolvedEntityId) {
+    return null;
+  }
   const kms = getMileageKilometresForYear(year);
   const rate = getMileageRateForYear(year);
   if (!kms || !rate) return null;
@@ -2838,8 +2939,8 @@ function buildCcaExpenseLines(entityId, year) {
   if (!pools.length) return [];
   return pools
     .map((pool) => {
-      const record = getCcaRecord(entityId, pool.id, year);
-      const amount = Number(record?.ccaClaim) || 0;
+      const values = resolveCcaValuesForPool(pool, year);
+      const amount = Number(values?.ccaClaim) || 0;
       if (!amount) return null;
       const label = pool.label || `Class ${pool.classCode || ''}`.trim();
       return {
@@ -2888,16 +2989,16 @@ function buildReportTotalsSummary(data) {
   return section;
 }
 
-function buildCcaReportCard(entityId, year) {
+function buildCcaReportSection(entityId, year) {
   const pools = getCcaPoolsForEntity(entityId);
   if (!pools.length) return null;
-  const card = document.createElement('section');
-  card.className = 'card cca-card';
+  const card = document.createElement('div');
+  card.className = 'cca-card';
   const entityName = accountLookup.get(entityId)?.name || 'Entity';
   card.innerHTML = `
     <div class="cca-card-header">
       <div>
-        <h3>Capital cost allowance</h3>
+        <h4>Capital cost allowance</h4>
         <p class="hint">${entityName} • ${year}</p>
       </div>
       <button type="button" class="link" data-action="manage-cca-pools">Manage pools</button>
@@ -3007,11 +3108,40 @@ function renderReports() {
   const incomeRows = sortReportLines(summary.income);
   const otherIncomeLines = sortReportLines(summary.otherIncome);
   const expenseRows = sortReportLines(summary.expenses);
-  const mileageExpenseLine = buildMileageExpenseLine(reportFilters.year);
-  const expenseRowsWithMileage = mileageExpenseLine ? expenseRows.concat([mileageExpenseLine]) : expenseRows;
   const incomeRowsWithOther = incomeRows.concat(otherIncomeLines);
   const { t2042Rows: t2042IncomeRows, otherRows: otherIncomeRows } = partitionReportLines(incomeRowsWithOther);
-  const { t2042Rows: t2042ExpenseRows, otherRows: otherExpenseRows } = partitionReportLines(expenseRowsWithMileage);
+  const { t2042Rows: baseT2042ExpenseRows, otherRows: otherExpenseRows } = partitionReportLines(expenseRows);
+  const t2042ExpenseRows = [...baseT2042ExpenseRows];
+  let mileageSubtotalInserted = false;
+  function insertMileageSubtotalIfNeeded() {
+    if (mileageSubtotalInserted || !t2042ExpenseRows.length) return;
+    const subtotalAmount = sumLineAmounts(t2042ExpenseRows);
+    t2042ExpenseRows.push({
+      label: 'Subtotal before mileage/CCA',
+      code: null,
+      amount: subtotalAmount,
+      entryIds: [],
+      excludeFromTotals: true,
+      isSubtotal: true
+    });
+    mileageSubtotalInserted = true;
+  }
+  const mileageExpenseLine = buildMileageExpenseLine(reportFilters.entityId, reportFilters.year);
+  if (mileageExpenseLine) {
+    insertMileageSubtotalIfNeeded();
+    t2042ExpenseRows.push(mileageExpenseLine);
+  }
+  const ccaClaimLines = buildCcaExpenseLines(reportFilters.entityId, reportFilters.year);
+  const ccaExpenseTotal = ccaClaimLines.reduce((sum, line) => sum + (Number(line?.amount) || 0), 0);
+  if (ccaExpenseTotal > 0) {
+    insertMileageSubtotalIfNeeded();
+    t2042ExpenseRows.push({
+      label: 'Capital cost allowance (see CCA section)',
+      code: CCA_T2042_CODE,
+      amount: ccaExpenseTotal,
+      entryIds: []
+    });
+  }
   const t2042IncomeTotal = sumLineAmounts(t2042IncomeRows);
   const otherIncomeTotal = sumLineAmounts(otherIncomeRows);
   const t2042ExpenseTotal = sumLineAmounts(t2042ExpenseRows);
@@ -3050,6 +3180,10 @@ function renderReports() {
   card.appendChild(
     buildReportGroup('T2042 categories', t2042IncomeRows, t2042IncomeTotal, t2042ExpenseRows, t2042ExpenseTotal, groupContext)
   );
+  const ccaSection = buildCcaReportSection(reportFilters.entityId, reportFilters.year);
+  if (ccaSection) {
+    card.appendChild(ccaSection);
+  }
   card.appendChild(
     buildReportGroup('Other (code 0)', otherIncomeRows, otherIncomeTotal, otherExpenseRows, otherExpenseTotal, groupContext)
   );
@@ -3067,10 +3201,6 @@ function renderReports() {
     card.appendChild(empty);
   }
   reportsOutput.appendChild(card);
-  const ccaCard = buildCcaReportCard(reportFilters.entityId, reportFilters.year);
-  if (ccaCard) {
-    reportsOutput.appendChild(ccaCard);
-  }
 }
 
 function buildTagReportData(entityId, year) {
@@ -3809,16 +3939,51 @@ function updateCcaPoolEntityOptions() {
     option.textContent = account.name || 'Entity';
     ccaPoolEntitySelect.appendChild(option);
   });
-  if (previousValue && entityAccounts.some((account) => account.id === previousValue)) {
+  const hasPrevious = previousValue && entityAccounts.some((account) => account.id === previousValue);
+  const fallbackEntityId = getDefaultEntityAccountId();
+  if (hasPrevious) {
     ccaPoolEntitySelect.value = previousValue;
-  } else {
-    ccaPoolEntitySelect.value = entityAccounts[0].id;
+  } else if (fallbackEntityId) {
+    ccaPoolEntitySelect.value = fallbackEntityId;
   }
 }
 
 function resetCcaClassForm() {
 
 }
+
+function getCcaClassPreset(classCode) {
+  if (!classCode) return null;
+  const normalized = String(classCode).trim().toUpperCase();
+  if (!normalized) return null;
+  return ccaClassPresetLookup.get(normalized) || null;
+}
+
+function applyCcaClassDefaults(classCode) {
+  const preset = getCcaClassPreset(classCode);
+  if (!preset) return;
+  if (ccaPoolLabelInput && !ccaPoolLabelInput.value.trim()) {
+    ccaPoolLabelInput.value = preset.label;
+  }
+  if (ccaPoolRateInput && !ccaPoolRateInput.value) {
+    ccaPoolRateInput.value = preset.rate;
+  }
+}
+
+function getCcaStartingBalanceForYear(pool, year) {
+  if (!pool) return null;
+  const poolInitialYear = Number(pool.initialYear);
+  const targetYear = Number(year);
+  if (!Number.isFinite(poolInitialYear) || !Number.isFinite(targetYear)) {
+    return null;
+  }
+  if (poolInitialYear !== targetYear) {
+    return null;
+  }
+  const startingAmount = toFiniteNumber(pool.startingAmount);
+  return startingAmount ?? 0;
+}
+
 function ccaClassForm() {
 
 }
@@ -3838,7 +4003,25 @@ function resetCcaPoolForm() {
   if (ccaPoolFormError) {
     ccaPoolFormError.textContent = '';
   }
+  if (ccaPoolInitialYearInput) {
+    const fallbackYear = Number(reportFilters?.year) || new Date().getFullYear();
+    ccaPoolInitialYearInput.value = fallbackYear;
+  }
+  if (ccaPoolStartingAmountInput) {
+    ccaPoolStartingAmountInput.value = '0';
+  }
   updateCcaPoolEntityOptions();
+}
+
+function openCcaPoolModal() {
+  if (!ccaPoolModal) return;
+  ccaPoolModal.classList.remove('hidden');
+}
+
+function closeCcaPoolModal() {
+  if (!ccaPoolModal) return;
+  ccaPoolModal.classList.add('hidden');
+  resetCcaPoolForm();
 }
 
 function renderCcaPoolTable() {
@@ -3847,7 +4030,7 @@ function renderCcaPoolTable() {
   if (!ccaPools.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 4;
+    cell.colSpan = 7;
     cell.className = 'empty';
     cell.textContent = 'Define at least one CCA pool.';
     row.appendChild(cell);
@@ -3860,12 +4043,22 @@ function renderCcaPoolTable() {
       const nameB = accountLookup.get(b.entityId)?.name || '';
       return nameA.localeCompare(nameB);
     }
-    const orderA = Number(a.order) || 0;
-    const orderB = Number(b.order) || 0;
-    if (orderA !== orderB) {
-      return orderA - orderB;
+    const numA = Number(a.classCode);
+    const numB = Number(b.classCode);
+    const aIsNumber = Number.isFinite(numA);
+    const bIsNumber = Number.isFinite(numB);
+    if (aIsNumber && bIsNumber && numA !== numB) {
+      return numA - numB;
     }
-    return (a.classCode || '').localeCompare(b.classCode || '');
+    if (aIsNumber && !bIsNumber) {
+      return -1;
+    }
+    if (!aIsNumber && bIsNumber) {
+      return 1;
+    }
+    const codeA = String(a.classCode || '');
+    const codeB = String(b.classCode || '');
+    return codeA.localeCompare(codeB);
   });
   sorted.forEach((pool) => {
     const entity = accountLookup.get(pool.entityId);
@@ -3879,6 +4072,16 @@ function renderCcaPoolTable() {
     const labelCell = document.createElement('td');
     labelCell.textContent = pool.label || '—';
     row.appendChild(labelCell);
+    const rateCell = document.createElement('td');
+    rateCell.textContent = formatPercentage(pool.rate);
+    row.appendChild(rateCell);
+    const initialYearCell = document.createElement('td');
+    const initialYearValue = Number(pool.initialYear);
+    initialYearCell.textContent = Number.isFinite(initialYearValue) ? initialYearValue : '—';
+    row.appendChild(initialYearCell);
+    const startingAmountCell = document.createElement('td');
+    startingAmountCell.textContent = formatCurrency(toFiniteNumber(pool.startingAmount) ?? 0);
+    row.appendChild(startingAmountCell);
     const actionCell = document.createElement('td');
     const editButton = document.createElement('button');
     editButton.type = 'button';
@@ -3903,24 +4106,112 @@ function getCcaPoolsForEntity(entityId) {
   return ccaPools.filter((pool) => pool.entityId === entityId);
 }
 
+function getCcaCategoryOptionValue(poolId) {
+  return `cca:${poolId}`;
+}
+
+function formatCcaCategoryOptionLabel(pool) {
+  const trimmedLabel = (pool.label || '').trim();
+  const baseLabel = trimmedLabel || `Class ${pool.classCode || ''}`.trim();
+  const codeText = pool.classCode ? `Class ${pool.classCode}` : 'Class';
+  return `${baseLabel} (${codeText})`;
+}
+
+function sortCcaPoolsForSelection(pools) {
+  return [...pools].sort((a, b) => {
+    const numA = Number(a.classCode);
+    const numB = Number(b.classCode);
+    const aIsNumber = Number.isFinite(numA);
+    const bIsNumber = Number.isFinite(numB);
+    if (aIsNumber && bIsNumber && numA !== numB) {
+      return numA - numB;
+    }
+    if (aIsNumber && !bIsNumber) {
+      return -1;
+    }
+    if (!aIsNumber && bIsNumber) {
+      return 1;
+    }
+    const codeA = String(a.classCode || '');
+    const codeB = String(b.classCode || '');
+    return codeA.localeCompare(codeB);
+  });
+}
+
+function computeCcaLedgerActivityForPool(pool, year) {
+  if (!pool || !pool.id || !pool.entityId) {
+    return { additions: 0, dispositions: 0, entryIds: [] };
+  }
+  const targetYear = Number(year);
+  if (!Number.isFinite(targetYear)) {
+    return { additions: 0, dispositions: 0, entryIds: [] };
+  }
+  const start = new Date(targetYear, 0, 1);
+  const end = new Date(targetYear + 1, 0, 1);
+  let additions = 0;
+  let dispositions = 0;
+  const entryIds = [];
+  expenses.forEach((entry) => {
+    if (!entry || entry.isVirtualOpening) return;
+    if (entry.entityId !== pool.entityId) return;
+    if (entry.ccaPoolId !== pool.id) return;
+    const entryDate = toDateObject(entry.date);
+    if (!entryDate || entryDate < start || entryDate >= end) return;
+    const amount = Number(entry.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (entry.id) {
+      entryIds.push(entry.id);
+    }
+    const isDisposition = entry.isReturn || entry.entryType === 'income';
+    if (isDisposition) {
+      dispositions += amount;
+    } else {
+      additions += amount;
+    }
+  });
+  return { additions, dispositions, entryIds };
+}
+
+function computeDefaultCcaClaim(pool, { opening, additions, dispositions }) {
+  if (!pool) return 0;
+  const rateValue = toFiniteNumber(pool.rate);
+  if (!Number.isFinite(rateValue) || rateValue <= 0) {
+    return 0;
+  }
+  const rate = rateValue / 100;
+  const safeOpening = Math.max(toFiniteNumber(opening) ?? 0, 0);
+  const safeDispositions = Math.max(toFiniteNumber(dispositions) ?? 0, 0);
+  const safeAdditions = Math.max(toFiniteNumber(additions) ?? 0, 0);
+  const openingBase = Math.max(safeOpening - safeDispositions, 0);
+  const additionBase = safeAdditions * 0.5;
+  const eligibleBase = openingBase + additionBase;
+  return eligibleBase > 0 ? eligibleBase * rate : 0;
+}
+
 function resolveCcaValuesForPool(pool, year) {
   const entityId = pool.entityId;
   const current = getCcaRecord(entityId, pool.id, year);
   const previous = getCcaRecord(entityId, pool.id, year - 1);
   const openingValue = toFiniteNumber(current?.openingBalance);
   const previousClosing = toFiniteNumber(previous?.closingBalance);
-  const opening = openingValue ?? previousClosing ?? 0;
-  const additions = toFiniteNumber(current?.additions) ?? 0;
-  const dispositions = toFiniteNumber(current?.dispositions) ?? 0;
-  const ccaClaim = toFiniteNumber(current?.ccaClaim) ?? 0;
+  const startingBalance = getCcaStartingBalanceForYear(pool, year);
+  const opening = openingValue ?? previousClosing ?? (startingBalance ?? 0);
+  const ledgerActivity = computeCcaLedgerActivityForPool(pool, year);
+  const additions = toFiniteNumber(current?.additions) ?? ledgerActivity.additions;
+  const dispositions = toFiniteNumber(current?.dispositions) ?? ledgerActivity.dispositions;
+  const defaultClaim = computeDefaultCcaClaim(pool, { opening, additions, dispositions });
+  const manualClaim = toFiniteNumber(current?.ccaClaim);
+  const ccaClaim = manualClaim ?? defaultClaim;
   const closingValue = toFiniteNumber(current?.closingBalance);
-  const closing = closingValue ?? opening + additions - dispositions - ccaClaim;
+  const computedClosing = opening + additions - dispositions - ccaClaim;
+  const closing = closingValue ?? Math.max(computedClosing, 0);
   return {
     record: current,
     opening,
     additions,
     dispositions,
     ccaClaim,
+    defaultClaim,
     closing,
     previousClosing: previousClosing ?? 0
   };
@@ -3937,14 +4228,16 @@ function openCcaRecordModal(poolId, year) {
     year,
     recordId: null
   };
-  const current = getCcaRecord(pool.entityId, poolId, year);
+  const values = resolveCcaValuesForPool(pool, year) || {};
+  const current = values.record;
   if (current?.id) {
     editingCcaRecordContext.recordId = current.id;
   }
   const previous = getCcaRecord(pool.entityId, poolId, year - 1);
-  const defaultOpening = toFiniteNumber(current?.openingBalance);
   const previousClosing = toFiniteNumber(previous?.closingBalance);
-  const resolvedOpening = defaultOpening ?? previousClosing ?? 0;
+  const startingBalance = getCcaStartingBalanceForYear(pool, year);
+  const matchesInitialYear = startingBalance != null;
+  const resolvedOpening = values.opening ?? 0;
   if (ccaRecordFormTitle) {
     ccaRecordFormTitle.textContent = 'Edit CCA values';
   }
@@ -3956,13 +4249,16 @@ function openCcaRecordModal(poolId, year) {
     ccaRecordYearLabel.textContent = `Year ${year}`;
   }
   setNumericInputValue(ccaOpeningInput, resolvedOpening);
-  setNumericInputValue(ccaAdditionsInput, toFiniteNumber(current?.additions) ?? 0);
-  setNumericInputValue(ccaDispositionsInput, toFiniteNumber(current?.dispositions) ?? 0);
-  setNumericInputValue(ccaClaimInput, toFiniteNumber(current?.ccaClaim) ?? 0);
+  setNumericInputValue(ccaAdditionsInput, values.additions ?? 0);
+  setNumericInputValue(ccaDispositionsInput, values.dispositions ?? 0);
+  setNumericInputValue(ccaClaimInput, values.ccaClaim ?? 0);
   if (ccaOpeningHint) {
     if (previous) {
       const prevText = formatCurrency(previousClosing ?? 0);
       ccaOpeningHint.textContent = `Defaulted to ${prevText} from ${year - 1} closing.`;
+    } else if (matchesInitialYear) {
+      const startingText = formatCurrency(startingBalance ?? 0);
+      ccaOpeningHint.textContent = `Defaulted to ${startingText} starting amount for ${year}.`;
     } else {
       ccaOpeningHint.textContent = 'Enter the opening balance for this class.';
     }
@@ -4136,20 +4432,31 @@ function updateEntryClientOptions() {
 
 function updateEntryCategoryOptions(options = {}) {
   if (!entryCategorySelect) return;
-  const activeType = options.forceType || entryTypeSelect.value || 'expense';
+  const activeType = options.forceType || entryTypeSelect?.value || 'expense';
   const filtered = categories.filter((category) => category.type === activeType);
+  const includeCcaOptions = activeType === 'expense';
+  const selectedEntityId =
+    entryEntitySelect?.value || getDefaultEntityAccountId() || null;
+  const selectedEntityName = accountLookup.get(selectedEntityId)?.name || 'Entity';
+  const entityCcaPools =
+    includeCcaOptions && selectedEntityId ? sortCcaPoolsForSelection(getCcaPoolsForEntity(selectedEntityId)) : [];
   const previousOption = entryCategorySelect.selectedOptions?.[0] || null;
   const previousValue = options.preserveSelection ? entryCategorySelect.value : '';
   const previousWasCustom = Boolean(previousOption?.dataset?.custom === 'true');
   const derivedFallbackLabel = previousWasCustom ? previousOption.dataset.label : undefined;
   const derivedFallbackCode = previousWasCustom ? previousOption.dataset.code : undefined;
+  const hasAnyOptions = filtered.length > 0 || entityCcaPools.length > 0;
 
   entryCategorySelect.innerHTML = '';
   const placeholder = document.createElement('option');
   placeholder.value = '';
   placeholder.disabled = true;
   placeholder.selected = true;
-  placeholder.textContent = filtered.length ? 'Select category' : 'Add categories in Settings';
+  placeholder.textContent = hasAnyOptions
+    ? includeCcaOptions
+      ? 'Select category or class'
+      : 'Select category'
+    : 'Add categories or CCA pools in Settings';
   entryCategorySelect.appendChild(placeholder);
 
   filtered.forEach((category) => {
@@ -4163,7 +4470,34 @@ function updateEntryCategoryOptions(options = {}) {
     option.dataset.type = category.type;
     entryCategorySelect.appendChild(option);
   });
-  entryCategorySelect.disabled = filtered.length === 0;
+  if (includeCcaOptions) {
+    if (entityCcaPools.length) {
+      const groupLabel = document.createElement('option');
+      groupLabel.value = '';
+      groupLabel.disabled = true;
+      groupLabel.textContent = `— CCA classes • ${selectedEntityName} —`;
+      entryCategorySelect.appendChild(groupLabel);
+      entityCcaPools.forEach((pool) => {
+        const option = document.createElement('option');
+        option.value = getCcaCategoryOptionValue(pool.id);
+        const baseLabel = (pool.label || '').trim() || `Class ${pool.classCode || ''}`.trim();
+        const codeValue = pool.classCode != null ? String(pool.classCode).trim() : '';
+        option.textContent = formatCcaCategoryOptionLabel(pool);
+        option.dataset.label = baseLabel;
+        option.dataset.code = codeValue;
+        option.dataset.ccaPoolId = pool.id;
+        option.dataset.type = 'cca';
+        entryCategorySelect.appendChild(option);
+      });
+    } else if (selectedEntityId && !entityCcaPools.length) {
+      const infoOption = document.createElement('option');
+      infoOption.value = '';
+      infoOption.disabled = true;
+      infoOption.textContent = `Define CCA classes for ${selectedEntityName} in Settings → CCA pools`;
+      entryCategorySelect.appendChild(infoOption);
+    }
+  }
+  entryCategorySelect.disabled = !hasAnyOptions;
 
   const targetValue = options.selectedId ?? (previousWasCustom ? '' : previousValue);
   if (targetValue) {
@@ -4238,7 +4572,8 @@ function syncEntrySelectors() {
   } else {
     entryEntitySelect.disabled = entityAccounts.length === 0;
     if (!isEntityAccount(accountLookup.get(entryEntitySelect.value)) && entityAccounts.length) {
-      entryEntitySelect.value = entityAccounts[0].id;
+      const fallbackEntityId = getDefaultEntityAccountId();
+      entryEntitySelect.value = fallbackEntityId || '';
     }
   }
 
@@ -4251,6 +4586,7 @@ function syncEntrySelectors() {
       entryAccountSelect.value = cashAccounts[0].id;
     }
   }
+  updateEntryCategoryOptions({ forceType: entryTypeSelect.value, preserveSelection: true });
 }
 
 function updateReturnLabel() {
@@ -4468,6 +4804,21 @@ function subscribeToMileageRates() {
   );
 }
 
+function subscribeToMileageSettings() {
+  cleanMileageSettingsSubscription();
+  const settingsDoc = doc(db, 'admin', 'mileageSettings');
+  unsubscribeMileageSettings = onSnapshot(
+    settingsDoc,
+    (snapshot) => {
+      mileageSettings = snapshot.exists() ? snapshot.data() : { defaultEntityId: '' };
+      syncMileageSettingsUI();
+    },
+    (error) => {
+      console.error('Failed to load mileage settings:', error);
+    }
+  );
+}
+
 function cleanExpensesSubscription() {
   if (unsubscribeExpenses) {
     unsubscribeExpenses();
@@ -4479,6 +4830,15 @@ function cleanExpensesSubscription() {
   accountAdjustments = new Map();
   entityAdjustments = new Map();
   renderLedgerTable();
+}
+
+function cleanMileageSettingsSubscription() {
+  if (unsubscribeMileageSettings) {
+    unsubscribeMileageSettings();
+  }
+  unsubscribeMileageSettings = null;
+  mileageSettings = { defaultEntityId: '' };
+  syncMileageSettingsUI();
 }
 
 function calculateAdjustments(entries) {
@@ -6775,6 +7135,7 @@ if (mileageForm) {
     const kmValue = Number.parseFloat(mileageKmInput?.value ?? '');
     const tags = parseMileageTags(mileageTagsInput?.value || '');
     const vendorTags = parseMileageTags(mileageVendorTagInput?.value || '');
+    const resolvedEntityId = getResolvedMileageEntityId();
     if (!dateValue || !purpose || !Number.isFinite(kmValue)) {
       return;
     }
@@ -6790,6 +7151,7 @@ if (mileageForm) {
           kilometres: kmValue,
           tags,
           vendorTags,
+          entityId: resolvedEntityId || null,
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser?.uid || null,
           updatedByEmail: userEmail,
@@ -6803,6 +7165,7 @@ if (mileageForm) {
           kilometres: kmValue,
           tags,
           vendorTags,
+          entityId: resolvedEntityId || null,
           createdAt: serverTimestamp(),
           createdBy: auth.currentUser?.uid || null,
           createdByEmail: userEmail,
@@ -6915,6 +7278,29 @@ if (mileageRateTableBody) {
   });
 }
 
+if (mileageDefaultEntitySelect) {
+  mileageDefaultEntitySelect.addEventListener('change', async (event) => {
+    const selectedEntityId = event.target.value || '';
+    try {
+      await setDoc(
+        doc(db, 'admin', 'mileageSettings'),
+        {
+          defaultEntityId: selectedEntityId,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.uid || null
+        },
+        { merge: true }
+      );
+      mileageSettings.defaultEntityId = selectedEntityId;
+      syncMileageSettingsUI();
+    } catch (error) {
+      console.error('Unable to update mileage setting:', error);
+      window.alert(`Unable to update mileage setting: ${error.message}`);
+      syncMileageSettingsUI();
+    }
+  });
+}
+
 if (reportsOutput) {
   reportsOutput.addEventListener('click', (event) => {
     const manageCcaButton = event.target.closest('[data-action="manage-cca-pools"]');
@@ -6979,10 +7365,19 @@ if (reportDetailModal) {
   reportDetailModal.addEventListener('click', (event) => {
     if (event.target === reportDetailModal) {
       closeReportDetailModal();
+      return;
+    }
+    const editButton = event.target.closest('button[data-action="edit-entry-inline"]');
+    if (editButton) {
+      const entryId = editButton.dataset.entryId;
+      const entry = expenseLookup.get(entryId);
+      if (entry) {
+        closeReportDetailModal();
+        startEditEntry(entry);
+      }
     }
   });
 }
-
 if (reportFilterForm) {
   reportFilterForm.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -7049,6 +7444,7 @@ onAuthStateChanged(auth, async (user) => {
     showAppUI(false);
     cleanAccountSubscription();
     cleanExpensesSubscription();
+    cleanMileageSettingsSubscription();
     cleanClientSubscription();
     cleanStorageSubscription();
     cleanSeasonSubscription();
@@ -7132,6 +7528,7 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToExpensesStream();
   subscribeToMileageLogs();
   subscribeToMileageRates();
+  subscribeToMileageSettings();
   subscribeToCcaPools();
   subscribeToCcaRecords();
   ledgerAccountSelection = [];
@@ -7206,6 +7603,9 @@ function setView(view) {
     lastNonSettingsView = view;
   }
   currentView = view;
+  if (view !== 'settings') {
+    closeCcaPoolModal();
+  }
   navLinks.forEach((link) => {
     link.classList.toggle('active', link.dataset.view === view);
   });
@@ -7331,14 +7731,17 @@ function setSettingsSection(section) {
   });
   const showCategories = activeSettingsSection === 'categories';
   const showPricing = activeSettingsSection === 'pricing';
-  const showMileageRates = activeSettingsSection === 'mileage';
+  const showMileageSettings = activeSettingsSection === 'mileage';
   const showCcaPools = activeSettingsSection === 'cca';
+  if (!showCcaPools) {
+    closeCcaPoolModal();
+  }
   if (settingsView) {
     settingsView.classList.toggle('hidden', !showCategories);
   }
   pricingView.classList.toggle('hidden', !(showPricing || currentView === 'pricing'));
   if (mileageSettingsView) {
-    mileageSettingsView.classList.toggle('hidden', !showMileageRates);
+    mileageSettingsView.classList.toggle('hidden', !showMileageSettings);
   }
   if (ccaSettingsView) {
     ccaSettingsView.classList.toggle('hidden', !showCcaPools);
@@ -7361,9 +7764,10 @@ function setSettingsSection(section) {
     renderEtiquetteTable();
     renderCopyTable();
   } else if (activeSettingsSection === 'mileage') {
-    panelTitle.textContent = 'Mileage rates';
-    panelSubtitle.textContent = 'Store CRA allowance per km by year.';
+    panelTitle.textContent = 'Mileage log';
+    panelSubtitle.textContent = 'Configure CRA rates and entity attachment options.';
     renderMileageRates();
+    syncMileageSettingsUI();
   } else if (activeSettingsSection === 'cca') {
     panelTitle.textContent = 'CCA pools';
     panelSubtitle.textContent = 'Define capital cost allowance pools per entity.';
@@ -7885,7 +8289,7 @@ function openNewEntryModal() {
     cashAccounts[0]?.id ||
     '';
   entryAccountSelect.value = preferredAccount;
-  entryEntitySelect.value = defaultEntityId || entityAccounts[0]?.id || '';
+  entryEntitySelect.value = defaultEntityId || '';
   if (entryReturnInput) {
     entryReturnInput.checked = false;
   }
@@ -7979,10 +8383,39 @@ if (ccaPoolCodeInput) {
   ccaPoolCodeInput.addEventListener('blur', syncClassDefaults);
 }
 
+if (openCcaPoolModalButton) {
+  openCcaPoolModalButton.addEventListener('click', () => {
+    resetCcaPoolForm();
+    openCcaPoolModal();
+  });
+}
+
+if (closeCcaPoolModalButton) {
+  closeCcaPoolModalButton.addEventListener('click', () => {
+    closeCcaPoolModal();
+  });
+}
+
+if (ccaPoolModal) {
+  ccaPoolModal.addEventListener('click', (event) => {
+    if (event.target === ccaPoolModal) {
+      closeCcaPoolModal();
+    }
+  });
+}
+
 if (ccaPoolForm) {
   ccaPoolForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!ccaPoolEntitySelect || !ccaPoolCodeInput || !ccaPoolLabelInput || !ccaPoolRateInput) return;
+    if (
+      !ccaPoolEntitySelect ||
+      !ccaPoolCodeInput ||
+      !ccaPoolLabelInput ||
+      !ccaPoolRateInput ||
+      !ccaPoolInitialYearInput ||
+      !ccaPoolStartingAmountInput
+    )
+      return;
     if (!entityAccounts.length) {
       if (ccaPoolFormError) {
         ccaPoolFormError.textContent = 'Create an entity account before adding CCA pools.';
@@ -7993,8 +8426,9 @@ if (ccaPoolForm) {
     const classCode = ccaPoolCodeInput.value.trim();
     const label = ccaPoolLabelInput.value.trim();
     const rate = Number(ccaPoolRateInput.value);
-    const orderValue = ccaPoolOrderInput ? Number(ccaPoolOrderInput.value) : NaN;
-    if (!entityId || !classCode || !label || !Number.isFinite(rate)) {
+    const initialYearValue = Number(ccaPoolInitialYearInput.value);
+    const startingAmountValue = Number(ccaPoolStartingAmountInput.value);
+    if (!entityId || !classCode || !label || !Number.isFinite(rate) || !Number.isFinite(initialYearValue)) {
       if (ccaPoolFormError) {
         ccaPoolFormError.textContent = 'Fill out all required fields.';
       }
@@ -8005,7 +8439,8 @@ if (ccaPoolForm) {
       classCode,
       label,
       rate,
-      order: Number.isFinite(orderValue) ? orderValue : null,
+      initialYear: initialYearValue,
+      startingAmount: Number.isFinite(startingAmountValue) ? startingAmountValue : 0,
       updatedAt: serverTimestamp()
     };
     try {
@@ -8017,7 +8452,7 @@ if (ccaPoolForm) {
           createdAt: serverTimestamp()
         });
       }
-      resetCcaPoolForm();
+      closeCcaPoolModal();
     } catch (error) {
       if (ccaPoolFormError) {
         ccaPoolFormError.textContent = error.message;
@@ -8063,9 +8498,17 @@ if (ccaPoolTableBody) {
       if (ccaPoolRateInput) {
         ccaPoolRateInput.value = pool.rate != null ? pool.rate : '';
       }
-      if (ccaPoolOrderInput) {
-        ccaPoolOrderInput.value = Number.isFinite(pool.order) ? pool.order : '';
+      if (ccaPoolInitialYearInput) {
+        const initialYearValue = Number(pool.initialYear);
+        ccaPoolInitialYearInput.value = Number.isFinite(initialYearValue)
+          ? initialYearValue
+          : '';
       }
+      if (ccaPoolStartingAmountInput) {
+        const startingValue = toFiniteNumber(pool.startingAmount);
+        ccaPoolStartingAmountInput.value = startingValue ?? 0;
+      }
+      openCcaPoolModal();
       return;
     }
     const deleteButton = event.target.closest('button[data-action="delete-cca-pool"]');
@@ -8244,12 +8687,15 @@ function startEditEntry(entry) {
   entryAccountSelect.value = entry.accountId;
   entryEntitySelect.value = entry.entityId || '';
   if (!entryEntitySelect.value && entityAccounts.length) {
-    entryEntitySelect.value = entityAccounts[0].id;
+    entryEntitySelect.value = getDefaultEntityAccountId() || '';
   }
   entryTypeSelect.value = entry.entryType;
   updateReturnLabel();
+  const selectedCategoryValue = entry.ccaPoolId
+    ? getCcaCategoryOptionValue(entry.ccaPoolId)
+    : entry.categoryId || '';
   updateEntryCategoryOptions({
-    selectedId: entry.categoryId || '',
+    selectedId: selectedCategoryValue,
     fallbackLabel: entry.category || '',
     fallbackCode: entry.categoryCode
   });
@@ -8339,6 +8785,8 @@ entryForm.addEventListener('submit', async (event) => {
   const selectedCategoryId = entryCategorySelect.value;
   const selectedCategoryOption = entryCategorySelect.options[entryCategorySelect.selectedIndex];
   const categoryLabelFromOption = selectedCategoryOption?.dataset?.label?.trim() || '';
+  const selectedCcaPoolId = selectedCategoryOption?.dataset?.ccaPoolId || null;
+  const isCcaSelection = Boolean(selectedCcaPoolId);
   if (tagInput && tagInput.value.trim()) {
     addTag(tagInput.value);
   }
@@ -8423,6 +8871,8 @@ entryForm.addEventListener('submit', async (event) => {
     transactionId,
     clientId: selectedClientId || null,
     isReturn,
+    ccaPoolId: selectedCcaPoolId || null,
+    isCcaClass: isCcaSelection,
     receiptUrl: receiptMeta.receiptUrl || null,
     receiptStoragePath: receiptMeta.receiptStoragePath || null
   };

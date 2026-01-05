@@ -70,7 +70,7 @@
               <button type="button" class="nav-link active" data-view="dashboard">Dashboard</button>
               <button type="button" class="nav-link" data-view="accounts">Accounts</button>
               <button type="button" class="nav-link" data-view="clients">Clients</button>
-              <button type="button" class="nav-link" data-view="storage" disabled>Storage</button>
+              <button type="button" class="nav-link" data-view="storage">Storage</button>
               <button type="button" class="nav-link" data-view="ledger">Ledger</button>
               <button type="button" class="nav-link" data-view="mileage">Mileage log</button>
               <button type="button" class="nav-link" data-view="reports">Reports</button>
@@ -79,8 +79,8 @@
             <nav class="nav-links hidden" id="settings-nav">
               <button type="button" class="nav-link" data-settings-target="categories">Categories</button>
               <button type="button" class="nav-link" data-settings-target="pricing">Website & Offering</button>
-              <button type="button" class="nav-link" data-settings-target="mileage">Mileage rates</button>
-              <button type="button" class="nav-link" data-settings-target="cca" disabled>CCA pools</button>
+              <button type="button" class="nav-link" data-settings-target="mileage">Mileage log</button>
+              <button type="button" class="nav-link" data-settings-target="cca">CCA pools</button>
               <button type="button" class="nav-link secondary" id="close-settings-nav">Close</button>
             </nav>
           </aside>
@@ -643,65 +643,63 @@
             </div>
 
             <div id="mileage-settings-view" class="card list-card padded-card hidden">
-              <form id="mileage-rate-form" class="mileage-form">
-                <label>
-                  Year
-                  <input type="number" id="mileage-rate-year" min="2000" step="1" required />
+              <div class="mileage-settings-section">
+                <div class="mileage-settings-header">
+                  <h3>Rates to be applied</h3>
+                  <p class="hint">Store CRA mileage reimbursement rates per year.</p>
+                </div>
+                <form id="mileage-rate-form" class="mileage-form">
+                  <label>
+                    Year
+                    <input type="number" id="mileage-rate-year" min="2000" step="1" required />
+                  </label>
+                  <label>
+                    Rate per km
+                    <input type="number" id="mileage-rate-amount" step="0.001" min="0" required />
+                  </label>
+                  <button type="submit">Save rate</button>
+                </form>
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Year</th>
+                        <th>Rate per km</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="mileage-rate-table-body">
+                      <tr>
+                        <td colspan="3" class="empty">No mileage rates yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="mileage-settings-section">
+                <div class="mileage-settings-header">
+                  <h3>Other settings</h3>
+                  <p class="hint">Fine-tune how mileage logs behave.</p>
+                </div>
+                <label class="wide">
+                  Default entity for mileage entries
+                  <select id="mileage-default-entity">
+                    <option value="">Select default entity</option>
+                  </select>
                 </label>
-                <label>
-                  Rate per km
-                  <input type="number" id="mileage-rate-amount" step="0.001" min="0" required />
-                </label>
-                <button type="submit">Save rate</button>
-              </form>
-              <div class="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Year</th>
-                      <th>Rate per km</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="mileage-rate-table-body">
-                    <tr>
-                      <td colspan="3" class="empty">No mileage rates yet.</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <p class="hint">Mileage entries are associated with this entity in CRA reports.</p>
               </div>
             </div>
 
             <div id="cca-settings-view" class="cca-settings hidden">
               <div class="card list-card padded-card">
-                <form id="cca-pool-form" class="grid-form">
-                <h3 id="cca-pool-form-title">Add CCA pool</h3>
-                <label>
-                  Entity
-                  <select id="cca-pool-entity"></select>
-                </label>
-                <label>
-                  CCA class code
-                  <input type="text" id="cca-pool-code" placeholder="10" required />
-                </label>
-                <label class="wide">
-                  Class description
-                  <input type="text" id="cca-pool-label" placeholder="Machinery / motor vehicles" required />
-                </label>
-                <label>
-                  Rate (%)
-                  <input type="number" id="cca-pool-rate" min="0" step="0.01" required />
-                </label>
-                <label>
-                  Order
-                  <input type="number" id="cca-pool-order" step="1" min="0" />
-                </label>
-                <div class="form-actions">
-                  <button type="submit" id="cca-pool-submit">Save pool</button>
-                  <button type="button" id="cca-pool-cancel" class="secondary hidden">Cancel edit</button>
+                <div class="cca-card-header">
+                  <div>
+                    <h3>CCA pools</h3>
+                    <p class="hint">Define CRA classes for each entity.</p>
+                  </div>
+                  <button type="button" id="open-cca-pool-modal">Add pool</button>
                 </div>
-                <p class="error" id="cca-pool-error"></p>
-                </form>
                 <div class="table-wrapper">
                   <table>
                     <thead>
@@ -709,17 +707,59 @@
                         <th>Entity</th>
                         <th>Class code</th>
                         <th>Description</th>
-                        <th>Rate</th>
+                        <th>CRA rate</th>
+                        <th>Initial year</th>
+                        <th>Starting amount</th>
                         <th></th>
                       </tr>
                     </thead>
                     <tbody id="cca-pool-table-body">
                       <tr>
-                        <td colspan="5" class="empty">Define at least one CCA pool.</td>
+                        <td colspan="7" class="empty">Define at least one CCA pool.</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+
+            <div id="cca-pool-modal" class="modal hidden">
+              <div class="modal-content card">
+                <div class="modal-header">
+                  <h3 id="cca-pool-form-title">Add CCA pool</h3>
+                  <button type="button" class="link" id="close-cca-pool-modal">Close</button>
+                </div>
+                <form id="cca-pool-form" class="grid-form">
+                  <label>
+                    Entity
+                    <select id="cca-pool-entity"></select>
+                  </label>
+                  <label>
+                    CCA class code
+                    <input type="text" id="cca-pool-code" placeholder="10" required />
+                  </label>
+                  <label class="wide">
+                    Description
+                    <input type="text" id="cca-pool-label" placeholder="Machinery / motor vehicles" required />
+                  </label>
+                  <label>
+                    CRA rate (%)
+                    <input type="number" id="cca-pool-rate" min="0" step="0.01" required />
+                  </label>
+                  <label>
+                    Initial year
+                    <input type="number" id="cca-pool-initial-year" min="1900" step="1" required />
+                  </label>
+                  <label>
+                    Starting amount
+                    <input type="number" id="cca-pool-starting-amount" min="0" step="0.01" />
+                  </label>
+                  <div class="form-actions">
+                    <button type="submit" id="cca-pool-submit">Save pool</button>
+                    <button type="button" id="cca-pool-cancel" class="secondary hidden">Cancel edit</button>
+                  </div>
+                  <p class="error" id="cca-pool-error"></p>
+                </form>
               </div>
             </div>
 
