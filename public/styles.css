@@ -115,6 +115,11 @@ header h1 {
   align-self: center;
 }
 
+.mileage-starting-point-form {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
 button {
   cursor: pointer;
   border: none;
@@ -1235,6 +1240,12 @@ form {
   text-align: right;
 }
 
+.report-detail-card table th:last-child,
+.report-detail-card table td:last-child {
+  width: 50px;
+  text-align: right;
+}
+
 .report-detail-card table th,
 .report-detail-card table td {
   text-align: left;
@@ -1582,6 +1593,33 @@ form {
   margin: 0;
 }
 
+.balance-flag {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.1rem 1.5rem;
+  border-radius: 1rem;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0f172a;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  animation: dashboard-slide-in 0.45s ease forwards;
+}
+
+.balance-flag-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.balance-flag-amount {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0c4a6e;
+}
+
 .dashboard-list {
   list-style: none;
   padding: 0;
@@ -1708,6 +1746,13 @@ form {
 
 .dashboard-card.span-two {
   grid-column: span 2;
+}
+
+@media (max-width: 720px) {
+  .balance-flag {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 @media (min-width: 1100px) {

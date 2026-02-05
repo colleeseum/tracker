@@ -162,6 +162,16 @@
                     </ul>
                   </section>
 
+                  <div id="dashboard-balance-flag" class="balance-flag hidden" role="status" aria-live="polite">
+                    <div class="balance-flag-text">
+                      <strong id="dashboard-balance-title">Transfer needed</strong>
+                      <p id="dashboard-balance-detail" class="hint">Cash and entity totals differ.</p>
+                    </div>
+                    <div class="balance-flag-amount">
+                      <span id="dashboard-balance-diff">$0.00</span>
+                    </div>
+                  </div>
+
                   <section class="card dashboard-card">
                     <div class="dashboard-card-header">
                       <h3>Account activity</h3>
@@ -620,6 +630,12 @@
                     <input type="text" id="mileage-purpose" placeholder="Delivery to client" required />
                   </label>
                   <label class="wide">
+                    Starting point
+                    <select id="mileage-starting-point">
+                      <option value="">Select starting location</option>
+                    </select>
+                  </label>
+                  <label class="wide">
                     Tags
                     <input type="text" id="mileage-tags" placeholder="maintenance, delivery" list="mileage-tag-suggestions" />
                     <datalist id="mileage-tag-suggestions"></datalist>
@@ -688,6 +704,28 @@
                   </select>
                 </label>
                 <p class="hint">Mileage entries are associated with this entity in CRA reports.</p>
+                <form id="mileage-starting-point-form" class="mileage-form mileage-starting-point-form">
+                  <label class="wide">
+                    Starting point name
+                    <input type="text" id="mileage-starting-point-name" placeholder="Farm, Warehouse, etc." />
+                  </label>
+                  <button type="submit">Add starting point</button>
+                </form>
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Starting point</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="mileage-starting-point-table-body">
+                      <tr>
+                        <td colspan="2" class="empty">No starting points yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -810,11 +848,12 @@
                         <th>Description</th>
                         <th>Account</th>
                         <th>Amount</th>
+                        <th></th>
                       </tr>
                     </thead>
                     <tbody id="report-detail-table-body">
                       <tr>
-                        <td colspan="4" class="empty">No matching entries.</td>
+                        <td colspan="5" class="empty">No matching entries.</td>
                       </tr>
                     </tbody>
                   </table>

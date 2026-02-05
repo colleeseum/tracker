@@ -138,7 +138,11 @@ const mileageRateAmountInput = document.getElementById('mileage-rate-amount');
 const mileageRateTableBody = document.getElementById('mileage-rate-table-body');
 const mileageSubmitButton = document.getElementById('mileage-submit');
 const mileageCancelButton = document.getElementById('mileage-cancel-edit');
+const mileageStartingPointSelect = document.getElementById('mileage-starting-point');
 const mileageDefaultEntitySelect = document.getElementById('mileage-default-entity');
+const mileageStartingPointForm = document.getElementById('mileage-starting-point-form');
+const mileageStartingPointInput = document.getElementById('mileage-starting-point-name');
+const mileageStartingPointTableBody = document.getElementById('mileage-starting-point-table-body');
 applyMileageInputDefaults();
 const reportsView = document.getElementById('reports-view');
 const reportsOutput = document.getElementById('reports-output');
@@ -166,6 +170,10 @@ const dashboardPublishedAt = document.getElementById('dashboard-published-at');
 const dashboardPublishedBy = document.getElementById('dashboard-published-by');
 const dashboardAddEntryButton = document.getElementById('dashboard-add-entry');
 const dashboardTransferButton = document.getElementById('dashboard-transfer');
+const dashboardBalanceFlag = document.getElementById('dashboard-balance-flag');
+const dashboardBalanceTitle = document.getElementById('dashboard-balance-title');
+const dashboardBalanceDetail = document.getElementById('dashboard-balance-detail');
+const dashboardBalanceDiff = document.getElementById('dashboard-balance-diff');
 const reportDetailModal = document.getElementById('report-detail-modal');
 const closeReportDetailModalButton = document.getElementById('close-report-detail-modal');
 const reportDetailTableBody = document.getElementById('report-detail-table-body');
@@ -605,7 +613,7 @@ let mileageLogs = [];
 let mileageRates = [];
 let unsubscribeMileageLogs = null;
 let unsubscribeMileageRates = null;
-let mileageSettings = { defaultEntityId: '' };
+let mileageSettings = { defaultEntityId: '', startingPoints: [] };
 let unsubscribeMileageSettings = null;
 let mileageYearToDate = 0;
 let editingMileageId = null;
@@ -880,6 +888,10 @@ function isPureCashAccount(account) {
 
 function isPureEntityAccount(account) {
   return account?.type === 'entity';
+}
+
+function normalizeCategoryType(type) {
+  return type === 'income' ? 'income' : 'expense';
 }
 
 function getDefaultCashAccountId() {
@@ -1894,10 +1906,41 @@ function getAccountBalanceValue(account) {
   return opening + (map.get(account.id) || 0);
 }
 
+function getDashboardCashTotal() {
+  return accounts
+    .filter(isPureCashAccount)
+    .reduce((sum, account) => sum + getAccountBalanceValue(account), 0);
+}
+
+function getDashboardEntityTotal() {
+  return accounts
+    .filter(isPureEntityAccount)
+    .reduce((sum, account) => sum + getAccountBalanceValue(account), 0);
+}
+
+function updateDashboardBalanceFlag(cashTotal, entityTotal) {
+  if (!dashboardBalanceFlag || !dashboardBalanceDetail || !dashboardBalanceDiff || !dashboardBalanceTitle) {
+    return;
+  }
+  const diff = cashTotal - entityTotal;
+  const absDiff = Math.abs(diff);
+  const hasAccounts = accounts.length > 0;
+  if (!hasAccounts || absDiff < 0.01) {
+    dashboardBalanceFlag.classList.add('hidden');
+    return;
+  }
+  const direction = diff > 0 ? 'Cash exceeds entity by' : 'Entity exceeds cash by';
+  dashboardBalanceTitle.textContent = 'Transfer needed';
+  dashboardBalanceDetail.textContent = `${direction} ${formatCurrency(absDiff)}. Hybrid entries can cause this.`;
+  dashboardBalanceDiff.textContent = formatCurrency(absDiff);
+  dashboardBalanceFlag.classList.remove('hidden');
+}
+
 function renderDashboard() {
   const cashTotal = renderDashboardCashSummary();
   const entityTotal = renderDashboardEntitySummary();
   updateDashboardKpis({ cashTotal, entityTotal });
+  updateDashboardBalanceFlag(cashTotal, entityTotal);
   renderDashboardTransactions();
   renderDashboardAccountActivity();
   renderDashboardContentStatus();
@@ -2203,6 +2246,25 @@ function getResolvedMileageEntityId() {
   return mileageSettings?.defaultEntityId || getDefaultEntityAccountId() || '';
 }
 
+function normalizeMileageSettings(data = {}) {
+  const points = Array.isArray(data.startingPoints) ? data.startingPoints : [];
+  return {
+    defaultEntityId: typeof data.defaultEntityId === 'string' ? data.defaultEntityId : '',
+    startingPoints: points
+      .map((point) => (typeof point === 'string' ? point.trim() : ''))
+      .filter(Boolean)
+  };
+}
+
+function getMileageStartingPoints() {
+  if (!Array.isArray(mileageSettings?.startingPoints)) {
+    return [];
+  }
+  return mileageSettings.startingPoints
+    .map((point) => (typeof point === 'string' ? point.trim() : ''))
+    .filter(Boolean);
+}
+
 function updateMileageDefaultEntityOptions() {
   if (!mileageDefaultEntitySelect) return;
   const previousValue = mileageDefaultEntitySelect.value;
@@ -2232,8 +2294,90 @@ function updateMileageDefaultEntityOptions() {
   mileageDefaultEntitySelect.disabled = entityAccounts.length === 0;
 }
 
+function updateMileageStartingPointOptions(selectedValue = null) {
+  if (!mileageStartingPointSelect) return;
+  const previousValue = selectedValue !== null ? selectedValue : mileageStartingPointSelect.value;
+  const points = getMileageStartingPoints();
+  mileageStartingPointSelect.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = points.length ? 'Select starting location' : 'Add starting locations in Settings';
+  mileageStartingPointSelect.appendChild(placeholder);
+  points.forEach((label) => {
+    const option = document.createElement('option');
+    option.value = label;
+    option.textContent = label;
+    mileageStartingPointSelect.appendChild(option);
+  });
+  if (previousValue && !points.includes(previousValue)) {
+    const fallbackOption = document.createElement('option');
+    fallbackOption.value = previousValue;
+    fallbackOption.textContent = previousValue;
+    mileageStartingPointSelect.appendChild(fallbackOption);
+  }
+  if (previousValue) {
+    mileageStartingPointSelect.value = previousValue;
+  } else if (points.length) {
+    mileageStartingPointSelect.value = points[0];
+  } else {
+    mileageStartingPointSelect.value = '';
+  }
+  mileageStartingPointSelect.disabled = false;
+}
+
+function renderMileageStartingPointTable() {
+  if (!mileageStartingPointTableBody) return;
+  mileageStartingPointTableBody.innerHTML = '';
+  const points = getMileageStartingPoints();
+  if (!points.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 2;
+    cell.className = 'empty';
+    cell.textContent = 'No starting points yet.';
+    row.appendChild(cell);
+    mileageStartingPointTableBody.appendChild(row);
+    return;
+  }
+  points.forEach((label, index) => {
+    const row = document.createElement('tr');
+    const labelCell = document.createElement('td');
+    labelCell.textContent = label;
+    row.appendChild(labelCell);
+    const actionCell = document.createElement('td');
+    actionCell.className = 'actions-cell';
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-button';
+    deleteButton.dataset.action = 'delete-starting-point';
+    deleteButton.dataset.index = String(index);
+    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete starting point" data-icon="trash" />';
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
+    mileageStartingPointTableBody.appendChild(row);
+  });
+}
+
 function syncMileageSettingsUI() {
   updateMileageDefaultEntityOptions();
+  updateMileageStartingPointOptions();
+  renderMileageStartingPointTable();
+}
+
+function getMileageSettingsDocRef() {
+  return doc(db, 'admin', 'mileageSettings');
+}
+
+async function patchMileageSettings(update) {
+  await setDoc(
+    getMileageSettingsDocRef(),
+    {
+      ...update,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    },
+    { merge: true }
+  );
 }
 
 function sanitizeFileName(name) {
@@ -2300,6 +2444,7 @@ function resetMileageFormState() {
   if (mileageFormTitle) {
     mileageFormTitle.textContent = 'Log mileage entry';
   }
+  updateMileageStartingPointOptions();
 }
 
 function openMileageModal(mode = 'create') {
@@ -2309,7 +2454,6 @@ function openMileageModal(mode = 'create') {
   if (mileageFormTitle) {
     mileageFormTitle.textContent = mode === 'edit' ? 'Edit mileage entry' : 'Log mileage entry';
   }
-  syncMileageEntityFieldVisibility();
 }
 
 function closeMileageModal() {
@@ -2344,6 +2488,7 @@ function beginEditMileageEntry(log) {
   if (mileageVendorTagInput) {
     mileageVendorTagInput.value = Array.isArray(log.vendorTags) ? log.vendorTags.join(', ') : log.vendorTag || '';
   }
+  updateMileageStartingPointOptions(log.startingPoint || null);
   if (mileageSubmitButton) {
     mileageSubmitButton.textContent = 'Save changes';
   }
@@ -2357,6 +2502,7 @@ function beginEditMileageEntry(log) {
 function openMileageModalForSuggestion(suggestion) {
   if (!suggestion) return;
   openMileageModal('create');
+  updateMileageStartingPointOptions();
   if (mileageDateInput && suggestion.dateKey) {
     mileageDateInput.value = suggestion.dateKey;
   }
@@ -2403,7 +2549,11 @@ function renderMileageLog() {
     const vendorMarkup = vendorList.length
       ? `<span class="table-tag vendor-tag">${vendorList[0]}</span>`
       : '';
-    const inlineTags = inlineTagMarkup ? `<span class="inline-tags">${inlineTagMarkup}</span>` : '';
+    const startingPointTag = log.startingPoint ? `<span class="table-tag mileage-inline-tag">Start: ${log.startingPoint}</span>` : '';
+    const inlineTagSegments = [];
+    if (startingPointTag) inlineTagSegments.push(startingPointTag);
+    if (inlineTagMarkup) inlineTagSegments.push(inlineTagMarkup);
+    const inlineTags = inlineTagSegments.length ? `<span class="inline-tags">${inlineTagSegments.join('')}</span>` : '';
     const actionsMarkup = `
       <div class="table-actions">
         <button
@@ -2456,7 +2606,7 @@ function renderMileageLog() {
     acc.set(year, (acc.get(year) || 0) + kmValue);
     return acc;
   }, new Map());
-  updateDashboardKpis({ cashTotal: lastKnownCashTotal, entityTotal: lastKnownEntityTotal });
+  updateDashboardKpis({ cashTotal: getDashboardCashTotal(), entityTotal: getDashboardEntityTotal() });
   computeMissingMileageSuggestions();
   renderMissingMileageSuggestions();
   if (!mileageTableBody) {
@@ -2700,7 +2850,7 @@ function buildReportEntryList(entryIds) {
   const rows = entries
     .map((entry) => {
       const account = accountLookup.get(entry.accountId);
-      const editButton = `<button type="button" class="icon-button small" data-action="edit-entry-inline" data-entry-id="${entry.id}" aria-label="Edit entry ${entry.description || entry.category || ''}">
+      const editButton = `<button type="button" class="icon-button small" data-action="edit-entry-inline" data-entry-id="${entry.id}" aria-label="Edit entry">
         <img src="icons/pencil.svg" alt="Edit entry" />
       </button>`;
       return `
@@ -2862,7 +3012,7 @@ function openReportDetailModalById(drilldownId) {
         <td>${account?.name || '—'}</td>
         <td class="report-amount">${formatCurrency(signedAmount)}</td>
         <td class="report-entry-action-cell">
-          <button type="button" class="icon-button small" data-action="edit-entry-inline" data-entry-id="${entry.id}">
+          <button type="button" class="icon-button small" data-action="edit-entry-inline" data-entry-id="${entry.id}" aria-label="Edit entry">
             <img src="icons/pencil.svg" alt="Edit entry" />
           </button>
         </td>
@@ -3866,8 +4016,10 @@ function renderCategoryTable() {
   }
 
   const sorted = [...categories].sort((a, b) => {
-    if (a.type !== b.type) {
-      return a.type.localeCompare(b.type);
+    const typeA = normalizeCategoryType(a.type);
+    const typeB = normalizeCategoryType(b.type);
+    if (typeA !== typeB) {
+      return typeA.localeCompare(typeB);
     }
     const codeA = Number(a.code) || 0;
     const codeB = Number(b.code) || 0;
@@ -3883,7 +4035,7 @@ function renderCategoryTable() {
     labelCell.textContent = category.label || '—';
     row.appendChild(labelCell);
     const typeCell = document.createElement('td');
-    typeCell.textContent = category.type === 'income' ? 'Income' : 'Expense';
+    typeCell.textContent = normalizeCategoryType(category.type) === 'income' ? 'Income' : 'Expense';
     row.appendChild(typeCell);
     const codeCell = document.createElement('td');
     codeCell.textContent = Number.isFinite(Number(category.code)) ? Number(category.code) : '—';
@@ -4433,7 +4585,9 @@ function updateEntryClientOptions() {
 function updateEntryCategoryOptions(options = {}) {
   if (!entryCategorySelect) return;
   const activeType = options.forceType || entryTypeSelect?.value || 'expense';
-  const filtered = categories.filter((category) => category.type === activeType);
+  const filtered = categories.filter(
+    (category) => normalizeCategoryType(category.type) === activeType
+  );
   const includeCcaOptions = activeType === 'expense';
   const selectedEntityId =
     entryEntitySelect?.value || getDefaultEntityAccountId() || null;
@@ -4467,7 +4621,7 @@ function updateEntryCategoryOptions(options = {}) {
       : category.label || 'Untitled';
     option.dataset.label = category.label || '';
     option.dataset.code = category.code ?? '';
-    option.dataset.type = category.type;
+    option.dataset.type = normalizeCategoryType(category.type);
     entryCategorySelect.appendChild(option);
   });
   if (includeCcaOptions) {
@@ -4566,25 +4720,15 @@ function syncEntryReceiptVisibility() {
 function syncEntrySelectors() {
   const selectedAccount = accountLookup.get(entryAccountSelect.value);
   const selectedEntity = accountLookup.get(entryEntitySelect.value);
-  if (isCombinedAccount(selectedAccount)) {
-    entryEntitySelect.value = selectedAccount.id;
-    entryEntitySelect.disabled = true;
-  } else {
-    entryEntitySelect.disabled = entityAccounts.length === 0;
-    if (!isEntityAccount(accountLookup.get(entryEntitySelect.value)) && entityAccounts.length) {
-      const fallbackEntityId = getDefaultEntityAccountId();
-      entryEntitySelect.value = fallbackEntityId || '';
-    }
+  entryEntitySelect.disabled = entityAccounts.length === 0;
+  if (!isEntityAccount(selectedEntity) && entityAccounts.length) {
+    const fallbackEntityId = getDefaultEntityAccountId();
+    entryEntitySelect.value = fallbackEntityId || '';
   }
 
-  if (isCombinedAccount(selectedEntity)) {
-    entryAccountSelect.value = selectedEntity.id;
-    entryAccountSelect.disabled = true;
-  } else {
-    entryAccountSelect.disabled = cashAccounts.length === 0;
-    if (!isCashAccount(accountLookup.get(entryAccountSelect.value)) && cashAccounts.length) {
-      entryAccountSelect.value = cashAccounts[0].id;
-    }
+  entryAccountSelect.disabled = cashAccounts.length === 0;
+  if (!isCashAccount(selectedAccount) && cashAccounts.length) {
+    entryAccountSelect.value = cashAccounts[0].id;
   }
   updateEntryCategoryOptions({ forceType: entryTypeSelect.value, preserveSelection: true });
 }
@@ -4806,11 +4950,11 @@ function subscribeToMileageRates() {
 
 function subscribeToMileageSettings() {
   cleanMileageSettingsSubscription();
-  const settingsDoc = doc(db, 'admin', 'mileageSettings');
+  const settingsDoc = getMileageSettingsDocRef();
   unsubscribeMileageSettings = onSnapshot(
     settingsDoc,
     (snapshot) => {
-      mileageSettings = snapshot.exists() ? snapshot.data() : { defaultEntityId: '' };
+      mileageSettings = snapshot.exists() ? normalizeMileageSettings(snapshot.data()) : normalizeMileageSettings();
       syncMileageSettingsUI();
     },
     (error) => {
@@ -4837,7 +4981,7 @@ function cleanMileageSettingsSubscription() {
     unsubscribeMileageSettings();
   }
   unsubscribeMileageSettings = null;
-  mileageSettings = { defaultEntityId: '' };
+  mileageSettings = normalizeMileageSettings();
   syncMileageSettingsUI();
 }
 
@@ -7136,6 +7280,7 @@ if (mileageForm) {
     const tags = parseMileageTags(mileageTagsInput?.value || '');
     const vendorTags = parseMileageTags(mileageVendorTagInput?.value || '');
     const resolvedEntityId = getResolvedMileageEntityId();
+    const startingPointValue = mileageStartingPointSelect?.value?.trim() || '';
     if (!dateValue || !purpose || !Number.isFinite(kmValue)) {
       return;
     }
@@ -7151,6 +7296,7 @@ if (mileageForm) {
           kilometres: kmValue,
           tags,
           vendorTags,
+          startingPoint: startingPointValue || null,
           entityId: resolvedEntityId || null,
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser?.uid || null,
@@ -7165,6 +7311,7 @@ if (mileageForm) {
           kilometres: kmValue,
           tags,
           vendorTags,
+          startingPoint: startingPointValue || null,
           entityId: resolvedEntityId || null,
           createdAt: serverTimestamp(),
           createdBy: auth.currentUser?.uid || null,
@@ -7282,15 +7429,7 @@ if (mileageDefaultEntitySelect) {
   mileageDefaultEntitySelect.addEventListener('change', async (event) => {
     const selectedEntityId = event.target.value || '';
     try {
-      await setDoc(
-        doc(db, 'admin', 'mileageSettings'),
-        {
-          defaultEntityId: selectedEntityId,
-          updatedAt: serverTimestamp(),
-          updatedBy: auth.currentUser?.uid || null
-        },
-        { merge: true }
-      );
+      await patchMileageSettings({ defaultEntityId: selectedEntityId });
       mileageSettings.defaultEntityId = selectedEntityId;
       syncMileageSettingsUI();
     } catch (error) {
@@ -7301,12 +7440,64 @@ if (mileageDefaultEntitySelect) {
   });
 }
 
+if (mileageStartingPointForm) {
+  mileageStartingPointForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const label = mileageStartingPointInput?.value?.trim();
+    if (!label) return;
+    const points = getMileageStartingPoints();
+    if (points.includes(label)) {
+      window.alert('Starting point already exists.');
+      return;
+    }
+    const nextPoints = [...points, label];
+    try {
+      await patchMileageSettings({ startingPoints: nextPoints });
+      mileageSettings.startingPoints = nextPoints;
+      mileageStartingPointInput.value = '';
+      syncMileageSettingsUI();
+    } catch (error) {
+      console.error('Unable to add starting point:', error);
+      window.alert(`Unable to add starting point: ${error.message}`);
+    }
+  });
+}
+
+if (mileageStartingPointTableBody) {
+  mileageStartingPointTableBody.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-action="delete-starting-point"]');
+    if (!button) return;
+    const index = Number(button.dataset.index);
+    const points = getMileageStartingPoints();
+    if (!Number.isFinite(index) || index < 0 || index >= points.length) return;
+    if (!window.confirm(`Delete starting point "${points[index]}"?`)) return;
+    const nextPoints = points.filter((_, idx) => idx !== index);
+    try {
+      await patchMileageSettings({ startingPoints: nextPoints });
+      mileageSettings.startingPoints = nextPoints;
+      syncMileageSettingsUI();
+    } catch (error) {
+      console.error('Unable to delete starting point:', error);
+      window.alert(`Unable to delete starting point: ${error.message}`);
+    }
+  });
+}
+
 if (reportsOutput) {
   reportsOutput.addEventListener('click', (event) => {
     const manageCcaButton = event.target.closest('[data-action="manage-cca-pools"]');
     if (manageCcaButton) {
       setView('settings');
       setSettingsSection('cca');
+      return;
+    }
+    const editInlineEntryButton = event.target.closest('button[data-action="edit-entry-inline"]');
+    if (editInlineEntryButton) {
+      const entryId = editInlineEntryButton.dataset.entryId;
+      const entry = expenseLookup.get(entryId);
+      if (entry) {
+        startEditEntry(entry);
+      }
       return;
     }
     const editCcaButton = event.target.closest('[data-action="edit-cca-record"]');
@@ -8324,18 +8515,10 @@ entryModal.addEventListener('click', (event) => {
 });
 
 entryAccountSelect.addEventListener('change', () => {
-  const selectedAccount = accountLookup.get(entryAccountSelect.value);
-  if (isCombinedAccount(selectedAccount)) {
-    entryEntitySelect.value = selectedAccount.id;
-  }
   syncEntrySelectors();
 });
 
 entryEntitySelect.addEventListener('change', () => {
-  const selectedEntity = accountLookup.get(entryEntitySelect.value);
-  if (isCombinedAccount(selectedEntity)) {
-    entryAccountSelect.value = selectedEntity.id;
-  }
   syncEntrySelectors();
 });
 
@@ -8822,14 +9005,6 @@ entryForm.addEventListener('submit', async (event) => {
     return;
   }
 
-  const account = accountLookup.get(accountId);
-  const entity = accountLookup.get(entityId);
-  if (isCombinedAccount(account)) {
-    entityId = accountId;
-  } else if (isCombinedAccount(entity)) {
-    accountId = entityId;
-  }
-
   const isEditing = Boolean(editingEntryId);
   const transactionId = isEditing ? editingEntryTransactionId : generateTransactionId();
   const linkedCategory = categoryLookup.get(selectedCategoryId);
@@ -9298,6 +9473,7 @@ function updateDashboardKpis({ cashTotal = 0, entityTotal = 0 }) {
   if (dashboardKpiTopTagLabel) {
     dashboardKpiTopTagLabel.textContent = topTag ? `#${topTag}` : '—';
   }
+  updateDashboardBalanceFlag(cashTotal, entityTotal);
 }
 
 function getMonthlyTagMetrics() {
