@@ -156,7 +156,11 @@ const dashboardCashList = document.getElementById('dashboard-cash-list');
 const dashboardCashTotal = document.getElementById('dashboard-cash-total');
 const dashboardEntityList = document.getElementById('dashboard-entity-list');
 const dashboardEntityTotal = document.getElementById('dashboard-entity-total');
+const dashboardBillsList = document.getElementById('dashboard-bills-list');
+const dashboardBillsTotal = document.getElementById('dashboard-bills-total');
 const dashboardKpiCash = document.getElementById('dashboard-kpi-cash');
+const dashboardKpiBills = document.getElementById('dashboard-kpi-bills');
+const dashboardKpiBillsCount = document.getElementById('dashboard-kpi-bills-count');
 const dashboardKpiMileage = document.getElementById('dashboard-kpi-mileage');
 const dashboardKpiStorage = document.getElementById('dashboard-kpi-storage');
 const dashboardKpiOutflow = document.getElementById('dashboard-kpi-outflow');
@@ -422,9 +426,14 @@ const entryModal = document.getElementById('entry-modal');
 const closeEntryModalButton = document.getElementById('close-entry-modal');
 const entryForm = document.getElementById('entry-form');
 const entryAccountSelect = document.getElementById('entry-account');
+const entryAccountLabel = document.getElementById('entry-account-label');
 const entryEntitySelect = document.getElementById('entry-entity');
 const entryDateInput = document.getElementById('entry-date');
 const entryTypeSelect = document.getElementById('entry-type');
+const entryPaidToggle = document.getElementById('entry-is-paid');
+const entryPaidWrapper = document.getElementById('entry-paid-wrapper');
+const entryPaidDateWrapper = document.getElementById('entry-paid-date-wrapper');
+const entryPaidDateInput = document.getElementById('entry-paid-date');
 const entryCategorySelect = document.getElementById('entry-category');
 const entryClientField = document.getElementById('entry-client-field');
 const entryClientSelect = document.getElementById('entry-client');
@@ -452,6 +461,12 @@ const entryFormTitle = document.getElementById('entry-form-title');
 const entryCcaField = document.getElementById('entry-cca-field');
 const entryCcaSelect = document.getElementById('entry-cca-pool');
 const ledgerError = document.getElementById('ledger-error');
+const billPaymentModal = document.getElementById('bill-payment-modal');
+const closeBillPaymentModalButton = document.getElementById('close-bill-payment-modal');
+const billPaymentForm = document.getElementById('bill-payment-form');
+const billPaymentAccountSelect = document.getElementById('bill-payment-account');
+const billPaymentDateInput = document.getElementById('bill-payment-date');
+const billPaymentError = document.getElementById('bill-payment-error');
 const transferModal = document.getElementById('transfer-modal');
 const closeTransferModalButton = document.getElementById('close-transfer-modal');
 const transferForm = document.getElementById('transfer-form');
@@ -490,10 +505,17 @@ function hideEntryModal() {
     entryReturnInput.checked = false;
   }
   updateReturnLabel();
+  if (entryPaidToggle) {
+    entryPaidToggle.checked = true;
+  }
+  if (entryPaidDateInput) {
+    entryPaidDateInput.value = '';
+  }
   syncEntryClientVisibility();
   syncEntryVendorVisibility();
   resetReceiptControls();
   syncEntryReceiptVisibility();
+  syncEntryPaymentFields();
   syncEntrySelectors();
 }
 
@@ -502,6 +524,18 @@ function hideTransferModal() {
   transferForm.reset();
   transferFormError.textContent = '';
   editingTransferContext = null;
+}
+
+function hideBillPaymentModal() {
+  if (!billPaymentModal) return;
+  billPaymentModal.classList.add('hidden');
+  if (billPaymentForm) {
+    billPaymentForm.reset();
+  }
+  if (billPaymentError) {
+    billPaymentError.textContent = '';
+  }
+  payingBillId = null;
 }
 
 function generateTransactionId() {
@@ -578,6 +612,7 @@ let vendorTagSet = new Set();
 let editingEntryId = null;
 let editingEntryTransactionId = null;
 let editingTransferContext = null;
+let payingBillId = null;
 let selectedTags = [];
 let missingMileageSuggestions = [];
 let hideMileageSuggestions = false;
@@ -894,6 +929,38 @@ function normalizeCategoryType(type) {
   return type === 'income' ? 'income' : 'expense';
 }
 
+function isEntryPaid(entry) {
+  if (!entry) return false;
+  if (entry.entryType === 'income') return true;
+  if (entry.paymentStatus === 'unpaid') return false;
+  if (entry.paymentStatus === 'paid') return true;
+  if (entry.paidAt || entry.paidAccountId) return true;
+  return Boolean(entry.accountId);
+}
+
+function getEntryPaidAccountId(entry) {
+  return entry?.paidAccountId || entry?.accountId || '';
+}
+
+function getEntryIncurredMillis(entry) {
+  const date = toDateObject(entry?.date);
+  if (date) return date.getTime();
+  return timestampToMillis(entry?.date) || 0;
+}
+
+function getEntryPaidMillis(entry) {
+  if (!isEntryPaid(entry)) return 0;
+  const paidDate = toDateObject(entry?.paidAt);
+  if (paidDate) return paidDate.getTime();
+  return getEntryIncurredMillis(entry);
+}
+
+function isOutstandingBill(entry) {
+  if (!entry || entry.entryType !== 'expense') return false;
+  if (entry.isReturn) return false;
+  return !isEntryPaid(entry);
+}
+
 function getDefaultCashAccountId() {
   return cashAccounts.find((account) => account.defaultCash)?.id || cashAccounts[0]?.id || '';
 }
@@ -952,6 +1019,7 @@ function subscribeToAccounts() {
       updateLedgerAccountOptions();
       updateEntryAccountOptions();
       updateTransferAccountOptions();
+      updateBillPaymentAccountOptions();
       updateCcaPoolEntityOptions();
       updateMileageDefaultEntityOptions();
       addEntryButton.disabled = cashAccounts.length === 0 || entityAccounts.length === 0;
@@ -1918,6 +1986,12 @@ function getDashboardEntityTotal() {
     .reduce((sum, account) => sum + getAccountBalanceValue(account), 0);
 }
 
+function getOutstandingBillMetrics() {
+  const outstanding = expenses.filter(isOutstandingBill);
+  const total = outstanding.reduce((sum, entry) => sum + Math.abs(getEntryDelta(entry)), 0);
+  return { total, count: outstanding.length, entries: outstanding };
+}
+
 function updateDashboardBalanceFlag(cashTotal, entityTotal) {
   if (!dashboardBalanceFlag || !dashboardBalanceDetail || !dashboardBalanceDiff || !dashboardBalanceTitle) {
     return;
@@ -1939,7 +2013,8 @@ function updateDashboardBalanceFlag(cashTotal, entityTotal) {
 function renderDashboard() {
   const cashTotal = renderDashboardCashSummary();
   const entityTotal = renderDashboardEntitySummary();
-  updateDashboardKpis({ cashTotal, entityTotal });
+  const { total: outstandingTotal, count: outstandingCount } = renderDashboardOutstandingBills();
+  updateDashboardKpis({ cashTotal, entityTotal, outstandingTotal, outstandingCount });
   updateDashboardBalanceFlag(cashTotal, entityTotal);
   renderDashboardTransactions();
   renderDashboardAccountActivity();
@@ -1950,6 +2025,44 @@ function renderDashboard() {
   if (dashboardTransferButton) {
     dashboardTransferButton.disabled = cashAccounts.length < 2;
   }
+}
+
+function renderDashboardOutstandingBills() {
+  if (!dashboardBillsList || !dashboardBillsTotal) return { total: 0, count: 0 };
+  dashboardBillsList.innerHTML = '';
+  const { total, count, entries } = getOutstandingBillMetrics();
+  if (!entries.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'No outstanding bills.';
+    dashboardBillsList.appendChild(li);
+    dashboardBillsTotal.textContent = '$0.00';
+    return { total: 0, count: 0 };
+  }
+  const sorted = [...entries].sort((a, b) => getEntryIncurredMillis(b) - getEntryIncurredMillis(a));
+  sorted.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'bill-row';
+    const vendorLabel = entry.vendorTag || entry.description || entry.category || 'Unlabeled bill';
+    const entityLabel = entry.entityId ? accountLookup.get(entry.entityId)?.name || 'Entity' : 'Entity';
+    const dateLabel = formatDate(entry.date);
+    const amountLabel = formatCurrency(Math.abs(getEntryDelta(entry)));
+    const payDisabled = cashAccounts.length === 0;
+    const payDisabledAttr = payDisabled ? 'disabled' : '';
+    li.innerHTML = `
+      <div class="bill-info">
+        <strong>${vendorLabel}</strong>
+        <span class="bill-meta">${entityLabel} • ${dateLabel}</span>
+      </div>
+      <div class="bill-actions">
+        <span class="bill-amount">${amountLabel}</span>
+        <button type="button" class="secondary bill-pay" data-action="pay-bill" data-id="${entry.id}" ${payDisabledAttr}>Pay</button>
+      </div>
+    `;
+    dashboardBillsList.appendChild(li);
+  });
+  dashboardBillsTotal.textContent = formatCurrency(total);
+  return { total, count };
 }
 
 function renderDashboardCashSummary() {
@@ -2001,9 +2114,10 @@ function renderDashboardEntitySummary() {
 }
 
 function getEntryTimestamp(entry) {
-  const recordedDate = toDateObject(entry?.date);
-  if (recordedDate) {
-    return recordedDate.getTime();
+  const incurredMillis = getEntryIncurredMillis(entry);
+  const paidMillis = getEntryPaidMillis(entry);
+  if (paidMillis || incurredMillis) {
+    return Math.max(paidMillis, incurredMillis);
   }
   return timestampToMillis(entry?.updatedAt) || timestampToMillis(entry?.createdAt) || 0;
 }
@@ -2083,8 +2197,9 @@ function renderDashboardTransactions() {
 function summarizeTransaction(txn) {
   const impacts = [];
   txn.entries.forEach((entry) => {
-    if (!entry.entityOnly) {
-      const account = accountLookup.get(entry.accountId);
+    if (!entry.entityOnly && isEntryPaid(entry)) {
+      const cashAccountId = getEntryPaidAccountId(entry);
+      const account = cashAccountId ? accountLookup.get(cashAccountId) : null;
       if (account && !isCombinedAccount(account)) {
         impacts.push({ label: account.name, type: 'Cash', amount: getEntryDelta(entry) });
       }
@@ -2123,21 +2238,24 @@ function getAccountActivityRecords() {
   });
   expenses.forEach((entry) => {
     if (entry?.isVirtualOpening) return;
-    const ts = getEntryTimestamp(entry);
-    if (!ts) return;
-    const cashAccount = accountLookup.get(entry.accountId);
-    if (cashAccount && !isCombinedAccount(cashAccount)) {
-      const existing = activity.get(entry.accountId);
-      if (!existing || ts > existing.timestamp) {
-        activity.set(entry.accountId, { account: cashAccount, timestamp: ts });
+    const cashAccountId = isEntryPaid(entry) ? getEntryPaidAccountId(entry) : '';
+    const cashTimestamp = getEntryPaidMillis(entry);
+    if (cashAccountId && cashTimestamp) {
+      const cashAccount = accountLookup.get(cashAccountId);
+      if (cashAccount && !isCombinedAccount(cashAccount)) {
+        const existing = activity.get(cashAccountId);
+        if (!existing || cashTimestamp > existing.timestamp) {
+          activity.set(cashAccountId, { account: cashAccount, timestamp: cashTimestamp });
+        }
       }
     }
     if (entry.entityId) {
+      const entityTimestamp = getEntryIncurredMillis(entry);
       const entityAccount = accountLookup.get(entry.entityId);
-      if (entityAccount && !isCombinedAccount(entityAccount)) {
+      if (entityAccount && !isCombinedAccount(entityAccount) && entityTimestamp) {
         const existing = activity.get(entry.entityId);
-        if (!existing || ts > existing.timestamp) {
-          activity.set(entry.entityId, { account: entityAccount, timestamp: ts });
+        if (!existing || entityTimestamp > existing.timestamp) {
+          activity.set(entry.entityId, { account: entityAccount, timestamp: entityTimestamp });
         }
       }
     }
@@ -4717,17 +4835,49 @@ function syncEntryReceiptVisibility() {
   }
 }
 
+function shouldRequireCashAccount() {
+  if (entryTypeSelect?.value !== 'expense') {
+    return true;
+  }
+  return Boolean(entryPaidToggle?.checked);
+}
+
+function syncEntryPaymentFields() {
+  if (!entryPaidToggle || !entryPaidWrapper || !entryPaidDateWrapper || !entryPaidDateInput) return;
+  const isExpense = entryTypeSelect?.value === 'expense';
+  entryPaidWrapper.classList.toggle('hidden', !isExpense);
+  if (!isExpense) {
+    entryPaidToggle.checked = true;
+    entryPaidToggle.disabled = true;
+  } else {
+    entryPaidToggle.disabled = false;
+  }
+  const paidNow = shouldRequireCashAccount();
+  entryPaidDateWrapper.classList.toggle('ghosted', !paidNow);
+  entryPaidDateInput.required = paidNow;
+  if (paidNow) {
+    if (!entryPaidDateInput.value) {
+      entryPaidDateInput.value = entryDateInput?.value || '';
+    }
+  } else {
+    entryPaidDateInput.value = '';
+  }
+}
+
 function syncEntrySelectors() {
   const selectedAccount = accountLookup.get(entryAccountSelect.value);
   const selectedEntity = accountLookup.get(entryEntitySelect.value);
+  syncEntryPaymentFields();
   entryEntitySelect.disabled = entityAccounts.length === 0;
   if (!isEntityAccount(selectedEntity) && entityAccounts.length) {
     const fallbackEntityId = getDefaultEntityAccountId();
     entryEntitySelect.value = fallbackEntityId || '';
   }
 
-  entryAccountSelect.disabled = cashAccounts.length === 0;
-  if (!isCashAccount(selectedAccount) && cashAccounts.length) {
+  const requiresCash = shouldRequireCashAccount();
+  entryAccountSelect.disabled = !requiresCash || cashAccounts.length === 0;
+  entryAccountSelect.required = requiresCash;
+  if (requiresCash && !isCashAccount(selectedAccount) && cashAccounts.length) {
     entryAccountSelect.value = cashAccounts[0].id;
   }
   updateEntryCategoryOptions({ forceType: entryTypeSelect.value, preserveSelection: true });
@@ -4856,6 +5006,18 @@ function updateTransferAccountOptions() {
   const disabled = cashAccounts.length < 2;
   transferFromSelect.disabled = disabled;
   transferToSelect.disabled = disabled;
+}
+
+function updateBillPaymentAccountOptions() {
+  if (!billPaymentAccountSelect) return;
+  billPaymentAccountSelect.innerHTML = '';
+  cashAccounts.forEach((account) => {
+    const option = document.createElement('option');
+    option.value = account.id;
+    option.textContent = account.name;
+    billPaymentAccountSelect.appendChild(option);
+  });
+  billPaymentAccountSelect.disabled = cashAccounts.length === 0;
 }
 
 function subscribeToExpensesStream() {
@@ -4990,11 +5152,16 @@ function calculateAdjustments(entries) {
   const entityTotals = new Map();
   entries.forEach((entry) => {
     const delta = getEntryDelta(entry);
-    const cashCurrent = cashTotals.get(entry.accountId) || 0;
-    cashTotals.set(entry.accountId, cashCurrent + delta);
     if (entry.entityId) {
       const entityCurrent = entityTotals.get(entry.entityId) || 0;
       entityTotals.set(entry.entityId, entityCurrent + delta);
+    }
+    if (isEntryPaid(entry)) {
+      const cashAccountId = getEntryPaidAccountId(entry);
+      if (cashAccountId) {
+        const cashCurrent = cashTotals.get(cashAccountId) || 0;
+        cashTotals.set(cashAccountId, cashCurrent + delta);
+      }
     }
   });
   return { cashTotals, entityTotals };
@@ -7980,6 +8147,41 @@ function isPricingViewActive() {
   return currentView === 'settings' && activeSettingsSection === 'pricing';
 }
 
+function buildLedgerEntries(entries) {
+  const ledgerEntries = [];
+  entries.forEach((entry) => {
+    if (entry?.isVirtualOpening) {
+      ledgerEntries.push(entry);
+      return;
+    }
+    const hasEntity = Boolean(entry?.entityId);
+    if (hasEntity) {
+      ledgerEntries.push({
+        ...entry,
+        date: entry.date,
+        accountId: entry.entityId,
+        entityId: entry.entityId,
+        entityOnly: true,
+        ledgerSide: 'entity'
+      });
+    }
+    if (isEntryPaid(entry)) {
+      const cashAccountId = getEntryPaidAccountId(entry);
+      if (cashAccountId) {
+        ledgerEntries.push({
+          ...entry,
+          date: entry.paidAt || entry.date,
+          accountId: cashAccountId,
+          entityId: null,
+          entityOnly: false,
+          ledgerSide: 'cash'
+        });
+      }
+    }
+  });
+  return ledgerEntries;
+}
+
 function renderLedgerTable() {
   ledgerTableBody.innerHTML = '';
   const filterSet = new Set(ledgerAccountSelection);
@@ -7996,7 +8198,7 @@ function renderLedgerTable() {
       return ledgerTagFilters.every((filterTag) => lowerTags.includes(filterTag));
     });
   }
-  filteredEntries = [...filteredEntries];
+  const ledgerEntries = buildLedgerEntries(filteredEntries);
 
   if (!ledgerTagFilters.length) {
     const accountsToSeed = accounts.filter((account) => !useFilter || filterSet.has(account.id));
@@ -8018,10 +8220,10 @@ function renderLedgerTable() {
         isVirtualOpening: true,
         entityOnly: !isCash && isEntity
       };
-      filteredEntries.unshift(virtualEntry);
+      ledgerEntries.unshift(virtualEntry);
     });
   }
-  if (!filteredEntries.length) {
+  if (!ledgerEntries.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
     cell.colSpan = 6;
@@ -8095,6 +8297,18 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
     if (entry.isVirtualOpening) return '';
     if (txnActionsRendered.has(txnKey)) return '';
     txnActionsRendered.add(txnKey);
+    const payButton = isOutstandingBill(entry)
+      ? `
+        <button
+          type="button"
+          class="icon-button pay-bill"
+          data-id="${entry.id}"
+          title="Pay bill"
+        >
+          <img src="icons/arrow_open.svg" alt="Pay bill" />
+        </button>
+      `
+      : '';
     const editButton = `
       <button
         type="button"
@@ -8147,6 +8361,7 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
         <div class="table-actions has-receipt">
           <div class="action-pair">
             ${viewButton}
+            ${payButton}
             ${editButton}
           </div>
           <div class="action-pair">
@@ -8158,13 +8373,14 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
     }
     return `
       <div class="table-actions">
+        ${payButton}
         ${editButton}
         ${deleteButton}
       </div>
     `;
   };
 
-  const sortedEntries = [...filteredEntries].sort((a, b) => {
+  const sortedEntries = [...ledgerEntries].sort((a, b) => {
     const aDate = a.date?.toMillis ? a.date.toMillis() : new Date(a.date).getTime();
     const bDate = b.date?.toMillis ? b.date.toMillis() : new Date(b.date).getTime();
     if (bDate !== aDate) {
@@ -8360,6 +8576,9 @@ function renderLedgerDescription(entry) {
   if (entry.vendorTag) {
     metaChips.push(`<span class="table-tag vendor-tag">${entry.vendorTag}</span>`);
   }
+  if (isOutstandingBill(entry)) {
+    metaChips.push('<span class="status-label unpaid">Unpaid</span>');
+  }
   if (entry.isReturn) {
     metaChips.push(
       `<span class="return-label">${entry.entryType === 'expense' ? 'Return' : 'Adjustment'}</span>`
@@ -8486,6 +8705,12 @@ function openNewEntryModal() {
   }
   updateReturnLabel();
   setDateInputValue(entryDateInput, new Date(), true);
+  if (entryPaidToggle) {
+    entryPaidToggle.checked = true;
+  }
+  if (entryPaidDateInput) {
+    entryPaidDateInput.value = entryDateInput?.value || '';
+  }
   updateEntryCategoryOptions({ forceType: entryTypeSelect.value, preserveSelection: false });
   updateEntryClientOptions();
   if (entryClientSelect) {
@@ -8495,6 +8720,7 @@ function openNewEntryModal() {
   syncEntryVendorVisibility();
   resetReceiptControls();
   syncEntryReceiptVisibility();
+  syncEntryPaymentFields();
   syncEntrySelectors();
   updateTagSuggestions();
   entryModal.classList.remove('hidden');
@@ -8527,10 +8753,29 @@ entryTypeSelect.addEventListener('change', () => {
   syncEntryClientVisibility();
   syncEntryVendorVisibility();
   syncEntryReceiptVisibility();
+  syncEntryPaymentFields();
   updateReturnLabel();
 });
 updateReturnLabel();
 syncEntryReceiptVisibility();
+syncEntryPaymentFields();
+
+if (entryPaidToggle) {
+  entryPaidToggle.addEventListener('change', () => {
+    if (entryPaidToggle.checked && entryPaidDateInput) {
+      setDateInputValue(entryPaidDateInput, new Date(), true);
+    }
+    syncEntrySelectors();
+  });
+}
+
+if (entryDateInput) {
+  entryDateInput.addEventListener('change', () => {
+    if (shouldRequireCashAccount() && entryPaidDateInput && !entryPaidDateInput.value) {
+      entryPaidDateInput.value = entryDateInput.value;
+    }
+  });
+}
 
 if (entryCategorySelect) {
   entryCategorySelect.addEventListener('change', () => {
@@ -8851,6 +9096,16 @@ if (dashboardTransferButton) {
   });
 }
 
+if (dashboardBillsList) {
+  dashboardBillsList.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action="pay-bill"]');
+    if (!button) return;
+    const entry = expenses.find((item) => item.id === button.dataset.id);
+    if (!entry) return;
+    openBillPaymentModal(entry);
+  });
+}
+
 function setDateInputValue(input, rawDate, fallbackToday = false) {
   if (!input) return;
   const baseDate = toDateObject(rawDate) || (fallbackToday ? new Date() : null);
@@ -8867,13 +9122,16 @@ function startEditEntry(entry) {
   editingEntryId = entry.id;
   editingEntryTransactionId = entry.transactionId || entry.id;
   entryFormTitle.textContent = 'Edit ledger entry';
-  entryAccountSelect.value = entry.accountId;
+  entryAccountSelect.value = getEntryPaidAccountId(entry) || '';
   entryEntitySelect.value = entry.entityId || '';
   if (!entryEntitySelect.value && entityAccounts.length) {
     entryEntitySelect.value = getDefaultEntityAccountId() || '';
   }
   entryTypeSelect.value = entry.entryType;
   updateReturnLabel();
+  if (entryPaidToggle) {
+    entryPaidToggle.checked = isEntryPaid(entry);
+  }
   const selectedCategoryValue = entry.ccaPoolId
     ? getCcaCategoryOptionValue(entry.ccaPoolId)
     : entry.categoryId || '';
@@ -8902,6 +9160,10 @@ function startEditEntry(entry) {
   selectedTags = normalizeTagArray(entry.tags);
   renderSelectedTags();
   setDateInputValue(entryDateInput, entry.date, true);
+  if (entryPaidDateInput) {
+    const paidDateValue = isEntryPaid(entry) ? entry.paidAt || entry.date : null;
+    setDateInputValue(entryPaidDateInput, paidDateValue, false);
+  }
   updateEntryClientOptions();
   if (entryClientSelect) {
     entryClientSelect.value = entry.clientId || '';
@@ -8909,6 +9171,7 @@ function startEditEntry(entry) {
   syncEntryClientVisibility();
   syncEntryVendorVisibility();
   syncEntryReceiptVisibility();
+  syncEntryPaymentFields();
   syncEntrySelectors();
   updateTagSuggestions();
   updateReceiptPreview();
@@ -8956,8 +9219,12 @@ entryForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   entryFormError.textContent = '';
 
-  if (!cashAccounts.length || !entityAccounts.length) {
-    entryFormError.textContent = 'Create at least one cash account and one entity.';
+  if (!entityAccounts.length) {
+    entryFormError.textContent = 'Create at least one entity account.';
+    return;
+  }
+  if (shouldRequireCashAccount() && !cashAccounts.length) {
+    entryFormError.textContent = 'Create at least one cash account.';
     return;
   }
 
@@ -8979,8 +9246,10 @@ entryForm.addEventListener('submit', async (event) => {
   const vendorTagValue = entryVendorInput?.value?.trim();
   const selectedClientId = entryClientSelect ? entryClientSelect.value : '';
   const isReturn = Boolean(entryReturnInput?.checked);
+  const requiresCash = shouldRequireCashAccount();
+  const paidDateValue = requiresCash ? entryPaidDateInput?.value || dateValue : '';
 
-  if (!accountId) {
+  if (requiresCash && !accountId) {
     entryFormError.textContent = 'Select an account.';
     return;
   }
@@ -8993,6 +9262,21 @@ entryForm.addEventListener('submit', async (event) => {
   if (!dateValue) {
     entryFormError.textContent = 'Choose a date.';
     return;
+  }
+
+  if (requiresCash && !paidDateValue) {
+    entryFormError.textContent = 'Choose a payment date.';
+    return;
+  }
+
+  let paidAt = null;
+  if (requiresCash && paidDateValue) {
+    const paidDate = new Date(`${paidDateValue}T00:00:00`);
+    if (Number.isNaN(paidDate.getTime())) {
+      entryFormError.textContent = 'Enter a valid payment date.';
+      return;
+    }
+    paidAt = Timestamp.fromDate(paidDate);
   }
 
   if ((!selectedCategoryId || selectedCategoryId === '') && !categoryLabelFromOption) {
@@ -9031,7 +9315,7 @@ entryForm.addEventListener('submit', async (event) => {
   }
 
   const payload = {
-    accountId,
+    accountId: requiresCash ? accountId : null,
     entityId,
     date: Timestamp.fromDate(new Date(`${dateValue}T00:00:00`)),
     entryType,
@@ -9048,6 +9332,9 @@ entryForm.addEventListener('submit', async (event) => {
     isReturn,
     ccaPoolId: selectedCcaPoolId || null,
     isCcaClass: isCcaSelection,
+    paymentStatus: requiresCash ? 'paid' : 'unpaid',
+    paidAt,
+    paidAccountId: requiresCash ? accountId : null,
     receiptUrl: receiptMeta.receiptUrl || null,
     receiptStoragePath: receiptMeta.receiptStoragePath || null
   };
@@ -9073,6 +9360,29 @@ entryForm.addEventListener('submit', async (event) => {
   }
 });
 
+function openBillPaymentModal(entry) {
+  if (!entry || !billPaymentModal) return;
+  if (isEntryPaid(entry)) {
+    return;
+  }
+  payingBillId = entry.id;
+  if (billPaymentError) {
+    billPaymentError.textContent = '';
+  }
+  updateBillPaymentAccountOptions();
+  if (!cashAccounts.length) {
+    if (billPaymentError) {
+      billPaymentError.textContent = 'Add a cash account before paying a bill.';
+    }
+  }
+  const preferredAccount = getEntryPaidAccountId(entry) || getDefaultCashAccountId() || cashAccounts[0]?.id || '';
+  if (billPaymentAccountSelect) {
+    billPaymentAccountSelect.value = preferredAccount;
+  }
+  setDateInputValue(billPaymentDateInput, new Date(), true);
+  billPaymentModal.classList.remove('hidden');
+}
+
 function openTransferModal() {
   if (cashAccounts.length < 2) return;
   transferForm.reset();
@@ -9087,6 +9397,70 @@ function openTransferModal() {
 transferButton.addEventListener('click', () => {
   openTransferModal();
 });
+
+if (closeBillPaymentModalButton) {
+  closeBillPaymentModalButton.addEventListener('click', () => {
+    hideBillPaymentModal();
+  });
+}
+
+if (billPaymentModal) {
+  billPaymentModal.addEventListener('click', (event) => {
+    if (event.target === billPaymentModal) {
+      hideBillPaymentModal();
+    }
+  });
+}
+
+if (billPaymentForm) {
+  billPaymentForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (billPaymentError) {
+      billPaymentError.textContent = '';
+    }
+    if (!payingBillId) {
+      if (billPaymentError) {
+        billPaymentError.textContent = 'Select a bill to pay.';
+      }
+      return;
+    }
+    const accountId = billPaymentAccountSelect?.value || '';
+    const dateValue = billPaymentDateInput?.value || '';
+    if (!accountId) {
+      if (billPaymentError) {
+        billPaymentError.textContent = 'Select a cash account.';
+      }
+      return;
+    }
+    if (!dateValue) {
+      if (billPaymentError) {
+        billPaymentError.textContent = 'Choose a payment date.';
+      }
+      return;
+    }
+    const paidDate = new Date(`${dateValue}T00:00:00`);
+    if (Number.isNaN(paidDate.getTime())) {
+      if (billPaymentError) {
+        billPaymentError.textContent = 'Enter a valid payment date.';
+      }
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'expenses', payingBillId), {
+        paymentStatus: 'paid',
+        paidAt: Timestamp.fromDate(paidDate),
+        paidAccountId: accountId,
+        accountId,
+        updatedAt: serverTimestamp()
+      });
+      hideBillPaymentModal();
+    } catch (error) {
+      if (billPaymentError) {
+        billPaymentError.textContent = error.message;
+      }
+    }
+  });
+}
 
 closeTransferModalButton.addEventListener('click', () => {
   hideTransferModal();
@@ -9138,12 +9512,15 @@ transferForm.addEventListener('submit', async (event) => {
   const transferTransactionId = isEditingTransfer ? editingTransferContext.transactionId : generateTransactionId();
   const descriptionText =
     note || `Transfer ${accountLookup.get(fromId)?.name || ''} → ${accountLookup.get(toId)?.name || ''}`;
+  const paidAt = Timestamp.fromDate(transferDate);
   const entryPayload = {
     date: Timestamp.fromDate(transferDate),
     category: 'Transfer',
     amount: Number(amountValue.toFixed(2)),
     description: descriptionText,
-    transactionId: transferTransactionId
+    transactionId: transferTransactionId,
+    paymentStatus: 'paid',
+    paidAt
   };
 
   try {
@@ -9152,12 +9529,14 @@ transferForm.addEventListener('submit', async (event) => {
         updateDoc(doc(db, 'expenses', editingTransferContext.expenseId), {
           ...entryPayload,
           accountId: fromId,
+          paidAccountId: fromId,
           entryType: 'expense',
           updatedAt: serverTimestamp()
         }),
         updateDoc(doc(db, 'expenses', editingTransferContext.incomeId), {
           ...entryPayload,
           accountId: toId,
+          paidAccountId: toId,
           entryType: 'income',
           updatedAt: serverTimestamp()
         })
@@ -9168,6 +9547,7 @@ transferForm.addEventListener('submit', async (event) => {
         addDoc(collection(db, 'expenses'), {
           ...entryPayload,
           accountId: fromId,
+          paidAccountId: fromId,
           entryType: 'expense',
           createdAt: serverTimestamp(),
           createdBy: auth.currentUser?.uid || null,
@@ -9177,6 +9557,7 @@ transferForm.addEventListener('submit', async (event) => {
         addDoc(collection(db, 'expenses'), {
           ...entryPayload,
           accountId: toId,
+          paidAccountId: toId,
           entryType: 'income',
           createdAt: serverTimestamp(),
           createdBy: auth.currentUser?.uid || null,
@@ -9222,6 +9603,14 @@ ledgerTableBody.addEventListener('click', async (event) => {
         ledgerError.textContent = error.message;
         ledgerErrorModal.classList.remove('hidden');
       }
+    }
+    return;
+  }
+  const payButton = event.target.closest('.pay-bill');
+  if (payButton) {
+    const entry = expenses.find((item) => item.id === payButton.dataset.id);
+    if (entry) {
+      openBillPaymentModal(entry);
     }
     return;
   }
@@ -9452,9 +9841,18 @@ function renderMissingMileageSuggestions() {
     mileageSuggestionList.appendChild(item);
   });
 }
-function updateDashboardKpis({ cashTotal = 0, entityTotal = 0 }) {
+function updateDashboardKpis({ cashTotal = 0, entityTotal = 0, outstandingTotal = null, outstandingCount = null }) {
   if (dashboardKpiCash) {
     dashboardKpiCash.textContent = formatCurrency(cashTotal);
+  }
+  const outstanding = outstandingTotal === null || outstandingCount === null
+    ? getOutstandingBillMetrics()
+    : { total: outstandingTotal, count: outstandingCount };
+  if (dashboardKpiBills) {
+    dashboardKpiBills.textContent = formatCurrency(outstanding.total);
+  }
+  if (dashboardKpiBillsCount) {
+    dashboardKpiBillsCount.textContent = `${outstanding.count} open`;
   }
   if (dashboardKpiMileage) {
     dashboardKpiMileage.textContent = formatKilometres(mileageYearToDate);
@@ -9486,6 +9884,7 @@ function getMonthlyTagMetrics() {
   const tagTotals = new Map();
   expenses.forEach((entry) => {
     if (!Array.isArray(entry.tags) || !entry.tags.length) return;
+    if (!isEntryPaid(entry)) return;
     const recorded = getEntryTimestamp(entry);
     if (recorded < firstDayOfMonth) return;
     const delta = getEntryDelta(entry);

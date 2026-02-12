@@ -117,6 +117,11 @@
                   <strong id="dashboard-kpi-cash">$0.00</strong>
                 </div>
                 <div class="kpi-pill">
+                  <span>Outstanding bills</span>
+                  <strong id="dashboard-kpi-bills">$0.00</strong>
+                  <small id="dashboard-kpi-bills-count">0 open</small>
+                </div>
+                <div class="kpi-pill">
                   <span>KM this year</span>
                   <strong id="dashboard-kpi-mileage">0 km</strong>
                 </div>
@@ -159,6 +164,19 @@
                     </div>
                     <ul id="dashboard-entity-list" class="dashboard-list">
                       <li class="empty">No entity accounts yet.</li>
+                    </ul>
+                  </section>
+
+                  <section class="card dashboard-card">
+                    <div class="dashboard-card-header">
+                      <div>
+                        <h3>Outstanding bills</h3>
+                        <p class="hint">Unpaid expenses</p>
+                      </div>
+                      <p id="dashboard-bills-total" class="summary-value">$0.00</p>
+                    </div>
+                    <ul id="dashboard-bills-list" class="dashboard-list dashboard-bills-list">
+                      <li class="empty">No outstanding bills.</li>
                     </ul>
                   </section>
 
@@ -1601,9 +1619,9 @@
               <button id="close-entry-modal" type="button" class="link">Close</button>
             </div>
             <form id="entry-form" class="grid-form">
-              <label>
-                Account
-                <select id="entry-account" required></select>
+              <label id="entry-account-label">
+                Cash account
+                <select id="entry-account"></select>
               </label>
               <label>
                 Entity
@@ -1619,6 +1637,14 @@
                   <option value="expense">Expense</option>
                   <option value="income">Income</option>
                 </select>
+              </label>
+              <label class="checkbox" id="entry-paid-wrapper">
+                <input type="checkbox" id="entry-is-paid" checked />
+                <span>Paid now</span>
+              </label>
+              <label id="entry-paid-date-wrapper">
+                Paid on
+                <input type="date" id="entry-paid-date" />
               </label>
               <label>
                 Category
@@ -1712,6 +1738,27 @@
               </label>
               <button type="submit" class="wide">Save entry</button>
               <p class="error" id="entry-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="bill-payment-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3>Pay bill</h3>
+              <button id="close-bill-payment-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="bill-payment-form" class="grid-form">
+              <label>
+                Pay from account
+                <select id="bill-payment-account" required></select>
+              </label>
+              <label>
+                Paid on
+                <input type="date" id="bill-payment-date" required />
+              </label>
+              <button type="submit" class="wide">Mark as paid</button>
+              <p class="error" id="bill-payment-error"></p>
             </form>
           </div>
         </div>

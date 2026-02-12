@@ -294,6 +294,11 @@ form {
   display: none !important;
 }
 
+.ghosted {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .summary {
   flex: 1 1 100%;
 }
@@ -1637,6 +1642,38 @@ form {
   font-weight: 600;
 }
 
+.dashboard-bills-list li {
+  align-items: center;
+  gap: 1rem;
+}
+
+.bill-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.bill-meta {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.bill-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bill-amount {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bill-pay {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
+}
+
 .dashboard-list li span.hint {
   font-weight: 400;
   color: #64748b;
@@ -2010,6 +2047,24 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   margin-left: 0.4rem;
+}
+
+.status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #e2e8f0;
+  color: #475569;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-label.unpaid {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .client-label {
