@@ -1529,6 +1529,20 @@ form {
   align-items: stretch;
 }
 
+.dashboard-details-grid {
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+}
+
+@media (max-width: 900px) {
+  .dashboard-details-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+}
+
+.dashboard-details-grid #dashboard-bills-card {
+  grid-column: 1 / -1;
+}
+
 .dashboard-overview-grid .dashboard-card,
 .dashboard-card--transactions {
   opacity: 0;
@@ -1762,6 +1776,8 @@ form {
 .timeline-meta {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .timeline-amount {
@@ -1775,6 +1791,11 @@ form {
 
 .timeline-amount.amount-negative {
   color: #b91c1c;
+}
+
+.timeline-pay {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
 }
 
 .dashboard-status p {
@@ -2184,6 +2205,25 @@ th {
   flex-direction: column;
   gap: 0.25rem;
   box-shadow: 0 10px 25px rgba(15, 23, 42, 0.2);
+}
+
+.kpi-pill.kpi-toggle {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kpi-pill.kpi-toggle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.28);
+}
+
+.kpi-pill.kpi-toggle:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.kpi-pill.kpi-toggle[aria-expanded="true"] {
+  box-shadow: 0 12px 28px rgba(59, 130, 246, 0.35);
 }
 
 .kpi-pill span {

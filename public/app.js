@@ -158,9 +158,17 @@ const dashboardEntityList = document.getElementById('dashboard-entity-list');
 const dashboardEntityTotal = document.getElementById('dashboard-entity-total');
 const dashboardBillsList = document.getElementById('dashboard-bills-list');
 const dashboardBillsTotal = document.getElementById('dashboard-bills-total');
+const dashboardDetailsGrid = document.getElementById('dashboard-details-grid');
+const dashboardCashCard = document.getElementById('dashboard-cash-card');
+const dashboardEntityCard = document.getElementById('dashboard-entity-card');
+const dashboardBillsCard = document.getElementById('dashboard-bills-card');
 const dashboardKpiCash = document.getElementById('dashboard-kpi-cash');
 const dashboardKpiBills = document.getElementById('dashboard-kpi-bills');
 const dashboardKpiBillsCount = document.getElementById('dashboard-kpi-bills-count');
+const dashboardKpiEntity = document.getElementById('dashboard-kpi-entity');
+const dashboardKpiCashPill = document.getElementById('dashboard-kpi-cash-pill');
+const dashboardKpiBillsPill = document.getElementById('dashboard-kpi-bills-pill');
+const dashboardKpiEntityPill = document.getElementById('dashboard-kpi-entity-pill');
 const dashboardKpiMileage = document.getElementById('dashboard-kpi-mileage');
 const dashboardKpiStorage = document.getElementById('dashboard-kpi-storage');
 const dashboardKpiOutflow = document.getElementById('dashboard-kpi-outflow');
@@ -1992,21 +2000,44 @@ function getOutstandingBillMetrics() {
   return { total, count: outstanding.length, entries: outstanding };
 }
 
-function updateDashboardBalanceFlag(cashTotal, entityTotal) {
+function updateDashboardDetailsVisibility() {
+  if (dashboardKpiCashPill) {
+    dashboardKpiCashPill.setAttribute('aria-expanded', 'true');
+  }
+  if (dashboardKpiBillsPill) {
+    dashboardKpiBillsPill.setAttribute('aria-expanded', 'true');
+  }
+  if (dashboardKpiEntityPill) {
+    dashboardKpiEntityPill.setAttribute('aria-expanded', 'true');
+  }
+}
+
+function toggleDashboardCards(cards) {
+  const targets = cards.filter(Boolean);
+  if (!targets.length) return;
+  targets[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateDashboardBalanceFlag(cashTotal, entityTotal, outstandingTotal = 0) {
   if (!dashboardBalanceFlag || !dashboardBalanceDetail || !dashboardBalanceDiff || !dashboardBalanceTitle) {
     return;
   }
-  const diff = cashTotal - entityTotal;
-  const absDiff = Math.abs(diff);
+  const diffAdjusted = (cashTotal - (outstandingTotal || 0)) - entityTotal;
+  const absAdjusted = Math.abs(diffAdjusted);
   const hasAccounts = accounts.length > 0;
-  if (!hasAccounts || absDiff < 0.01) {
+  if (!hasAccounts) {
     dashboardBalanceFlag.classList.add('hidden');
     return;
   }
-  const direction = diff > 0 ? 'Cash exceeds entity by' : 'Entity exceeds cash by';
+  if (absAdjusted < 0.01) {
+    dashboardBalanceFlag.classList.add('hidden');
+    return;
+  }
+  const direction = diffAdjusted > 0 ? 'Cash exceeds entity by' : 'Entity exceeds cash by';
   dashboardBalanceTitle.textContent = 'Transfer needed';
-  dashboardBalanceDetail.textContent = `${direction} ${formatCurrency(absDiff)}. Hybrid entries can cause this.`;
-  dashboardBalanceDiff.textContent = formatCurrency(absDiff);
+  const outstandingNote = outstandingTotal ? ` (after ${formatCurrency(outstandingTotal)} outstanding bills)` : '';
+  dashboardBalanceDetail.textContent = `${direction} ${formatCurrency(absAdjusted)}${outstandingNote}.`;
+  dashboardBalanceDiff.textContent = formatCurrency(absAdjusted);
   dashboardBalanceFlag.classList.remove('hidden');
 }
 
@@ -2015,10 +2046,11 @@ function renderDashboard() {
   const entityTotal = renderDashboardEntitySummary();
   const { total: outstandingTotal, count: outstandingCount } = renderDashboardOutstandingBills();
   updateDashboardKpis({ cashTotal, entityTotal, outstandingTotal, outstandingCount });
-  updateDashboardBalanceFlag(cashTotal, entityTotal);
+  updateDashboardBalanceFlag(cashTotal, entityTotal, outstandingTotal);
   renderDashboardTransactions();
   renderDashboardAccountActivity();
   renderDashboardContentStatus();
+  updateDashboardDetailsVisibility();
   if (dashboardAddEntryButton) {
     dashboardAddEntryButton.disabled = !cashAccounts.length || !entityAccounts.length;
   }
@@ -2043,16 +2075,25 @@ function renderDashboardOutstandingBills() {
   sorted.forEach((entry) => {
     const li = document.createElement('li');
     li.className = 'bill-row';
-    const vendorLabel = entry.vendorTag || entry.description || entry.category || 'Unlabeled bill';
+    const categoryLabel = entry.category || '';
+    const descriptionLabel = entry.description || '';
+    const vendorLabel = entry.vendorTag || '';
+    const titleLabel = descriptionLabel || vendorLabel || categoryLabel || 'Unlabeled bill';
     const entityLabel = entry.entityId ? accountLookup.get(entry.entityId)?.name || 'Entity' : 'Entity';
     const dateLabel = formatDate(entry.date);
     const amountLabel = formatCurrency(Math.abs(getEntryDelta(entry)));
+    const hintPrefix = categoryLabel ? `<span class="hint">${categoryLabel} •</span> ` : '';
+    const metaParts = [];
+    if (vendorLabel && vendorLabel !== titleLabel) metaParts.push(vendorLabel);
+    if (entityLabel) metaParts.push(entityLabel);
+    if (dateLabel) metaParts.push(dateLabel);
+    const metaLine = metaParts.length ? metaParts.join(' • ') : '';
     const payDisabled = cashAccounts.length === 0;
     const payDisabledAttr = payDisabled ? 'disabled' : '';
     li.innerHTML = `
       <div class="bill-info">
-        <strong>${vendorLabel}</strong>
-        <span class="bill-meta">${entityLabel} • ${dateLabel}</span>
+        <div>${hintPrefix}<strong>${titleLabel}</strong></div>
+        ${metaLine ? `<span class="bill-meta">${metaLine}</span>` : ''}
       </div>
       <div class="bill-actions">
         <span class="bill-amount">${amountLabel}</span>
@@ -2167,6 +2208,8 @@ function renderDashboardTransactions() {
   }
   transactions.forEach((txn) => {
     const { summaryHtml, amountText, isPositive } = summarizeTransaction(txn);
+    const unpaidEntry = txn.entries.find((entry) => isOutstandingBill(entry)) || null;
+    const canPay = Boolean(unpaidEntry) && cashAccounts.length > 0;
     const li = document.createElement('li');
     li.className = 'timeline-entry';
 
@@ -2187,6 +2230,18 @@ function renderDashboardTransactions() {
     amountChip.className = `timeline-amount ${isPositive ? 'amount-positive' : 'amount-negative'}`;
     amountChip.textContent = amountText;
     meta.appendChild(amountChip);
+    if (unpaidEntry) {
+      const payButton = document.createElement('button');
+      payButton.type = 'button';
+      payButton.className = 'secondary timeline-pay';
+      payButton.dataset.action = 'pay-bill';
+      payButton.dataset.id = unpaidEntry.id;
+      payButton.textContent = 'Pay';
+      if (!canPay) {
+        payButton.disabled = true;
+      }
+      meta.appendChild(payButton);
+    }
 
     body.append(heading, summary, meta);
     li.append(marker, body);
@@ -9096,8 +9151,43 @@ if (dashboardTransferButton) {
   });
 }
 
+const handleDashboardToggleKey = (event, handler) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    handler();
+  }
+};
+
+if (dashboardKpiCashPill) {
+  const handler = () => toggleDashboardCards([dashboardCashCard, dashboardEntityCard]);
+  dashboardKpiCashPill.addEventListener('click', handler);
+  dashboardKpiCashPill.addEventListener('keydown', (event) => handleDashboardToggleKey(event, handler));
+}
+
+if (dashboardKpiBillsPill) {
+  const handler = () => toggleDashboardCards([dashboardBillsCard]);
+  dashboardKpiBillsPill.addEventListener('click', handler);
+  dashboardKpiBillsPill.addEventListener('keydown', (event) => handleDashboardToggleKey(event, handler));
+}
+
+if (dashboardKpiEntityPill) {
+  const handler = () => toggleDashboardCards([dashboardEntityCard]);
+  dashboardKpiEntityPill.addEventListener('click', handler);
+  dashboardKpiEntityPill.addEventListener('keydown', (event) => handleDashboardToggleKey(event, handler));
+}
+
 if (dashboardBillsList) {
   dashboardBillsList.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action="pay-bill"]');
+    if (!button) return;
+    const entry = expenses.find((item) => item.id === button.dataset.id);
+    if (!entry) return;
+    openBillPaymentModal(entry);
+  });
+}
+
+if (dashboardTransactionsList) {
+  dashboardTransactionsList.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-action="pay-bill"]');
     if (!button) return;
     const entry = expenses.find((item) => item.id === button.dataset.id);
@@ -9854,6 +9944,9 @@ function updateDashboardKpis({ cashTotal = 0, entityTotal = 0, outstandingTotal 
   if (dashboardKpiBillsCount) {
     dashboardKpiBillsCount.textContent = `${outstanding.count} open`;
   }
+  if (dashboardKpiEntity) {
+    dashboardKpiEntity.textContent = formatCurrency(entityTotal);
+  }
   if (dashboardKpiMileage) {
     dashboardKpiMileage.textContent = formatKilometres(mileageYearToDate);
   }
@@ -9871,7 +9964,7 @@ function updateDashboardKpis({ cashTotal = 0, entityTotal = 0, outstandingTotal 
   if (dashboardKpiTopTagLabel) {
     dashboardKpiTopTagLabel.textContent = topTag ? `#${topTag}` : '—';
   }
-  updateDashboardBalanceFlag(cashTotal, entityTotal);
+  updateDashboardBalanceFlag(cashTotal, entityTotal, outstanding.total);
 }
 
 function getMonthlyTagMetrics() {

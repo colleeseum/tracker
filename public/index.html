@@ -112,14 +112,18 @@
 
             <div id="dashboard-view" class="dashboard-view">
               <div class="dashboard-kpis">
-                <div class="kpi-pill">
+                <div id="dashboard-kpi-cash-pill" class="kpi-pill kpi-toggle" role="button" tabindex="0" aria-expanded="false">
                   <span>Total cash</span>
                   <strong id="dashboard-kpi-cash">$0.00</strong>
                 </div>
-                <div class="kpi-pill">
+                <div id="dashboard-kpi-bills-pill" class="kpi-pill kpi-toggle" role="button" tabindex="0" aria-expanded="false">
                   <span>Outstanding bills</span>
                   <strong id="dashboard-kpi-bills">$0.00</strong>
                   <small id="dashboard-kpi-bills-count">0 open</small>
+                </div>
+                <div id="dashboard-kpi-entity-pill" class="kpi-pill kpi-toggle" role="button" tabindex="0" aria-expanded="false">
+                  <span>Total entity</span>
+                  <strong id="dashboard-kpi-entity">$0.00</strong>
                 </div>
                 <div class="kpi-pill">
                   <span>KM this year</span>
@@ -140,8 +144,34 @@
                 </div>
               </div>
               <div class="dashboard-grid">
-                <div class="dashboard-overview-grid">
-                  <section class="card dashboard-card">
+                <div id="dashboard-balance-flag" class="balance-flag hidden" role="status" aria-live="polite">
+                  <div class="balance-flag-text">
+                    <strong id="dashboard-balance-title">Transfer needed</strong>
+                    <p id="dashboard-balance-detail" class="hint">Cash and entity totals differ.</p>
+                  </div>
+                  <div class="balance-flag-amount">
+                    <span id="dashboard-balance-diff">$0.00</span>
+                  </div>
+                </div>
+
+                <section class="card dashboard-card dashboard-card--transactions">
+                  <div class="dashboard-card-header">
+                    <div>
+                      <h3>Recent transactions</h3>
+                      <p class="hint">Latest activity across all accounts</p>
+                    </div>
+                    <div class="dashboard-actions">
+                      <button id="dashboard-add-entry" type="button" class="secondary">New entry</button>
+                      <button id="dashboard-transfer" type="button">Transfer funds</button>
+                    </div>
+                  </div>
+                  <ul id="dashboard-transactions-list" class="dashboard-timeline">
+                    <li class="empty">No transactions logged yet.</li>
+                  </ul>
+                </section>
+
+                <div id="dashboard-details-grid" class="dashboard-overview-grid dashboard-details-grid">
+                  <section id="dashboard-cash-card" class="card dashboard-card dashboard-detail">
                     <div class="dashboard-card-header">
                       <div>
                         <h3>Cash accounts</h3>
@@ -154,7 +184,7 @@
                     </ul>
                   </section>
 
-                  <section class="card dashboard-card">
+                  <section id="dashboard-entity-card" class="card dashboard-card dashboard-detail">
                     <div class="dashboard-card-header">
                       <div>
                         <h3>Entity accounts</h3>
@@ -167,7 +197,7 @@
                     </ul>
                   </section>
 
-                  <section class="card dashboard-card">
+                  <section id="dashboard-bills-card" class="card dashboard-card dashboard-detail">
                     <div class="dashboard-card-header">
                       <div>
                         <h3>Outstanding bills</h3>
@@ -179,17 +209,9 @@
                       <li class="empty">No outstanding bills.</li>
                     </ul>
                   </section>
+                </div>
 
-                  <div id="dashboard-balance-flag" class="balance-flag hidden" role="status" aria-live="polite">
-                    <div class="balance-flag-text">
-                      <strong id="dashboard-balance-title">Transfer needed</strong>
-                      <p id="dashboard-balance-detail" class="hint">Cash and entity totals differ.</p>
-                    </div>
-                    <div class="balance-flag-amount">
-                      <span id="dashboard-balance-diff">$0.00</span>
-                    </div>
-                  </div>
-
+                <div class="dashboard-overview-grid">
                   <section class="card dashboard-card">
                     <div class="dashboard-card-header">
                       <h3>Account activity</h3>
@@ -213,22 +235,6 @@
                     </div>
                   </section>
                 </div>
-
-                <section class="card dashboard-card dashboard-card--transactions">
-                  <div class="dashboard-card-header">
-                    <div>
-                      <h3>Recent transactions</h3>
-                      <p class="hint">Latest activity across all accounts</p>
-                    </div>
-                    <div class="dashboard-actions">
-                      <button id="dashboard-add-entry" type="button" class="secondary">New entry</button>
-                      <button id="dashboard-transfer" type="button">Transfer funds</button>
-                    </div>
-                  </div>
-                  <ul id="dashboard-transactions-list" class="dashboard-timeline">
-                    <li class="empty">No transactions logged yet.</li>
-                  </ul>
-                </section>
               </div>
             </div>
 
