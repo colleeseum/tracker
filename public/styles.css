@@ -185,6 +185,18 @@ button.secondary {
   color: #0f172a;
 }
 
+button.icon-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+button.icon-label img {
+  width: 1rem;
+  height: 1rem;
+  pointer-events: none;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -969,6 +981,7 @@ form {
 .report-filter-actions {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
 }
 
 .report-filter-actions button {

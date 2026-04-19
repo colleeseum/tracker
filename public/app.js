@@ -116,6 +116,8 @@ const addEntryButton = document.getElementById('add-entry');
 const transferButton = document.getElementById('transfer-funds');
 const openLedgerExportButton = document.getElementById('open-ledger-export');
 const newCategoryButton = document.getElementById('new-category');
+const copyViewLinkButton = document.getElementById('copy-view-link');
+const copyViewLinkStatus = document.getElementById('copy-view-link-status');
 const appVersionLabel = document.getElementById('app-version');
 const mileageView = document.getElementById('mileage-view');
 const mileageTableBody = document.getElementById('mileage-table-body');
@@ -728,11 +730,56 @@ const ccaClassPresetLookup = new Map(
   CCA_CLASS_PRESETS.map((preset) => [String(preset.code).trim().toUpperCase(), preset])
 );
 const MIN_REPORT_YEAR = 2025;
+function normalizeReportType(value) {
+  return value === 'tags' ? 'tags' : 'balance';
+}
+
+function getShareableViewNames() {
+  return new Set([...navLinks.map((link) => link.dataset.view).filter(Boolean), 'settings']);
+}
+
+function parseInitialViewParam() {
+  if (typeof window === 'undefined') return null;
+  const requestedView = new URLSearchParams(window.location.search).get('view');
+  if (!requestedView) return null;
+  return getShareableViewNames().has(requestedView) ? requestedView : null;
+}
+
+function parseInitialSettingsSectionParam() {
+  if (typeof window === 'undefined') return null;
+  const section = new URLSearchParams(window.location.search).get('section');
+  if (!section) return null;
+  return settingsNavButtons.some((button) => button.dataset.settingsTarget === section) ? section : null;
+}
+
+function parseInitialReportLinkParams() {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('view') !== 'reports') return null;
+  const rawYear = Number(params.get('year'));
+  return {
+    type: normalizeReportType(params.get('report') || params.get('reportType')),
+    entityId: params.get('entity') || params.get('entityId') || null,
+    year: Number.isInteger(rawYear) ? rawYear : new Date().getFullYear()
+  };
+}
+
+const initialViewName = parseInitialViewParam();
+const initialSettingsSectionName = parseInitialSettingsSectionParam();
+const initialReportLinkParams = parseInitialReportLinkParams();
+let pendingReportLinkParams = initialReportLinkParams ? { ...initialReportLinkParams } : null;
 let reportFilters = {
   type: 'balance',
   entityId: null,
   year: new Date().getFullYear()
 };
+if (initialReportLinkParams) {
+  reportFilters = {
+    type: initialReportLinkParams.type,
+    entityId: initialReportLinkParams.entityId,
+    year: initialReportLinkParams.year
+  };
+}
 let reportGeneratedOnce = false;
 let reportDrilldownLookup = new Map();
 let reportDrilldownCounter = 1;
@@ -832,6 +879,12 @@ function showAppUI(isAuthenticated) {
   appSection.classList.toggle('hidden', !isAuthenticated);
   activeUser.classList.toggle('hidden', !isAuthenticated);
   signOutButton.classList.toggle('hidden', !isAuthenticated);
+  if (copyViewLinkButton) {
+    copyViewLinkButton.classList.toggle('hidden', !isAuthenticated);
+  }
+  if (copyViewLinkStatus) {
+    copyViewLinkStatus.classList.add('hidden');
+  }
   if (headerSettingsButton) {
     headerSettingsButton.classList.toggle('hidden', !isAuthenticated);
   }
@@ -3707,10 +3760,15 @@ function renderTagReport() {
 
 function populateReportControls() {
   if (!reportEntitySelect || !reportYearSelect || !reportTypeSelect) return;
+  if (pendingReportLinkParams) {
+    reportFilters.type = pendingReportLinkParams.type;
+    reportFilters.year = pendingReportLinkParams.year;
+    reportFilters.entityId = pendingReportLinkParams.entityId;
+  }
   if (reportTypeSelect) {
     reportTypeSelect.value = reportFilters.type;
   }
-  const previousEntity = reportFilters.entityId;
+  const previousEntity = pendingReportLinkParams?.entityId || reportFilters.entityId;
   reportEntitySelect.innerHTML = '';
   if (!entityAccounts.length) {
     const option = document.createElement('option');
@@ -3735,6 +3793,14 @@ function populateReportControls() {
     reportEntitySelect.disabled = false;
     reportEntitySelect.value = reportFilters.entityId;
     if (generateReportButton) generateReportButton.disabled = false;
+    if (
+      pendingReportLinkParams &&
+      pendingReportLinkParams.entityId &&
+      entityAccounts.some((account) => account.id === pendingReportLinkParams.entityId)
+    ) {
+      reportGeneratedOnce = true;
+      pendingReportLinkParams = null;
+    }
   }
   const currentYear = new Date().getFullYear();
   const clampedYear = Math.min(Math.max(reportFilters.year, MIN_REPORT_YEAR), currentYear);
@@ -7879,18 +7945,94 @@ if (reportDetailModal) {
 if (reportFilterForm) {
   reportFilterForm.addEventListener('submit', (event) => {
     event.preventDefault();
-    const nextType = reportTypeSelect?.value || 'balance';
-    const nextEntity = reportEntitySelect?.value || '';
-    const parsedYear = reportYearSelect ? parseInt(reportYearSelect.value, 10) : NaN;
-    const fallbackYear = new Date().getFullYear();
-    reportFilters.type = nextType;
-    reportFilters.entityId = nextEntity || null;
-    reportFilters.year = Number.isFinite(parsedYear) ? parsedYear : fallbackYear;
-    if (reportYearSelect) {
-      reportYearSelect.value = String(reportFilters.year);
+    if (applyReportFilterControls()) {
+      updateCurrentShareUrl();
+      renderReports();
+      showCopyViewLinkStatus('Link updated');
     }
-    reportGeneratedOnce = true;
-    renderReports();
+  });
+}
+
+function applyReportFilterControls() {
+  const nextType = reportTypeSelect?.value || 'balance';
+  const nextEntity = reportEntitySelect?.value || '';
+  const parsedYear = reportYearSelect ? parseInt(reportYearSelect.value, 10) : NaN;
+  const fallbackYear = new Date().getFullYear();
+  reportFilters.type = normalizeReportType(nextType);
+  reportFilters.entityId = nextEntity || null;
+  reportFilters.year = Number.isFinite(parsedYear) ? parsedYear : fallbackYear;
+  if (reportYearSelect) {
+    reportYearSelect.value = String(reportFilters.year);
+  }
+  if (!reportFilters.entityId) {
+    return false;
+  }
+  reportGeneratedOnce = true;
+  return true;
+}
+
+function buildCurrentViewShareUrl() {
+  const url = new URL(window.location.origin + window.location.pathname);
+  url.searchParams.set('view', currentView || 'dashboard');
+  if (currentView === 'reports') {
+    if (reportFilters.entityId) {
+      url.searchParams.set('report', reportFilters.type);
+      url.searchParams.set('entity', reportFilters.entityId);
+      url.searchParams.set('year', String(reportFilters.year));
+    }
+  } else if (currentView === 'settings' && activeSettingsSection) {
+    url.searchParams.set('section', activeSettingsSection);
+  }
+  return url;
+}
+
+function updateCurrentShareUrl() {
+  if (typeof window === 'undefined') return;
+  window.history.replaceState({}, '', buildCurrentViewShareUrl());
+}
+
+function showCopyViewLinkStatus(message) {
+  if (!copyViewLinkStatus) return;
+  copyViewLinkStatus.textContent = message;
+  copyViewLinkStatus.classList.remove('hidden');
+  window.clearTimeout(showCopyViewLinkStatus.timeoutId);
+  showCopyViewLinkStatus.timeoutId = window.setTimeout(() => {
+    copyViewLinkStatus.classList.add('hidden');
+  }, 2500);
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) {
+    throw new Error('Clipboard copy failed.');
+  }
+}
+
+if (copyViewLinkButton) {
+  copyViewLinkButton.addEventListener('click', async () => {
+    if (currentView === 'reports') {
+      applyReportFilterControls();
+    }
+    const shareUrl = buildCurrentViewShareUrl().toString();
+    updateCurrentShareUrl();
+    try {
+      await copyTextToClipboard(shareUrl);
+      showCopyViewLinkStatus('Copied');
+    } catch (error) {
+      window.prompt('Copy this link:', shareUrl);
+    }
   });
 }
 
@@ -8030,7 +8172,11 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToCcaPools();
   subscribeToCcaRecords();
   ledgerAccountSelection = [];
-setView('dashboard');
+const initialView = initialViewName || (initialReportLinkParams ? 'reports' : 'dashboard');
+if (initialView === 'settings') {
+  activeSettingsSection = initialSettingsSectionName;
+}
+setView(initialView);
 if (appVersionLabel) {
   const versionScript = document.querySelector('script[data-app-version]');
   const rawVersion = versionScript?.getAttribute('data-app-version') || '';
