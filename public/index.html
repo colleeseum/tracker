@@ -106,6 +106,7 @@
                 <span id="publish-status" class="hint hidden"></span>
                 <button id="add-entry" type="button">Add entry</button>
                 <button id="transfer-funds" type="button" class="secondary">Transfer funds</button>
+                <button id="open-ledger-export" type="button" class="secondary hidden">Export CSV</button>
                 <button id="new-category" type="button" class="hidden">New category</button>
               </div>
             </div>
@@ -1798,6 +1799,44 @@
               </label>
               <button type="submit" class="wide">Transfer</button>
               <p class="error" id="transfer-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="ledger-export-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3>Export ledger CSV</h3>
+              <button id="close-ledger-export-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="ledger-export-form" class="grid-form">
+              <label class="wide">
+                Account to export
+                <select id="ledger-export-account" required></select>
+              </label>
+              <label>
+                Range
+                <select id="ledger-export-range-type">
+                  <option value="year">Year</option>
+                  <option value="custom">Custom dates</option>
+                </select>
+              </label>
+              <label id="ledger-export-year-field">
+                Year
+                <input type="number" id="ledger-export-year" min="2000" max="2100" step="1" required />
+              </label>
+              <div id="ledger-export-custom-fields" class="form-row hidden">
+                <label>
+                  Start date
+                  <input type="date" id="ledger-export-start" />
+                </label>
+                <label>
+                  End date
+                  <input type="date" id="ledger-export-end" />
+                </label>
+              </div>
+              <button type="submit" id="export-ledger-csv" class="wide">Export CSV</button>
+              <p class="error" id="ledger-export-error"></p>
             </form>
           </div>
         </div>

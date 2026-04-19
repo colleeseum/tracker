@@ -114,6 +114,7 @@ const requestPublishButton = document.getElementById('request-publish');
 const publishStatusLabel = document.getElementById('publish-status');
 const addEntryButton = document.getElementById('add-entry');
 const transferButton = document.getElementById('transfer-funds');
+const openLedgerExportButton = document.getElementById('open-ledger-export');
 const newCategoryButton = document.getElementById('new-category');
 const appVersionLabel = document.getElementById('app-version');
 const mileageView = document.getElementById('mileage-view');
@@ -427,6 +428,18 @@ const closeLedgerFilterButton = document.getElementById('close-ledger-filter');
 const resetLedgerFilterButton = document.getElementById('reset-ledger-filter');
 const ledgerTagFilterInput = document.getElementById('ledger-tag-filter');
 const ledgerTableBody = document.getElementById('ledger-table-body');
+const ledgerExportModal = document.getElementById('ledger-export-modal');
+const closeLedgerExportModalButton = document.getElementById('close-ledger-export-modal');
+const ledgerExportForm = document.getElementById('ledger-export-form');
+const ledgerExportAccountSelect = document.getElementById('ledger-export-account');
+const ledgerExportRangeTypeSelect = document.getElementById('ledger-export-range-type');
+const ledgerExportYearInput = document.getElementById('ledger-export-year');
+const ledgerExportYearField = document.getElementById('ledger-export-year-field');
+const ledgerExportCustomFields = document.getElementById('ledger-export-custom-fields');
+const ledgerExportStartInput = document.getElementById('ledger-export-start');
+const ledgerExportEndInput = document.getElementById('ledger-export-end');
+const exportLedgerCsvButton = document.getElementById('export-ledger-csv');
+const ledgerExportError = document.getElementById('ledger-export-error');
 const ledgerErrorModal = document.getElementById('ledger-error-modal');
 const closeLedgerErrorButton = document.getElementById('close-ledger-error');
 
@@ -532,6 +545,33 @@ function hideTransferModal() {
   transferForm.reset();
   transferFormError.textContent = '';
   editingTransferContext = null;
+}
+
+function hideLedgerExportModal() {
+  if (!ledgerExportModal) return;
+  ledgerExportModal.classList.add('hidden');
+  if (ledgerExportError) {
+    ledgerExportError.textContent = '';
+  }
+}
+
+function syncLedgerExportRangeFields() {
+  const useCustom = ledgerExportRangeTypeSelect?.value === 'custom';
+  if (ledgerExportYearField) {
+    ledgerExportYearField.classList.toggle('hidden', useCustom);
+  }
+  if (ledgerExportCustomFields) {
+    ledgerExportCustomFields.classList.toggle('hidden', !useCustom);
+  }
+  if (ledgerExportYearInput) {
+    ledgerExportYearInput.required = !useCustom;
+  }
+  if (ledgerExportStartInput) {
+    ledgerExportStartInput.required = useCustom;
+  }
+  if (ledgerExportEndInput) {
+    ledgerExportEndInput.required = useCustom;
+  }
 }
 
 function hideBillPaymentModal() {
@@ -817,6 +857,7 @@ function cleanAccounts() {
   renderAccountList();
   closeModal();
   renderLedgerTable();
+  updateLedgerExportOptions();
 }
 
 function cleanClients() {
@@ -1025,6 +1066,7 @@ function subscribeToAccounts() {
       }
       renderAccountList();
       updateLedgerAccountOptions();
+      updateLedgerExportOptions();
       updateEntryAccountOptions();
       updateTransferAccountOptions();
       updateBillPaymentAccountOptions();
@@ -4684,11 +4726,54 @@ function updateLedgerAccountOptions() {
     input.type = 'checkbox';
     input.value = account.id;
     input.checked = selectionSet.has(account.id);
-    label.append(input, document.createTextNode(`${account.name} (${account.type === 'cash' ? 'cash' : 'entity'})`));
-  ledgerFilterList.appendChild(label);
+    label.append(input, document.createTextNode(`${account.name} (${getAccountTypeLabel(account)})`));
+    ledgerFilterList.appendChild(label);
   });
   updateLedgerFilterSummary();
   renderLedgerTable();
+}
+
+function getAccountTypeLabel(account) {
+  if (isCombinedAccount(account)) return 'cash + entity';
+  if (isCashAccount(account)) return 'cash';
+  if (isEntityAccount(account)) return 'entity';
+  return 'account';
+}
+
+function updateLedgerExportOptions() {
+  if (!ledgerExportAccountSelect || !exportLedgerCsvButton) return;
+  const previousValue = ledgerExportAccountSelect.value;
+  ledgerExportAccountSelect.innerHTML = '';
+  if (ledgerExportYearInput && !ledgerExportYearInput.value) {
+    ledgerExportYearInput.value = String(new Date().getFullYear());
+  }
+  syncLedgerExportRangeFields();
+  if (!accounts.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No accounts available';
+    ledgerExportAccountSelect.appendChild(option);
+    ledgerExportAccountSelect.disabled = true;
+    exportLedgerCsvButton.disabled = true;
+    if (openLedgerExportButton) {
+      openLedgerExportButton.disabled = true;
+    }
+    return;
+  }
+  accounts.forEach((account) => {
+    const option = document.createElement('option');
+    option.value = account.id;
+    option.textContent = `${account.name || 'Unnamed account'} (${getAccountTypeLabel(account)})`;
+    ledgerExportAccountSelect.appendChild(option);
+  });
+  const selectedValue =
+    previousValue && accountLookup.has(previousValue) ? previousValue : ledgerAccountSelection[0] || accounts[0].id;
+  ledgerExportAccountSelect.value = selectedValue;
+  ledgerExportAccountSelect.disabled = false;
+  exportLedgerCsvButton.disabled = false;
+  if (openLedgerExportButton) {
+    openLedgerExportButton.disabled = false;
+  }
 }
 
 function applyLedgerFilterSelection(selectedIds, { custom = true } = {}) {
@@ -8019,6 +8104,9 @@ function setView(view) {
   if (view !== 'settings') {
     closeCcaPoolModal();
   }
+  if (view !== 'ledger') {
+    hideLedgerExportModal();
+  }
   navLinks.forEach((link) => {
     link.classList.toggle('active', link.dataset.view === view);
   });
@@ -8087,6 +8175,9 @@ function setView(view) {
   newStorageRequestButton.classList.toggle('hidden', !showingStorage);
   addEntryButton.classList.toggle('hidden', !showingLedger);
   transferButton.classList.toggle('hidden', !showingLedger);
+  if (openLedgerExportButton) {
+    openLedgerExportButton.classList.toggle('hidden', !showingLedger);
+  }
   updatePublishButtonState();
   updatePricingToolbarActions();
   if (showingDashboard) {
@@ -8104,6 +8195,7 @@ function setView(view) {
     panelTitle.textContent = 'Ledger';
     panelSubtitle.textContent = 'Reverse chronological table of every entry.';
     updateLedgerAccountOptions();
+    updateLedgerExportOptions();
   } else if (showingClients) {
     panelTitle.textContent = 'Clients';
     panelSubtitle.textContent = 'Contacts with addresses and billing details.';
@@ -8235,6 +8327,244 @@ function buildLedgerEntries(entries) {
     }
   });
   return ledgerEntries;
+}
+
+function compareLedgerExportRows(a, b) {
+  const aDate = a.date ? toDateObject(a.date)?.getTime() || 0 : 0;
+  const bDate = b.date ? toDateObject(b.date)?.getTime() || 0 : 0;
+  if (aDate !== bDate) return aDate - bDate;
+  const aTxn = a.transactionId || '';
+  const bTxn = b.transactionId || '';
+  if (aTxn !== bTxn) return aTxn.localeCompare(bTxn);
+  return (a.side || '').localeCompare(b.side || '');
+}
+
+function buildAccountLedgerExportRows(accountId) {
+  const account = accountLookup.get(accountId);
+  if (!account) return [];
+  const openingBalance = Number(account.openingBalance) || 0;
+  const rows = [
+    {
+      date: resolveAccountOpeningDate(account),
+      accountName: account.name || 'Unnamed account',
+      side: 'opening',
+      entryType: 'opening',
+      category: 'Opening balance',
+      description: account.description || 'Opening balance',
+      amount: openingBalance,
+      balance: openingBalance,
+      transactionId: `opening-${account.id}`,
+      cashAccountName: isCashAccount(account) ? account.name || '' : '',
+      entityName: isEntityAccount(account) ? account.name || '' : '',
+      paymentStatus: '',
+      tags: '',
+      vendorTag: '',
+      clientName: '',
+      receiptUrl: ''
+    }
+  ];
+  const activityRows = [];
+  expenses.forEach((entry) => {
+    if (!entry || entry.isVirtualOpening) return;
+    const delta = getEntryDelta(entry);
+    const cashAccountId = isEntryPaid(entry) ? getEntryPaidAccountId(entry) : '';
+    if (cashAccountId === accountId) {
+      activityRows.push({
+        entry,
+        side: 'cash',
+        date: entry.paidAt || entry.date,
+        amount: delta,
+        transactionId: entry.transactionId || entry.id || ''
+      });
+    }
+    if (entry.entityId === accountId) {
+      activityRows.push({
+        entry,
+        side: 'entity',
+        date: entry.date,
+        amount: delta,
+        transactionId: entry.transactionId || entry.id || ''
+      });
+    }
+  });
+
+  const sideBalances = {
+    cash: openingBalance,
+    entity: openingBalance
+  };
+  activityRows.sort(compareLedgerExportRows).forEach((row) => {
+    const { entry, side, date, amount, transactionId } = row;
+    sideBalances[side] += amount;
+    rows.push({
+      date,
+      accountName: account.name || 'Unnamed account',
+      side,
+      entryType: entry.entryType || '',
+      category: entry.category || '',
+      description: entry.description || '',
+      amount,
+      balance: sideBalances[side],
+      transactionId,
+      cashAccountName: getEntryPaidAccountId(entry)
+        ? accountLookup.get(getEntryPaidAccountId(entry))?.name || ''
+        : '',
+      entityName: entry.entityId ? accountLookup.get(entry.entityId)?.name || '' : '',
+      paymentStatus: entry.paymentStatus || (isEntryPaid(entry) ? 'paid' : 'unpaid'),
+      tags: Array.isArray(entry.tags) ? entry.tags.map((tag) => formatTagLabel(tag) || tag).join('; ') : '',
+      vendorTag: entry.vendorTag || '',
+      clientName: entry.clientId ? clientLookup.get(entry.clientId)?.name || '' : '',
+      receiptUrl: entry.receiptUrl || ''
+    });
+  });
+  return rows;
+}
+
+function escapeCsvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function formatCsvAmount(value) {
+  const amount = Number(value) || 0;
+  return amount.toFixed(2);
+}
+
+function buildLedgerCsv(rows) {
+  const header = [
+    'Date',
+    'Account',
+    'Side',
+    'Entry Type',
+    'Category',
+    'Description',
+    'Amount',
+    'Balance',
+    'Transaction ID',
+    'Cash Account',
+    'Entity',
+    'Payment Status',
+    'Tags',
+    'Vendor',
+    'Client',
+    'Receipt URL'
+  ];
+  const body = rows.map((row) => [
+    getDateKey(row.date) || '',
+    row.accountName,
+    row.side,
+    row.entryType,
+    row.category,
+    row.description,
+    formatCsvAmount(row.amount),
+    formatCsvAmount(row.balance),
+    row.transactionId,
+    row.cashAccountName,
+    row.entityName,
+    row.paymentStatus,
+    row.tags,
+    row.vendorTag,
+    row.clientName,
+    row.receiptUrl
+  ]);
+  return [header, ...body].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+}
+
+function parseDateInputValue(value) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getLedgerExportDateRange() {
+  const rangeType = ledgerExportRangeTypeSelect?.value || 'year';
+  if (rangeType === 'custom') {
+    const start = parseDateInputValue(ledgerExportStartInput?.value || '');
+    const end = parseDateInputValue(ledgerExportEndInput?.value || '');
+    if (!start || !end) {
+      throw new Error('Choose a start and end date.');
+    }
+    if (start.getTime() > end.getTime()) {
+      throw new Error('Start date must be before end date.');
+    }
+    return { start, end, label: `${getDateKey(start)}-${getDateKey(end)}` };
+  }
+
+  const year = Number(ledgerExportYearInput?.value);
+  if (!Number.isInteger(year) || year < 1900 || year > 9999) {
+    throw new Error('Enter a valid year.');
+  }
+  return {
+    start: new Date(year, 0, 1),
+    end: new Date(year, 11, 31),
+    label: String(year)
+  };
+}
+
+function filterLedgerExportRowsByDate(rows, { start, end }) {
+  const startTime = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const endTime = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999).getTime();
+  return rows.filter((row) => {
+    const rowDate = toDateObject(row.date);
+    if (!rowDate) return false;
+    const rowTime = rowDate.getTime();
+    return rowTime >= startTime && rowTime <= endTime;
+  });
+}
+
+function showLedgerExportError(message) {
+  if (ledgerExportError && ledgerExportModal && !ledgerExportModal.classList.contains('hidden')) {
+    ledgerExportError.textContent = message;
+    return;
+  }
+  if (ledgerError && ledgerErrorModal) {
+    ledgerError.textContent = message;
+    ledgerErrorModal.classList.remove('hidden');
+    return;
+  }
+  alert(message);
+}
+
+function downloadTextFile(contents, fileName, type = 'text/plain;charset=utf-8') {
+  const blob = new Blob([contents], { type });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+function exportSelectedLedgerAccountToCsv() {
+  const accountId = ledgerExportAccountSelect?.value || '';
+  const account = accountLookup.get(accountId);
+  if (!account) {
+    showLedgerExportError('Choose an account to export.');
+    return;
+  }
+  let dateRange;
+  try {
+    dateRange = getLedgerExportDateRange();
+  } catch (error) {
+    showLedgerExportError(error.message);
+    return;
+  }
+  const rows = filterLedgerExportRowsByDate(buildAccountLedgerExportRows(accountId), dateRange);
+  if (!rows.length) {
+    showLedgerExportError('No ledger rows are available for this account and date range.');
+    return;
+  }
+  const csv = buildLedgerCsv(rows);
+  const safeAccountName = sanitizeFileName(account.name || 'account').replace(/\.+$/g, '') || 'account';
+  const safeRangeLabel = sanitizeFileName(dateRange.label || getLocalDateInputValue());
+  const fileName = `ledger-${safeAccountName}-${safeRangeLabel}.csv`;
+  downloadTextFile(`\uFEFF${csv}`, fileName, 'text/csv;charset=utf-8');
+  hideLedgerExportModal();
 }
 
 function renderLedgerTable() {
@@ -8712,6 +9042,41 @@ if (ledgerFilterList) {
 if (ledgerTagFilterInput) {
   ledgerTagFilterInput.addEventListener('input', (event) => {
     setLedgerTagFiltersFromInput(event.target.value);
+  });
+}
+
+if (ledgerExportRangeTypeSelect) {
+  ledgerExportRangeTypeSelect.addEventListener('change', syncLedgerExportRangeFields);
+}
+
+if (openLedgerExportButton) {
+  openLedgerExportButton.addEventListener('click', () => {
+    updateLedgerExportOptions();
+    if (ledgerExportError) {
+      ledgerExportError.textContent = '';
+    }
+    if (ledgerExportModal) {
+      ledgerExportModal.classList.remove('hidden');
+    }
+  });
+}
+
+if (closeLedgerExportModalButton) {
+  closeLedgerExportModalButton.addEventListener('click', hideLedgerExportModal);
+}
+
+if (ledgerExportModal) {
+  ledgerExportModal.addEventListener('click', (event) => {
+    if (event.target === ledgerExportModal) {
+      hideLedgerExportModal();
+    }
+  });
+}
+
+if (ledgerExportForm) {
+  ledgerExportForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    exportSelectedLedgerAccountToCsv();
   });
 }
 
