@@ -472,6 +472,11 @@ const tagInput = document.getElementById('entry-tag-input');
 const tagSuggestionList = document.getElementById('tag-suggestion-list');
 const selectedTagsContainer = document.getElementById('selected-tags');
 const tagInputWrapper = document.getElementById('tag-input-wrapper');
+const entryInterestTagsField = document.getElementById('entry-interest-tags-field');
+const interestTagInput = document.getElementById('entry-interest-tag-input');
+const interestTagSuggestionList = document.getElementById('interest-tag-suggestion-list');
+const selectedInterestTagsContainer = document.getElementById('selected-interest-tags');
+const interestTagInputWrapper = document.getElementById('interest-tag-input-wrapper');
 const entryReceiptField = document.getElementById('entry-receipt-field');
 const entryReceiptInput = document.getElementById('entry-receipt');
 const entryReceiptUploadWrapper = document.getElementById('entry-receipt-upload');
@@ -520,8 +525,11 @@ function hideEntryModal() {
   editingEntryTransactionId = null;
   entryFormTitle.textContent = 'Add ledger entry';
   selectedTags = [];
+  selectedInterestTags = [];
   renderSelectedTags();
+  renderSelectedInterestTags();
   updateEntryCategoryOptions({ forceType: entryTypeSelect.value, preserveSelection: false });
+  syncEntryInterestTagVisibility();
   if (entryClientSelect) {
     entryClientSelect.value = '';
   }
@@ -660,12 +668,14 @@ let expenses = [];
 let expenseLookup = new Map();
 let unsubscribeExpenses = null;
 let tagSet = new Set();
+let interestTagSet = new Set();
 let vendorTagSet = new Set();
 let editingEntryId = null;
 let editingEntryTransactionId = null;
 let editingTransferContext = null;
 let payingBillId = null;
 let selectedTags = [];
+let selectedInterestTags = [];
 let missingMileageSuggestions = [];
 let hideMileageSuggestions = false;
 let clients = [];
@@ -3036,10 +3046,14 @@ function addIncomeToSummary(summary, meta, amount, entry) {
   summary.incomeTotal += amount;
   const normalizedCode = normalizeCategoryCode(meta.code);
   if (normalizedCode === T5_INCOME_CODE) {
-    const key = meta.id || meta.label || `t5-${summary.t5Income.size}`;
+    const bucketTag =
+      normalizeTagArray(entry?.interestTags).find(Boolean) || normalizeTagArray(entry?.tags).find(Boolean) || '';
+    const bucketLabel = formatTagLabel(bucketTag) || meta.label || 'T5 income';
+    const key = bucketTag ? `tag-${bucketTag.toLowerCase()}` : meta.id || meta.label || `t5-${summary.t5Income.size}`;
     const detail =
-      summary.t5Income.get(key) || { label: meta.label || 'T5 income', amount: 0, entryIds: [], code: meta.code };
+      summary.t5Income.get(key) || { label: bucketLabel, amount: 0, entryIds: [], code: meta.code };
     detail.amount += amount;
+    detail.label = bucketLabel;
     detail.code = meta.code;
     if (entry?.id) {
       detail.entryIds.push(entry.id);
@@ -3118,6 +3132,34 @@ function sortReportLines(lineMap) {
       }
       return (a.label || '').localeCompare(b.label || '');
     });
+}
+
+function buildT5ReportRows(entityId, year) {
+  const lineMap = new Map();
+  const start = new Date(year, 0, 1);
+  const end = new Date(year + 1, 0, 1);
+  expenses.forEach((entry) => {
+    if (!entry || entry.isVirtualOpening || entry.entityId !== entityId) return;
+    const entryDate = toDateObject(entry.date);
+    if (!entryDate || entryDate < start || entryDate >= end) return;
+    const meta = getCategoryMetaForEntry(entry);
+    if (meta.type !== 'income' || normalizeCategoryCode(meta.code) !== T5_INCOME_CODE) return;
+    const amount = getEntryDelta(entry);
+    if (!amount) return;
+    const bucketTag =
+      normalizeTagArray(entry?.interestTags).find(Boolean) || normalizeTagArray(entry?.tags).find(Boolean) || '';
+    const bucketLabel = formatTagLabel(bucketTag) || 'Untagged';
+    const key = bucketTag ? `tag-${bucketTag.toLowerCase()}` : 'untagged';
+    const line = lineMap.get(key) || { label: bucketLabel, code: meta.code, amount: 0, entryIds: [] };
+    line.label = bucketLabel;
+    line.code = meta.code;
+    line.amount += amount;
+    if (entry.id) {
+      line.entryIds.push(entry.id);
+    }
+    lineMap.set(key, line);
+  });
+  return sortReportLines(lineMap);
 }
 
 function createReportEmptyCard(message) {
@@ -3332,7 +3374,16 @@ function buildIncomeReportGroup({
   const heading = document.createElement('h4');
   heading.textContent = 'Income';
   group.appendChild(heading);
-  group.appendChild(buildReportSection('T5', t5Total, t5Rows, contextMeta));
+  group.appendChild(
+    buildIncomeTotalSection(
+      'T5',
+      'Total T5 Income',
+      T5_INCOME_CODE,
+      t5Rows,
+      t5Total,
+      contextMeta
+    )
+  );
   group.appendChild(
     buildIncomeTotalSection(
       'Taxable Income',
@@ -3701,7 +3752,7 @@ function renderReports() {
     </div>
   `;
   card.appendChild(header);
-  const t5IncomeRows = sortReportLines(summary.t5Income);
+  const t5IncomeRows = buildT5ReportRows(reportFilters.entityId, reportFilters.year);
   const taxableIncomeRows = sortReportLines(summary.taxableIncome);
   const nonTaxableIncomeRows = sortReportLines(summary.nonTaxableIncome);
   const incomeRows = sortReportLines(summary.income);
@@ -5321,6 +5372,29 @@ function syncEntryClientVisibility() {
   }
 }
 
+function isInterestCategorySelection() {
+  if (entryTypeSelect?.value !== 'income') return false;
+  const selectedOption = entryCategorySelect?.options?.[entryCategorySelect.selectedIndex];
+  const linkedCategory = categoryLookup.get(entryCategorySelect?.value || '');
+  const label = linkedCategory?.label || selectedOption?.dataset?.label || '';
+  return /interest/i.test(label);
+}
+
+function syncEntryInterestTagVisibility() {
+  if (!entryInterestTagsField) return;
+  const shouldShow = isInterestCategorySelection();
+  entryInterestTagsField.classList.toggle('hidden', !shouldShow);
+  if (!shouldShow) {
+    selectedInterestTags = [];
+    if (interestTagInput) {
+      interestTagInput.value = '';
+    }
+    renderSelectedInterestTags();
+    return;
+  }
+  updateInterestTagSuggestions();
+}
+
 function syncEntryVendorVisibility() {
   if (!entryVendorField) return;
   const shouldShow = entryTypeSelect?.value !== 'income';
@@ -5538,6 +5612,9 @@ function subscribeToExpensesStream() {
         if (Array.isArray(data.tags)) {
           data.tags = normalizeTagArray(data.tags);
         }
+        if (Array.isArray(data.interestTags)) {
+          data.interestTags = normalizeTagArray(data.interestTags).slice(0, 1);
+        }
         return data;
       });
       rebuildExpenseLookup();
@@ -5545,12 +5622,17 @@ function subscribeToExpensesStream() {
       accountAdjustments = cashTotals;
       entityAdjustments = entityTotals;
       tagSet = new Set();
+      interestTagSet = new Set();
       expenses.forEach((entry) => {
         if (Array.isArray(entry.tags)) {
           entry.tags.forEach((tag) => tagSet.add(tag));
         }
+        if (Array.isArray(entry.interestTags)) {
+          entry.interestTags.forEach((tag) => interestTagSet.add(tag));
+        }
       });
       updateTagSuggestions();
+      updateInterestTagSuggestions();
       syncMileageTagSuggestions();
       if (ledgerTagFilterInput) {
         const currentValue = ledgerTagFilterInput.value;
@@ -9434,15 +9516,18 @@ function renderLedgerDescription(entry) {
 }
 
 function renderTagList(entry) {
-  if (!Array.isArray(entry.tags) || !entry.tags.length) return '';
-  const chips = entry.tags
-    .map((tag) => {
-      const label = formatTagLabel(tag);
-      return label ? `<span class="table-tag">${label}</span>` : '';
-    })
-    .filter(Boolean)
-    .join('');
-  return `<div class="table-tags">${chips}</div>`;
+  const generalTags = Array.isArray(entry.tags)
+    ? entry.tags
+        .map((tag) => {
+          const label = formatTagLabel(tag);
+          return label ? `<span class="table-tag">${label}</span>` : '';
+        })
+        .filter(Boolean)
+        .join('')
+    : '';
+  const interestTagsMarkup = renderTagGroup('Interest', entry.interestTags, 'interest-tag');
+  if (!generalTags && !interestTagsMarkup) return '';
+  return `${generalTags ? `<div class="table-tags">${generalTags}</div>` : ''}${interestTagsMarkup}`;
 }
 
 function renderTagGroup(label, tags, modifier = '') {
@@ -9572,7 +9657,9 @@ function openNewEntryModal() {
   editingEntryTransactionId = null;
   entryFormTitle.textContent = 'Add ledger entry';
   selectedTags = [];
+  selectedInterestTags = [];
   renderSelectedTags();
+  renderSelectedInterestTags();
   const defaultCashId = getDefaultCashAccountId();
   const defaultEntityId = getDefaultEntityAccountId();
   const preferredAccount =
@@ -9599,6 +9686,7 @@ function openNewEntryModal() {
     entryClientSelect.value = '';
   }
   syncEntryClientVisibility();
+  syncEntryInterestTagVisibility();
   syncEntryVendorVisibility();
   resetReceiptControls();
   syncEntryReceiptVisibility();
@@ -9633,12 +9721,14 @@ entryEntitySelect.addEventListener('change', () => {
 entryTypeSelect.addEventListener('change', () => {
   updateEntryCategoryOptions({ forceType: entryTypeSelect.value });
   syncEntryClientVisibility();
+  syncEntryInterestTagVisibility();
   syncEntryVendorVisibility();
   syncEntryReceiptVisibility();
   syncEntryPaymentFields();
   updateReturnLabel();
 });
 updateReturnLabel();
+syncEntryInterestTagVisibility();
 syncEntryReceiptVisibility();
 syncEntryPaymentFields();
 
@@ -9662,6 +9752,7 @@ if (entryDateInput) {
 if (entryCategorySelect) {
   entryCategorySelect.addEventListener('change', () => {
     syncEntryClientVisibility();
+    syncEntryInterestTagVisibility();
   });
 }
 
@@ -9684,6 +9775,28 @@ tagInput.addEventListener('change', () => {
     addTag(tagInput.value);
   }
 });
+
+if (interestTagInput) {
+  interestTagInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      addInterestTag(interestTagInput.value);
+    } else if (event.key === 'Backspace' && !interestTagInput.value && selectedInterestTags.length) {
+      selectedInterestTags.pop();
+      renderSelectedInterestTags();
+    }
+  });
+
+  interestTagInput.addEventListener('focus', () => {
+    updateInterestTagSuggestions();
+  });
+
+  interestTagInput.addEventListener('change', () => {
+    if (interestTagInput.value) {
+      addInterestTag(interestTagInput.value);
+    }
+  });
+}
 
 if (ccaPoolCodeInput) {
   const syncClassDefaults = () => {
@@ -10075,7 +10188,9 @@ function startEditEntry(entry) {
   }
   entryDescriptionInput.value = entry.description || '';
   selectedTags = normalizeTagArray(entry.tags);
+  selectedInterestTags = normalizeTagArray(entry.interestTags).slice(0, 1);
   renderSelectedTags();
+  renderSelectedInterestTags();
   setDateInputValue(entryDateInput, entry.date, true);
   if (entryPaidDateInput) {
     const paidDateValue = isEntryPaid(entry) ? entry.paidAt || entry.date : null;
@@ -10086,6 +10201,7 @@ function startEditEntry(entry) {
     entryClientSelect.value = entry.clientId || '';
   }
   syncEntryClientVisibility();
+  syncEntryInterestTagVisibility();
   syncEntryVendorVisibility();
   syncEntryReceiptVisibility();
   syncEntryPaymentFields();
@@ -10157,9 +10273,13 @@ entryForm.addEventListener('submit', async (event) => {
   if (tagInput && tagInput.value.trim()) {
     addTag(tagInput.value);
   }
+  if (interestTagInput && interestTagInput.value.trim()) {
+    addInterestTag(interestTagInput.value);
+  }
   const amountValue = Number(entryAmountInput.value);
   const description = entryDescriptionInput.value.trim();
   const tags = [...selectedTags];
+  const interestTags = [...selectedInterestTags];
   const vendorTagValue = entryVendorInput?.value?.trim();
   const selectedClientId = entryClientSelect ? entryClientSelect.value : '';
   const isReturn = Boolean(entryReturnInput?.checked);
@@ -10210,6 +10330,7 @@ entryForm.addEventListener('submit', async (event) => {
   const transactionId = isEditing ? editingEntryTransactionId : generateTransactionId();
   const linkedCategory = categoryLookup.get(selectedCategoryId);
   const resolvedCategoryLabel = linkedCategory?.label || categoryLabelFromOption;
+  const isInterestSelection = entryType === 'income' && /interest/i.test(resolvedCategoryLabel || '');
   const categoryCodeRaw = linkedCategory?.code ?? selectedCategoryOption?.dataset?.code;
   const categoryCodeNumber = Number(categoryCodeRaw);
   const normalizedCategoryCode = Number.isFinite(categoryCodeNumber) ? categoryCodeNumber : null;
@@ -10243,6 +10364,7 @@ entryForm.addEventListener('submit', async (event) => {
     amount: Number(amountValue.toFixed(2)),
     description,
     tags,
+    interestTags: isInterestSelection ? interestTags : [],
     vendorTag: entryType === 'expense' && vendorTagValue ? vendorTagValue : null,
     transactionId,
     clientId: selectedClientId || null,
@@ -10602,6 +10724,34 @@ function renderSelectedTags() {
   updateTagSuggestions();
 }
 
+function renderSelectedInterestTags() {
+  if (!selectedInterestTagsContainer) return;
+  selectedInterestTagsContainer.innerHTML = '';
+  selectedInterestTags.forEach((tag) => {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.textContent = formatTagLabel(tag) || tag;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      selectedInterestTags = selectedInterestTags.filter((item) => item !== tag);
+      renderSelectedInterestTags();
+      if (interestTagInput) {
+        interestTagInput.focus();
+      }
+    });
+    chip.appendChild(remove);
+    selectedInterestTagsContainer.appendChild(chip);
+  });
+  if (interestTagInput) {
+    const hasSelection = selectedInterestTags.length > 0;
+    interestTagInput.disabled = hasSelection;
+    interestTagInput.placeholder = hasSelection ? 'Remove tag to change it' : 'Add interest tag';
+  }
+  updateInterestTagSuggestions();
+}
+
 function addTag(value) {
   const tag = normalizeTagValue(value);
   if (!tag || selectedTags.includes(tag)) return;
@@ -10622,6 +10772,31 @@ function updateTagSuggestions() {
       const option = document.createElement('option');
       option.value = formatTagLabel(tag) || tag;
       tagSuggestionList.appendChild(option);
+    });
+}
+
+function addInterestTag(value) {
+  const tag = normalizeTagValue(value);
+  if (!tag) return;
+  selectedInterestTags = [tag];
+  interestTagSet.add(tag);
+  renderSelectedInterestTags();
+  if (interestTagInput) {
+    interestTagInput.value = '';
+  }
+  updateInterestTagSuggestions();
+}
+
+function updateInterestTagSuggestions() {
+  if (!interestTagSuggestionList) return;
+  const available = Array.from(interestTagSet).filter((tag) => !selectedInterestTags.includes(tag));
+  interestTagSuggestionList.innerHTML = '';
+  available
+    .sort((a, b) => a.localeCompare(b))
+    .forEach((tag) => {
+      const option = document.createElement('option');
+      option.value = formatTagLabel(tag) || tag;
+      interestTagSuggestionList.appendChild(option);
     });
 }
 

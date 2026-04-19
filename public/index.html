@@ -1700,6 +1700,21 @@
                 <datalist id="tag-suggestion-list"></datalist>
                 <small class="hint">Type and press Enter to add. Click suggestions to reuse existing tags.</small>
               </label>
+              <label id="entry-interest-tags-field" class="hidden">
+                Interest tags
+                <div class="tag-input" id="interest-tag-input-wrapper">
+                  <div id="selected-interest-tags" class="selected-tags"></div>
+                  <input
+                    type="text"
+                    id="entry-interest-tag-input"
+                    placeholder="Add interest tag"
+                    autocomplete="off"
+                    list="interest-tag-suggestion-list"
+                  />
+                </div>
+                <datalist id="interest-tag-suggestion-list"></datalist>
+                <small class="hint">Only one interest tag can be saved on an interest income transaction.</small>
+              </label>
               <label id="entry-receipt-field" class="wide hidden">
                 Receipt
                 <div id="entry-receipt-upload">
