@@ -9,7 +9,7 @@ A lightweight Firebase web app that mirrors the structure of `depense.csv`. The 
 ├── depense.csv              # Source spreadsheet provided for reference
 ├── public/
 │   ├── index.html           # UI markup (auth, ledger, summary)
-│   ├── styles.css           # Basic styling
+│   ├── styles.css           # Basic stylin
 │   ├── profile-config.js    # Project/emulator profiles + active selection
 │   ├── firebase-config.js   # Uses the active profile to configure Firebase
 │   └── app.js               # All client-side logic

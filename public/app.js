@@ -752,9 +752,6 @@ const PRICING_PANEL_ACTIONS = {
   offerTemplates: {
     primary: { label: 'Add template', handler: () => openOfferTemplateModal('create') }
   },
-  offers: {
-    primary: { label: 'Add offer', handler: () => openOfferModal('create') }
-  },
   addons: {
     primary: { label: 'Add add-on', handler: () => openAddonModal('create') }
   },
@@ -1634,6 +1631,17 @@ function renderStorageTable() {
     editButton.setAttribute('aria-label', `Edit storage request for ${tenantDisplay}`);
     editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit storage request for ${tenantDisplay}" />`;
     actionCell.appendChild(editButton);
+
+    if (request.status === 'new') {
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'icon-button';
+      deleteButton.dataset.action = 'delete-storage';
+      deleteButton.dataset.id = request.id;
+      deleteButton.setAttribute('aria-label', `Delete storage request for ${tenantDisplay}`);
+      deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete storage request" data-icon="trash" />';
+      actionCell.appendChild(deleteButton);
+    }
     row.appendChild(actionCell);
 
     storageTableBody.appendChild(row);
@@ -3796,7 +3804,7 @@ function renderVehicleTypeTable() {
   if (!vehicleTypes.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 7;
+    cell.colSpan = 6;
     cell.className = 'empty';
     cell.textContent = 'No vehicle types yet.';
     row.appendChild(cell);
@@ -3805,14 +3813,12 @@ function renderVehicleTypeTable() {
   }
   vehicleTypes.forEach((type) => {
     const row = document.createElement('tr');
-    const legacyDisplay = (type.legacyValues || []).join(', ') || '—';
     const cells = [
       type.value || '—',
       type.labels?.en || '—',
       type.labels?.fr || '—',
       type.slug || '—',
-      Number.isFinite(type.order) ? type.order : '—',
-      legacyDisplay
+      Number.isFinite(type.order) ? type.order : '—'
     ];
     cells.forEach((value) => {
       const cell = document.createElement('td');
@@ -3857,7 +3863,15 @@ function renderOfferTemplateTable() {
 
   offerTemplates.forEach((template) => {
     const row = document.createElement('tr');
-    const vehicleDisplay = (template.vehicleTypes || []).join(', ') || '—';
+    const resolvedVehicleTypes = (template.vehicleTypes || [])
+      .map((id) => {
+        const entry = findVehicleTypeEntry(id);
+        return entry?.labels?.en || entry?.labels?.fr || entry?.value || id;
+      })
+      .filter(Boolean);
+    const vehicleDisplay = resolvedVehicleTypes.length
+      ? resolvedVehicleTypes.join(', ')
+      : 'All vehicle types';
     const cells = [
       template.label?.en || '—',
       template.label?.fr || '—',
@@ -5391,7 +5405,7 @@ function getVehicleTypeCandidates(identifier) {
 function offerSupportsVehicleTypeForRequest(offer, vehicleTypeId) {
   if (!offer) return false;
   const supportedTypes = getOfferVehicleTypes(offer);
-  if (!supportedTypes.length) return false;
+  if (!supportedTypes.length) return true;
   const candidates = getVehicleTypeCandidates(vehicleTypeId);
   if (!candidates.length) return false;
   return candidates.some((candidate) => supportedTypes.includes(candidate));
@@ -6405,6 +6419,24 @@ if (storageTableBody) {
       if (request) {
         openStorageModal('edit', request);
       }
+      return;
+    }
+    const deleteButton = event.target.closest('button[data-action="delete-storage"]');
+    if (deleteButton) {
+      const request = storageRequests.find((item) => item.id === deleteButton.dataset.id);
+      if (!request) return;
+      if (request.status !== 'new') {
+        alert('Only requests in the New state can be deleted.');
+        return;
+      }
+      const tenantDisplay = clientLookup.get(request.clientId)?.name || 'this client';
+      const vehicleLabel = request.vehicle?.typeLabel || request.vehicle?.type || 'vehicle';
+      if (!window.confirm(`Delete the new storage request for ${tenantDisplay} (${vehicleLabel})?`)) {
+        return;
+      }
+      deleteDoc(doc(db, 'storageRequests', request.id)).catch((error) => {
+        alert(error.message || 'Unable to delete storage request.');
+      });
     }
   });
 

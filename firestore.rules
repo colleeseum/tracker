@@ -8,6 +8,31 @@ service cloud.firestore {
           request.auth.token.email == 'arcolle@gmail.com'
         );
     }
+    function isAnonymousCreate() {
+      return request.auth == null;
+    }
+    function isNonEmptyString(value) {
+      return value is string && value.size() > 0;
+    }
+
+    match /clients/{clientId} {
+      allow read, update, delete: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() || (
+        isAnonymousCreate() &&
+        isNonEmptyString(request.resource.data.email) &&
+        isNonEmptyString(request.resource.data.name)
+      );
+    }
+
+    match /storageRequests/{requestId} {
+      allow read, update, delete: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() || (
+        isAnonymousCreate() &&
+        isNonEmptyString(request.resource.data.clientId) &&
+        isNonEmptyString(request.resource.data.season) &&
+        isNonEmptyString(request.resource.data.status)
+      );
+    }
 
     match /{document=**} {
       allow read, write: if isAuthorizedUser();
