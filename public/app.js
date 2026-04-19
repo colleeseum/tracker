@@ -428,6 +428,7 @@ const ledgerFilterMenu = document.getElementById('ledger-filter-menu');
 const ledgerFilterList = document.getElementById('ledger-filter-list');
 const closeLedgerFilterButton = document.getElementById('close-ledger-filter');
 const resetLedgerFilterButton = document.getElementById('reset-ledger-filter');
+const ledgerCategoryFilterSelect = document.getElementById('ledger-category-filter');
 const ledgerTagFilterInput = document.getElementById('ledger-tag-filter');
 const ledgerTableBody = document.getElementById('ledger-table-body');
 const ledgerExportModal = document.getElementById('ledger-export-modal');
@@ -648,6 +649,7 @@ let lastNonSettingsView = 'dashboard';
 let activeSettingsSection = null;
 let ledgerAccountSelection = [];
 let ledgerFilterCustom = false;
+let ledgerCategoryFilter = '';
 let ledgerTagFilters = [];
 let lastKnownCashTotal = 0;
 let pendingReceiptFile = null;
@@ -706,6 +708,7 @@ let mileageKilometreTotalsByYear = new Map();
 let mileageRateLookup = new Map();
 let addonPriceLookup = new Map();
 const GLOBAL_ADDON_PRICE_SCOPE = '__global__';
+const T5_INCOME_CODE = 5;
 const OTHER_INCOME_T2042_CODE = 9600;
 const MOTOR_VEHICLE_T2042_CODE = 9819;
 const CCA_T2042_CODE = 9936;
@@ -996,6 +999,8 @@ function cleanCategoriesData() {
   editingCategoryId = null;
   renderCategoryTable();
   closeCategoryModal();
+  updateLedgerCategoryOptions();
+  renderLedgerTable();
   updateEntryCategoryOptions({ preserveSelection: false });
 }
 
@@ -1309,6 +1314,8 @@ function subscribeToCategories() {
       categories = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       categoryLookup = new Map(categories.map((category) => [category.id, category]));
       renderCategoryTable();
+      updateLedgerCategoryOptions();
+      renderLedgerTable();
       updateEntryCategoryOptions({ preserveSelection: true });
       maybeRenderReports();
     },
@@ -2952,6 +2959,8 @@ function getCategoryMetaForEntry(entry) {
 function createEmptyEntityReport(account) {
   return {
     account,
+    t5Income: new Map(),
+    t5IncomeTotal: 0,
     income: new Map(),
     expenses: new Map(),
     otherIncome: new Map(),
@@ -3021,6 +3030,19 @@ function addIncomeToSummary(summary, meta, amount, entry) {
   if (!amount) return;
   summary.incomeTotal += amount;
   const normalizedCode = normalizeCategoryCode(meta.code);
+  if (normalizedCode === T5_INCOME_CODE) {
+    const key = meta.id || meta.label || `t5-${summary.t5Income.size}`;
+    const detail =
+      summary.t5Income.get(key) || { label: meta.label || 'T5 income', amount: 0, entryIds: [], code: meta.code };
+    detail.amount += amount;
+    detail.code = meta.code;
+    if (entry?.id) {
+      detail.entryIds.push(entry.id);
+    }
+    summary.t5Income.set(key, detail);
+    summary.t5IncomeTotal += amount;
+    return;
+  }
   if (normalizedCode === OTHER_INCOME_T2042_CODE) {
     const key = meta.id || meta.label || `other-${summary.otherIncome.size}`;
     const detail =
@@ -3230,6 +3252,41 @@ function buildReportGroup(title, incomeRows, incomeTotal, expenseRows, expenseTo
   return group;
 }
 
+function buildIncomeReportGroup(t5Rows, t5Total, t2042Rows, t2042Total, contextMeta) {
+  const group = document.createElement('section');
+  group.className = 'report-group';
+  const heading = document.createElement('h4');
+  heading.textContent = 'Income';
+  group.appendChild(heading);
+  group.appendChild(buildReportSection('T5', t5Total, t5Rows, contextMeta));
+  group.appendChild(buildReportSection(`Income 2042 (${OTHER_INCOME_T2042_CODE})`, t2042Total, t2042Rows, contextMeta));
+  const totalSection = document.createElement('div');
+  totalSection.className = 'report-section';
+  totalSection.innerHTML = `
+    <table class="report-table">
+      <tbody>
+        <tr class="report-total-row">
+          <td class="report-label">Total income</td>
+          <td class="report-code">—</td>
+          <td class="report-amount">${formatCurrency(t5Total + t2042Total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+  group.appendChild(totalSection);
+  return group;
+}
+
+function buildExpenseReportGroup(title, expenseRows, expenseTotal, contextMeta) {
+  const group = document.createElement('section');
+  group.className = 'report-group';
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  group.appendChild(heading);
+  group.appendChild(buildReportSection('Expenses', expenseTotal, expenseRows, contextMeta));
+  return group;
+}
+
 function registerReportDrilldown(entryIds, label, contextMeta = {}) {
   if (!Array.isArray(entryIds) || entryIds.length === 0) {
     return null;
@@ -3387,12 +3444,22 @@ function rebuildMileageRateLookup() {
 }
 
 function buildReportTotalsSummary(data) {
-  const { totalIncome, totalExpenses, netIncome } = data;
+  const { totalIncome, totalExpenses, netIncome, t5IncomeTotal = 0 } = data;
+  const t5Markup =
+    t5IncomeTotal > 0
+      ? `
+        <div>
+          <span>T5 income</span>
+          <strong>${formatCurrency(t5IncomeTotal)}</strong>
+        </div>
+      `
+      : '';
   const section = document.createElement('div');
   section.className = 'report-totals';
   section.innerHTML = `
+    ${t5Markup}
     <div>
-      <span>Total income</span>
+      <span>Total 2042 income</span>
       <strong>${formatCurrency(totalIncome)}</strong>
     </div>
     <div>
@@ -3400,7 +3467,7 @@ function buildReportTotalsSummary(data) {
       <strong>${formatCurrency(totalExpenses)}</strong>
     </div>
     <div>
-      <span>Net total</span>
+      <span>Net 2042 total</span>
       <strong>${formatCurrency(netIncome)}</strong>
     </div>
   `;
@@ -3523,6 +3590,7 @@ function renderReports() {
     </div>
   `;
   card.appendChild(header);
+  const t5IncomeRows = sortReportLines(summary.t5Income);
   const incomeRows = sortReportLines(summary.income);
   const otherIncomeLines = sortReportLines(summary.otherIncome);
   const expenseRows = sortReportLines(summary.expenses);
@@ -3560,6 +3628,7 @@ function renderReports() {
       entryIds: []
     });
   }
+  const t5IncomeTotal = sumLineAmounts(t5IncomeRows);
   const t2042IncomeTotal = sumLineAmounts(t2042IncomeRows);
   const otherIncomeTotal = sumLineAmounts(otherIncomeRows);
   const t2042ExpenseTotal = sumLineAmounts(t2042ExpenseRows);
@@ -3571,7 +3640,7 @@ function renderReports() {
     'beforeend',
     `
       <div class="report-entity-net">
-        <span>Net income</span>
+        <span>Net 2042 income</span>
         <strong>${formatCurrency(netIncome)}</strong>
       </div>
     `
@@ -3596,7 +3665,10 @@ function renderReports() {
   }
   const groupContext = { entityName: summary.account?.name || '', year: reportFilters.year };
   card.appendChild(
-    buildReportGroup('T2042 categories', t2042IncomeRows, t2042IncomeTotal, t2042ExpenseRows, t2042ExpenseTotal, groupContext)
+    buildIncomeReportGroup(t5IncomeRows, t5IncomeTotal, t2042IncomeRows, t2042IncomeTotal, groupContext)
+  );
+  card.appendChild(
+    buildExpenseReportGroup('T2042 categories', t2042ExpenseRows, t2042ExpenseTotal, groupContext)
   );
   const ccaSection = buildCcaReportSection(reportFilters.entityId, reportFilters.year);
   if (ccaSection) {
@@ -3607,12 +3679,13 @@ function renderReports() {
   );
   card.appendChild(
     buildReportTotalsSummary({
+      t5IncomeTotal,
       totalIncome,
       totalExpenses,
       netIncome
     })
   );
-  if (!incomeRows.length && !otherIncomeRows.length && !expenseRows.length) {
+  if (!t5IncomeRows.length && !incomeRows.length && !otherIncomeRows.length && !expenseRows.length) {
     const empty = document.createElement('p');
     empty.className = 'report-empty';
     empty.textContent = 'No ledger activity for this entity and year.';
@@ -4761,12 +4834,15 @@ function updateLedgerFilterSummary() {
       : selectedNames.length <= 2
         ? selectedNames.join(', ')
         : `${selectedNames.slice(0, 2).join(', ')} +${selectedNames.length - 2}`;
+  const parts = [accountPart];
   if (ledgerTagFilters.length) {
     const formattedTags = ledgerTagFilters.map((tag) => formatTagLabel(tag) || tag);
-    ledgerFilterSummary.textContent = `${accountPart} • Tags: ${formattedTags.join(', ')}`;
-  } else {
-    ledgerFilterSummary.textContent = accountPart;
+    parts.push(`Tags: ${formattedTags.join(', ')}`);
   }
+  if (ledgerCategoryFilter) {
+    parts.push(`Category: ${getLedgerCategoryFilterLabel(ledgerCategoryFilter)}`);
+  }
+  ledgerFilterSummary.textContent = parts.join(' • ');
 }
 
 function syncLedgerFilterUI() {
@@ -4778,6 +4854,9 @@ function syncLedgerFilterUI() {
   if (ledgerTagFilterInput) {
     const formattedTags = ledgerTagFilters.map((tag) => formatTagLabel(tag) || tag);
     ledgerTagFilterInput.value = formattedTags.join(', ');
+  }
+  if (ledgerCategoryFilterSelect) {
+    ledgerCategoryFilterSelect.value = ledgerCategoryFilter;
   }
 }
 
@@ -4797,6 +4876,83 @@ function updateLedgerAccountOptions() {
   });
   updateLedgerFilterSummary();
   renderLedgerTable();
+}
+
+function getLedgerCategoryFilterValue(category) {
+  if (category?.id) return `id:${category.id}`;
+  const label = (category?.label || '').trim().toLowerCase();
+  return label ? `label:${label}` : '';
+}
+
+function getEntryLedgerCategoryValue(entry) {
+  if (entry?.categoryId) return `id:${entry.categoryId}`;
+  const label = (entry?.category || '').trim().toLowerCase();
+  return label ? `label:${label}` : '';
+}
+
+function getEntryLedgerCategoryLabel(entry) {
+  return (entry?.category || '').trim().toLowerCase();
+}
+
+function entryMatchesLedgerCategoryFilter(entry, filterValue) {
+  if (!filterValue) return true;
+  if (filterValue.startsWith('id:')) {
+    const categoryId = filterValue.slice(3);
+    if (entry?.categoryId === categoryId) return true;
+    const category = categoryLookup.get(categoryId);
+    const categoryLabel = (category?.label || '').trim().toLowerCase();
+    return Boolean(categoryLabel) && getEntryLedgerCategoryLabel(entry) === categoryLabel;
+  }
+  if (filterValue.startsWith('label:')) {
+    return getEntryLedgerCategoryLabel(entry) === filterValue.slice(6);
+  }
+  return false;
+}
+
+function getLedgerCategoryFilterLabel(value) {
+  if (!value) return 'All categories';
+  if (value.startsWith('id:')) {
+    const category = categoryLookup.get(value.slice(3));
+    if (category?.label) return category.label;
+  }
+  if (value.startsWith('label:')) {
+    return value.slice(6) || 'Uncategorized';
+  }
+  return value;
+}
+
+function updateLedgerCategoryOptions() {
+  if (!ledgerCategoryFilterSelect) return;
+  const previousValue = ledgerCategoryFilter;
+  const options = new Map();
+  const knownLabels = new Set();
+  categories.forEach((category) => {
+    const value = getLedgerCategoryFilterValue(category);
+    if (value) {
+      options.set(value, category.label || 'Uncategorized');
+      const label = (category.label || '').trim().toLowerCase();
+      if (label) knownLabels.add(label);
+    }
+  });
+  expenses.forEach((entry) => {
+    const value = getEntryLedgerCategoryValue(entry);
+    const label = getEntryLedgerCategoryLabel(entry);
+    if (value && !options.has(value) && !knownLabels.has(label)) {
+      options.set(value, entry.category || getLedgerCategoryFilterLabel(value));
+    }
+  });
+  ledgerCategoryFilterSelect.innerHTML = '<option value="">All categories</option>';
+  Array.from(options.entries())
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      ledgerCategoryFilterSelect.appendChild(option);
+    });
+  ledgerCategoryFilter = options.has(previousValue) ? previousValue : '';
+  ledgerCategoryFilterSelect.value = ledgerCategoryFilter;
+  updateLedgerFilterSummary();
 }
 
 function getAccountTypeLabel(account) {
@@ -5256,6 +5412,7 @@ function subscribeToExpensesStream() {
         const currentValue = ledgerTagFilterInput.value;
         ledgerTagFilterInput.value = currentValue;
       }
+      updateLedgerCategoryOptions();
       renderLedgerTable();
       renderAccountList();
       rebuildVendorTagSet();
@@ -8729,9 +8886,12 @@ function renderLedgerTable() {
       return ledgerTagFilters.every((filterTag) => lowerTags.includes(filterTag));
     });
   }
+  if (ledgerCategoryFilter) {
+    filteredEntries = filteredEntries.filter((entry) => entryMatchesLedgerCategoryFilter(entry, ledgerCategoryFilter));
+  }
   const ledgerEntries = buildLedgerEntries(filteredEntries);
 
-  if (!ledgerTagFilters.length) {
+  if (!ledgerTagFilters.length && !ledgerCategoryFilter) {
     const accountsToSeed = accounts.filter((account) => !useFilter || filterSet.has(account.id));
     accountsToSeed.forEach((account) => {
       const openingValue = Number(account.openingBalance) || 0;
@@ -9169,6 +9329,10 @@ if (closeLedgerFilterButton) {
 if (resetLedgerFilterButton) {
   resetLedgerFilterButton.addEventListener('click', () => {
     applyLedgerFilterSelection(accounts.map((acc) => acc.id), { custom: false });
+    ledgerCategoryFilter = '';
+    if (ledgerCategoryFilterSelect) {
+      ledgerCategoryFilterSelect.value = '';
+    }
     resetLedgerTagFilters();
   });
 }
@@ -9188,6 +9352,14 @@ if (ledgerFilterList) {
 if (ledgerTagFilterInput) {
   ledgerTagFilterInput.addEventListener('input', (event) => {
     setLedgerTagFiltersFromInput(event.target.value);
+  });
+}
+
+if (ledgerCategoryFilterSelect) {
+  ledgerCategoryFilterSelect.addEventListener('change', (event) => {
+    ledgerCategoryFilter = event.target.value || '';
+    renderLedgerTable();
+    updateLedgerFilterSummary();
   });
 }
 
