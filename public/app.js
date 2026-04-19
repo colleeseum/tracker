@@ -709,7 +709,8 @@ let mileageRateLookup = new Map();
 let addonPriceLookup = new Map();
 const GLOBAL_ADDON_PRICE_SCOPE = '__global__';
 const T5_INCOME_CODE = 5;
-const OTHER_INCOME_T2042_CODE = 9600;
+const TAXABLE_INCOME_CODE = 9600;
+const NON_TAXABLE_INCOME_CODE = 1;
 const MOTOR_VEHICLE_T2042_CODE = 9819;
 const CCA_T2042_CODE = 9936;
 const CCA_CLASS_PRESETS = [
@@ -2961,6 +2962,10 @@ function createEmptyEntityReport(account) {
     account,
     t5Income: new Map(),
     t5IncomeTotal: 0,
+    taxableIncome: new Map(),
+    taxableIncomeTotal: 0,
+    nonTaxableIncome: new Map(),
+    nonTaxableIncomeTotal: 0,
     income: new Map(),
     expenses: new Map(),
     otherIncome: new Map(),
@@ -3043,17 +3048,24 @@ function addIncomeToSummary(summary, meta, amount, entry) {
     summary.t5IncomeTotal += amount;
     return;
   }
-  if (normalizedCode === OTHER_INCOME_T2042_CODE) {
-    const key = meta.id || meta.label || `other-${summary.otherIncome.size}`;
+  if (normalizedCode === TAXABLE_INCOME_CODE || normalizedCode === NON_TAXABLE_INCOME_CODE) {
+    const isTaxableIncome = normalizedCode === TAXABLE_INCOME_CODE;
+    const lineMap = isTaxableIncome ? summary.taxableIncome : summary.nonTaxableIncome;
+    const fallbackLabel = isTaxableIncome ? 'Taxable Income' : 'Non-Taxable Income';
+    const key = meta.id || meta.label || `${normalizedCode}-${lineMap.size}`;
     const detail =
-      summary.otherIncome.get(key) || { label: meta.label || 'Other Income', amount: 0, entryIds: [], code: meta.code };
+      lineMap.get(key) || { label: meta.label || fallbackLabel, amount: 0, entryIds: [], code: meta.code };
     detail.amount += amount;
     detail.code = meta.code;
     if (entry?.id) {
       detail.entryIds.push(entry.id);
     }
-    summary.otherIncome.set(key, detail);
-    summary.otherIncomeTotal += amount;
+    lineMap.set(key, detail);
+    if (isTaxableIncome) {
+      summary.taxableIncomeTotal += amount;
+    } else {
+      summary.nonTaxableIncomeTotal += amount;
+    }
     return;
   }
   let key;
@@ -3157,6 +3169,34 @@ function buildReportEntryList(entryIds) {
   return `<div class="report-entry-list">${rows}</div>`;
 }
 
+function buildReportBucketDetailList(buckets) {
+  if (!Array.isArray(buckets) || !buckets.length) return '';
+  const rows = buckets
+    .map((bucket) => {
+      const amount = Number(bucket?.amount) || 0;
+      const detailId = `report-bucket-${reportDetailRowCounter++}`;
+      const entryList = buildReportEntryList(bucket?.entryIds || '');
+      return `
+        <div class="report-entry-row report-bucket-row">
+          <span>
+            <button type="button" class="report-toggle" data-action="toggle-report-category" data-target="${detailId}" aria-label="Toggle bucket" aria-expanded="false">
+              <img src="icons/arrow_open.svg" alt="Expand details" />
+            </button>
+          </span>
+          <span><strong>${bucket?.label || '—'}</strong></span>
+          <span>Bucket</span>
+          <span class="report-entry-amount">${formatCurrency(amount)}</span>
+          <span class="report-entry-actions"></span>
+        </div>
+        <div class="report-bucket-detail collapsed" data-report-detail="${detailId}">
+          ${entryList}
+        </div>
+      `;
+    })
+    .join('');
+  return `<div class="report-entry-list">${rows}</div>`;
+}
+
 function buildReportSection(title, total, rows, contextMeta = {}) {
   const section = document.createElement('div');
   section.className = 'report-section';
@@ -3172,7 +3212,9 @@ function buildReportSection(title, total, rows, contextMeta = {}) {
     const isSubtotal = Boolean(line.isSubtotal);
     const row = document.createElement('tr');
     row.className = `report-summary-row${isSubtotal ? ' report-subtotal-row' : ''}`;
-    const detailMarkup = buildReportEntryList(line.entryIds);
+    const detailMarkup = line.detailBuckets?.length
+      ? buildReportBucketDetailList(line.detailBuckets)
+      : buildReportEntryList(line.entryIds);
     const hasDetails = Boolean(detailMarkup) && !isSubtotal;
     const displayCode = normalizeCategoryCode(line.code);
     const summaryId = hasDetails ? `report-detail-${reportDetailRowCounter++}` : null;
@@ -3209,10 +3251,12 @@ function buildReportSection(title, total, rows, contextMeta = {}) {
     emptyRow.innerHTML = `<td colspan="3" class="report-empty">No ${title.toLowerCase()} entries yet.</td>`;
     tbody.appendChild(emptyRow);
   }
-  const totalRow = document.createElement('tr');
-  totalRow.className = 'report-total-row';
-  totalRow.innerHTML = `<td class="report-label">Total</td><td class="report-code">—</td><td class="report-amount">${formatCurrency(total)}</td>`;
-  tbody.appendChild(totalRow);
+  if (!contextMeta.hideTotalRow) {
+    const totalRow = document.createElement('tr');
+    totalRow.className = 'report-total-row';
+    totalRow.innerHTML = `<td class="report-label">Total</td><td class="report-code">—</td><td class="report-amount">${formatCurrency(total)}</td>`;
+    tbody.appendChild(totalRow);
+  }
   table.appendChild(tbody);
   section.appendChild(table);
   return section;
@@ -3252,14 +3296,66 @@ function buildReportGroup(title, incomeRows, incomeTotal, expenseRows, expenseTo
   return group;
 }
 
-function buildIncomeReportGroup(t5Rows, t5Total, t2042Rows, t2042Total, contextMeta) {
+function buildIncomeTotalSection(title, label, code, rows, total, contextMeta) {
+  const entryIds = rows.flatMap((row) => (Array.isArray(row.entryIds) ? row.entryIds : []));
+  const buckets = rows
+    .filter((row) => Math.abs(Number(row?.amount) || 0) > 0.0001)
+    .map((row) => ({
+      label: row.label || '—',
+      amount: Number(row.amount) || 0,
+      entryIds: Array.isArray(row.entryIds) ? row.entryIds : []
+    }));
+  return buildReportSection(title, total, [
+    {
+      label,
+      code,
+      amount: total,
+      entryIds,
+      detailBuckets: buckets
+    }
+  ], { ...contextMeta, hideTotalRow: true });
+}
+
+function buildIncomeReportGroup({
+  t5Rows,
+  t5Total,
+  taxableRows,
+  taxableTotal,
+  nonTaxableRows,
+  nonTaxableTotal,
+  otherT2042Rows,
+  otherT2042Total,
+  contextMeta
+}) {
   const group = document.createElement('section');
   group.className = 'report-group';
   const heading = document.createElement('h4');
   heading.textContent = 'Income';
   group.appendChild(heading);
   group.appendChild(buildReportSection('T5', t5Total, t5Rows, contextMeta));
-  group.appendChild(buildReportSection(`Income 2042 (${OTHER_INCOME_T2042_CODE})`, t2042Total, t2042Rows, contextMeta));
+  group.appendChild(
+    buildIncomeTotalSection(
+      'Taxable Income',
+      'Total Taxable Income',
+      TAXABLE_INCOME_CODE,
+      taxableRows,
+      taxableTotal,
+      contextMeta
+    )
+  );
+  group.appendChild(
+    buildIncomeTotalSection(
+      'Non-Taxable Income',
+      'Total Non-Taxable Income',
+      NON_TAXABLE_INCOME_CODE,
+      nonTaxableRows,
+      nonTaxableTotal,
+      contextMeta
+    )
+  );
+  if (otherT2042Rows.length) {
+    group.appendChild(buildReportSection('Other 2042 income', otherT2042Total, otherT2042Rows, contextMeta));
+  }
   const totalSection = document.createElement('div');
   totalSection.className = 'report-section';
   totalSection.innerHTML = `
@@ -3268,7 +3364,7 @@ function buildIncomeReportGroup(t5Rows, t5Total, t2042Rows, t2042Total, contextM
         <tr class="report-total-row">
           <td class="report-label">Total income</td>
           <td class="report-code">—</td>
-          <td class="report-amount">${formatCurrency(t5Total + t2042Total)}</td>
+          <td class="report-amount">${formatCurrency(t5Total + taxableTotal + nonTaxableTotal + otherT2042Total)}</td>
         </tr>
       </tbody>
     </table>
@@ -3444,7 +3540,14 @@ function rebuildMileageRateLookup() {
 }
 
 function buildReportTotalsSummary(data) {
-  const { totalIncome, totalExpenses, netIncome, t5IncomeTotal = 0 } = data;
+  const {
+    total2042Income,
+    total2042Expenses,
+    net2042Income,
+    otherNetIncome = 0,
+    netIncome,
+    t5IncomeTotal = 0
+  } = data;
   const t5Markup =
     t5IncomeTotal > 0
       ? `
@@ -3460,14 +3563,22 @@ function buildReportTotalsSummary(data) {
     ${t5Markup}
     <div>
       <span>Total 2042 income</span>
-      <strong>${formatCurrency(totalIncome)}</strong>
+      <strong>${formatCurrency(total2042Income)}</strong>
     </div>
     <div>
-      <span>Total expenses</span>
-      <strong>${formatCurrency(totalExpenses)}</strong>
+      <span>Total 2042 expenses</span>
+      <strong>${formatCurrency(total2042Expenses)}</strong>
     </div>
     <div>
-      <span>Net 2042 total</span>
+      <span>Net 2042 income</span>
+      <strong>${formatCurrency(net2042Income)}</strong>
+    </div>
+    <div>
+      <span>Other (code 0) net</span>
+      <strong>${formatCurrency(otherNetIncome)}</strong>
+    </div>
+    <div>
+      <span>Net income</span>
       <strong>${formatCurrency(netIncome)}</strong>
     </div>
   `;
@@ -3591,11 +3702,14 @@ function renderReports() {
   `;
   card.appendChild(header);
   const t5IncomeRows = sortReportLines(summary.t5Income);
+  const taxableIncomeRows = sortReportLines(summary.taxableIncome);
+  const nonTaxableIncomeRows = sortReportLines(summary.nonTaxableIncome);
   const incomeRows = sortReportLines(summary.income);
   const otherIncomeLines = sortReportLines(summary.otherIncome);
   const expenseRows = sortReportLines(summary.expenses);
-  const incomeRowsWithOther = incomeRows.concat(otherIncomeLines);
-  const { t2042Rows: t2042IncomeRows, otherRows: otherIncomeRows } = partitionReportLines(incomeRowsWithOther);
+  const { t2042Rows: otherT2042IncomeRows, otherRows: otherIncomeRows } = partitionReportLines(
+    incomeRows.concat(otherIncomeLines)
+  );
   const { t2042Rows: baseT2042ExpenseRows, otherRows: otherExpenseRows } = partitionReportLines(expenseRows);
   const t2042ExpenseRows = [...baseT2042ExpenseRows];
   let mileageSubtotalInserted = false;
@@ -3629,19 +3743,30 @@ function renderReports() {
     });
   }
   const t5IncomeTotal = sumLineAmounts(t5IncomeRows);
-  const t2042IncomeTotal = sumLineAmounts(t2042IncomeRows);
+  const taxableIncomeTotal = sumLineAmounts(taxableIncomeRows);
+  const nonTaxableIncomeTotal = sumLineAmounts(nonTaxableIncomeRows);
+  const otherT2042IncomeTotal = sumLineAmounts(otherT2042IncomeRows);
   const otherIncomeTotal = sumLineAmounts(otherIncomeRows);
   const t2042ExpenseTotal = sumLineAmounts(t2042ExpenseRows);
   const otherExpenseTotal = sumLineAmounts(otherExpenseRows);
-  const totalIncome = t2042IncomeTotal + otherIncomeTotal;
+  const total2042Income = taxableIncomeTotal + nonTaxableIncomeTotal + otherT2042IncomeTotal;
+  const net2042Income = total2042Income - t2042ExpenseTotal;
+  const otherNetIncome = otherIncomeTotal - otherExpenseTotal;
+  const totalIncome = taxableIncomeTotal + nonTaxableIncomeTotal + otherT2042IncomeTotal + otherIncomeTotal;
   const totalExpenses = t2042ExpenseTotal + otherExpenseTotal;
   const netIncome = totalIncome - totalExpenses;
   header.insertAdjacentHTML(
     'beforeend',
     `
-      <div class="report-entity-net">
-        <span>Net 2042 income</span>
-        <strong>${formatCurrency(netIncome)}</strong>
+      <div class="report-entity-metrics">
+        <div class="report-entity-net">
+          <span>Net 2042 income</span>
+          <strong>${formatCurrency(net2042Income)}</strong>
+        </div>
+        <div class="report-entity-net">
+          <span>Net income</span>
+          <strong>${formatCurrency(netIncome)}</strong>
+        </div>
       </div>
     `
   );
@@ -3665,7 +3790,17 @@ function renderReports() {
   }
   const groupContext = { entityName: summary.account?.name || '', year: reportFilters.year };
   card.appendChild(
-    buildIncomeReportGroup(t5IncomeRows, t5IncomeTotal, t2042IncomeRows, t2042IncomeTotal, groupContext)
+    buildIncomeReportGroup({
+      t5Rows: t5IncomeRows,
+      t5Total: t5IncomeTotal,
+      taxableRows: taxableIncomeRows,
+      taxableTotal: taxableIncomeTotal,
+      nonTaxableRows: nonTaxableIncomeRows,
+      nonTaxableTotal: nonTaxableIncomeTotal,
+      otherT2042Rows: otherT2042IncomeRows,
+      otherT2042Total: otherT2042IncomeTotal,
+      contextMeta: groupContext
+    })
   );
   card.appendChild(
     buildExpenseReportGroup('T2042 categories', t2042ExpenseRows, t2042ExpenseTotal, groupContext)
@@ -3680,12 +3815,21 @@ function renderReports() {
   card.appendChild(
     buildReportTotalsSummary({
       t5IncomeTotal,
-      totalIncome,
-      totalExpenses,
+      total2042Income,
+      total2042Expenses: t2042ExpenseTotal,
+      net2042Income,
+      otherNetIncome,
       netIncome
     })
   );
-  if (!t5IncomeRows.length && !incomeRows.length && !otherIncomeRows.length && !expenseRows.length) {
+  if (
+    !t5IncomeRows.length &&
+    !taxableIncomeRows.length &&
+    !nonTaxableIncomeRows.length &&
+    !incomeRows.length &&
+    !otherIncomeRows.length &&
+    !expenseRows.length
+  ) {
     const empty = document.createElement('p');
     empty.className = 'report-empty';
     empty.textContent = 'No ledger activity for this entity and year.';
