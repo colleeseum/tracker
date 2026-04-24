@@ -230,6 +230,8 @@ const ccaPoolLabelInput = document.getElementById('cca-pool-label');
 const ccaPoolRateInput = document.getElementById('cca-pool-rate');
 const ccaPoolInitialYearInput = document.getElementById('cca-pool-initial-year');
 const ccaPoolStartingAmountInput = document.getElementById('cca-pool-starting-amount');
+const ccaPoolStartingItemRows = document.getElementById('cca-pool-starting-item-rows');
+const addCcaPoolStartingItemButton = document.getElementById('add-cca-pool-starting-item');
 const ccaPoolSubmitButton = document.getElementById('cca-pool-submit');
 const ccaPoolCancelButton = document.getElementById('cca-pool-cancel');
 const ccaPoolFormError = document.getElementById('cca-pool-error');
@@ -852,9 +854,6 @@ const PRICING_PANEL_ACTIONS = {
   },
   offerTemplates: {
     primary: { label: 'Add template', handler: () => openOfferTemplateModal('create') }
-  },
-  offers: {
-    primary: { label: 'Add offer', handler: () => openOfferModal('create') }
   },
   addons: {
     primary: { label: 'Add add-on', handler: () => openAddonModal('create') }
@@ -1747,6 +1746,17 @@ function renderStorageTable() {
     editButton.setAttribute('aria-label', `Edit storage request for ${tenantDisplay}`);
     editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit storage request for ${tenantDisplay}" />`;
     actionCell.appendChild(editButton);
+
+    if (request.status === 'new') {
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'icon-button';
+      deleteButton.dataset.action = 'delete-storage';
+      deleteButton.dataset.id = request.id;
+      deleteButton.setAttribute('aria-label', `Delete storage request for ${tenantDisplay}`);
+      deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete storage request" data-icon="trash" />';
+      actionCell.appendChild(deleteButton);
+    }
     row.appendChild(actionCell);
 
     storageTableBody.appendChild(row);
@@ -4172,7 +4182,7 @@ function renderVehicleTypeTable() {
   if (!vehicleTypes.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 7;
+    cell.colSpan = 6;
     cell.className = 'empty';
     cell.textContent = 'No vehicle types yet.';
     row.appendChild(cell);
@@ -4181,14 +4191,12 @@ function renderVehicleTypeTable() {
   }
   vehicleTypes.forEach((type) => {
     const row = document.createElement('tr');
-    const legacyDisplay = (type.legacyValues || []).join(', ') || '—';
     const cells = [
       type.value || '—',
       type.labels?.en || '—',
       type.labels?.fr || '—',
       type.slug || '—',
-      Number.isFinite(type.order) ? type.order : '—',
-      legacyDisplay
+      Number.isFinite(type.order) ? type.order : '—'
     ];
     cells.forEach((value) => {
       const cell = document.createElement('td');
@@ -4233,7 +4241,15 @@ function renderOfferTemplateTable() {
 
   offerTemplates.forEach((template) => {
     const row = document.createElement('tr');
-    const vehicleDisplay = (template.vehicleTypes || []).join(', ') || '—';
+    const resolvedVehicleTypes = (template.vehicleTypes || [])
+      .map((id) => {
+        const entry = findVehicleTypeEntry(id);
+        return entry?.labels?.en || entry?.labels?.fr || entry?.value || id;
+      })
+      .filter(Boolean);
+    const vehicleDisplay = resolvedVehicleTypes.length
+      ? resolvedVehicleTypes.join(', ')
+      : 'All vehicle types';
     const cells = [
       template.label?.en || '—',
       template.label?.fr || '—',
@@ -4671,6 +4687,126 @@ function applyCcaClassDefaults(classCode) {
   }
 }
 
+function normalizeCcaStartingItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      const description = (item?.description || '').trim();
+      const purchaseDate = (item?.purchaseDate || '').trim();
+      const openingBalance = toFiniteNumber(item?.openingBalance);
+      const acb = toFiniteNumber(item?.acb);
+      return {
+        description,
+        purchaseDate,
+        openingBalance: openingBalance ?? 0,
+        acb: acb ?? 0
+      };
+    })
+    .filter((item) => item.description || item.purchaseDate || item.openingBalance > 0 || item.acb > 0);
+}
+
+function getCcaStartingItemsTotal(items) {
+  return normalizeCcaStartingItems(items).reduce((sum, item) => sum + (toFiniteNumber(item.openingBalance) ?? 0), 0);
+}
+
+function getCcaStartingItemsForForm() {
+  if (!ccaPoolStartingItemRows) return [];
+  return Array.from(ccaPoolStartingItemRows.querySelectorAll('[data-cca-starting-item-row]')).map((row) => ({
+    description: row.querySelector('[data-field="description"]')?.value || '',
+    purchaseDate: row.querySelector('[data-field="purchaseDate"]')?.value || '',
+    openingBalance: row.querySelector('[data-field="openingBalance"]')?.value || '',
+    acb: row.querySelector('[data-field="acb"]')?.value || ''
+  }));
+}
+
+function updateCcaStartingAmountFromItems() {
+  if (!ccaPoolStartingAmountInput) return;
+  const total = getCcaStartingItemsTotal(getCcaStartingItemsForForm());
+  ccaPoolStartingAmountInput.value = total.toFixed(2);
+}
+
+function appendCcaStartingItemRow(item = {}) {
+  if (!ccaPoolStartingItemRows) return;
+  const row = document.createElement('tr');
+  row.dataset.ccaStartingItemRow = 'true';
+  const descriptionCell = document.createElement('td');
+  const descriptionInput = document.createElement('input');
+  descriptionInput.type = 'text';
+  descriptionInput.dataset.field = 'description';
+  descriptionInput.placeholder = 'Item description';
+  descriptionInput.value = item.description || '';
+  descriptionCell.appendChild(descriptionInput);
+  row.appendChild(descriptionCell);
+
+  const purchaseDateCell = document.createElement('td');
+  const purchaseDateInput = document.createElement('input');
+  purchaseDateInput.type = 'date';
+  purchaseDateInput.dataset.field = 'purchaseDate';
+  purchaseDateInput.value = item.purchaseDate || '';
+  purchaseDateCell.appendChild(purchaseDateInput);
+  row.appendChild(purchaseDateCell);
+
+  const openingBalanceCell = document.createElement('td');
+  const openingBalanceInput = document.createElement('input');
+  openingBalanceInput.type = 'number';
+  openingBalanceInput.dataset.field = 'openingBalance';
+  openingBalanceInput.min = '0';
+  openingBalanceInput.step = '0.01';
+  const openingValue = toFiniteNumber(item.openingBalance);
+  openingBalanceInput.value = openingValue != null ? openingValue : '';
+  openingBalanceCell.appendChild(openingBalanceInput);
+  row.appendChild(openingBalanceCell);
+
+  const acbCell = document.createElement('td');
+  const acbInput = document.createElement('input');
+  acbInput.type = 'number';
+  acbInput.dataset.field = 'acb';
+  acbInput.min = '0';
+  acbInput.step = '0.01';
+  const acbValue = toFiniteNumber(item.acb);
+  acbInput.value = acbValue != null ? acbValue : '';
+  acbCell.appendChild(acbInput);
+  row.appendChild(acbCell);
+
+  const actionCell = document.createElement('td');
+  const removeButton = document.createElement('button');
+  removeButton.type = 'button';
+  removeButton.className = 'icon-button';
+  removeButton.dataset.action = 'remove-cca-starting-item';
+  removeButton.setAttribute('aria-label', 'Remove starting item');
+  removeButton.innerHTML = '<img src="icons/trash.svg" alt="Remove item" data-icon="trash" />';
+  actionCell.appendChild(removeButton);
+  row.appendChild(actionCell);
+  ccaPoolStartingItemRows.appendChild(row);
+}
+
+function renderCcaStartingItems(items = []) {
+  if (!ccaPoolStartingItemRows) return;
+  ccaPoolStartingItemRows.innerHTML = '';
+  const normalizedItems = normalizeCcaStartingItems(items);
+  if (normalizedItems.length) {
+    normalizedItems.forEach((item) => appendCcaStartingItemRow(item));
+  } else {
+    appendCcaStartingItemRow();
+  }
+  updateCcaStartingAmountFromItems();
+}
+
+function getCcaStartingItemsForEdit(pool) {
+  const items = normalizeCcaStartingItems(pool?.startingItems);
+  if (items.length) return items;
+  const startingAmount = toFiniteNumber(pool?.startingAmount);
+  if (!startingAmount || startingAmount <= 0) return [];
+  return [
+    {
+      description: pool?.label || 'Opening balance',
+      purchaseDate: '',
+      openingBalance: startingAmount,
+      acb: startingAmount
+    }
+  ];
+}
+
 function getCcaStartingBalanceForYear(pool, year) {
   if (!pool) return null;
   const poolInitialYear = Number(pool.initialYear);
@@ -4680,6 +4816,10 @@ function getCcaStartingBalanceForYear(pool, year) {
   }
   if (poolInitialYear !== targetYear) {
     return null;
+  }
+  const startingItemsTotal = getCcaStartingItemsTotal(pool.startingItems);
+  if (startingItemsTotal > 0) {
+    return startingItemsTotal;
   }
   const startingAmount = toFiniteNumber(pool.startingAmount);
   return startingAmount ?? 0;
@@ -4711,6 +4851,7 @@ function resetCcaPoolForm() {
   if (ccaPoolStartingAmountInput) {
     ccaPoolStartingAmountInput.value = '0';
   }
+  renderCcaStartingItems([]);
   updateCcaPoolEntityOptions();
 }
 
@@ -4781,7 +4922,15 @@ function renderCcaPoolTable() {
     initialYearCell.textContent = Number.isFinite(initialYearValue) ? initialYearValue : '—';
     row.appendChild(initialYearCell);
     const startingAmountCell = document.createElement('td');
-    startingAmountCell.textContent = formatCurrency(toFiniteNumber(pool.startingAmount) ?? 0);
+    const startingItems = normalizeCcaStartingItems(pool.startingItems);
+    startingAmountCell.textContent = formatCurrency(getCcaStartingItemsTotal(startingItems) || toFiniteNumber(pool.startingAmount) || 0);
+    if (startingItems.length) {
+      const itemCount = document.createElement('small');
+      itemCount.className = 'hint';
+      itemCount.textContent = `${startingItems.length} item${startingItems.length === 1 ? '' : 's'}`;
+      startingAmountCell.appendChild(document.createElement('br'));
+      startingAmountCell.appendChild(itemCount);
+    }
     row.appendChild(startingAmountCell);
     const actionCell = document.createElement('td');
     const editButton = document.createElement('button');
@@ -5925,7 +6074,7 @@ function getVehicleTypeCandidates(identifier) {
 function offerSupportsVehicleTypeForRequest(offer, vehicleTypeId) {
   if (!offer) return false;
   const supportedTypes = getOfferVehicleTypes(offer);
-  if (!supportedTypes.length) return false;
+  if (!supportedTypes.length) return true;
   const candidates = getVehicleTypeCandidates(vehicleTypeId);
   if (!candidates.length) return false;
   return candidates.some((candidate) => supportedTypes.includes(candidate));
@@ -6939,6 +7088,24 @@ if (storageTableBody) {
       if (request) {
         openStorageModal('edit', request);
       }
+      return;
+    }
+    const deleteButton = event.target.closest('button[data-action="delete-storage"]');
+    if (deleteButton) {
+      const request = storageRequests.find((item) => item.id === deleteButton.dataset.id);
+      if (!request) return;
+      if (request.status !== 'new') {
+        alert('Only requests in the New state can be deleted.');
+        return;
+      }
+      const tenantDisplay = clientLookup.get(request.clientId)?.name || 'this client';
+      const vehicleLabel = request.vehicle?.typeLabel || request.vehicle?.type || 'vehicle';
+      if (!window.confirm(`Delete the new storage request for ${tenantDisplay} (${vehicleLabel})?`)) {
+        return;
+      }
+      deleteDoc(doc(db, 'storageRequests', request.id)).catch((error) => {
+        alert(error.message || 'Unable to delete storage request.');
+      });
     }
   });
 
@@ -9827,6 +9994,29 @@ if (ccaPoolModal) {
   });
 }
 
+if (addCcaPoolStartingItemButton) {
+  addCcaPoolStartingItemButton.addEventListener('click', () => {
+    appendCcaStartingItemRow();
+    updateCcaStartingAmountFromItems();
+  });
+}
+
+if (ccaPoolStartingItemRows) {
+  ccaPoolStartingItemRows.addEventListener('input', updateCcaStartingAmountFromItems);
+  ccaPoolStartingItemRows.addEventListener('click', (event) => {
+    const removeButton = event.target.closest('button[data-action="remove-cca-starting-item"]');
+    if (!removeButton) return;
+    const row = removeButton.closest('[data-cca-starting-item-row]');
+    if (row) {
+      row.remove();
+    }
+    if (!ccaPoolStartingItemRows.querySelector('[data-cca-starting-item-row]')) {
+      appendCcaStartingItemRow();
+    }
+    updateCcaStartingAmountFromItems();
+  });
+}
+
 if (ccaPoolForm) {
   ccaPoolForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -9850,20 +10040,39 @@ if (ccaPoolForm) {
     const label = ccaPoolLabelInput.value.trim();
     const rate = Number(ccaPoolRateInput.value);
     const initialYearValue = Number(ccaPoolInitialYearInput.value);
-    const startingAmountValue = Number(ccaPoolStartingAmountInput.value);
+    const rawStartingItems = getCcaStartingItemsForForm();
+    const hasInvalidStartingItem = rawStartingItems.some((item) => {
+      const description = (item.description || '').trim();
+      const purchaseDate = (item.purchaseDate || '').trim();
+      const amountRaw = String(item.openingBalance ?? '').trim();
+      const acbRaw = String(item.acb ?? '').trim();
+      if (!description && !purchaseDate && !amountRaw && !acbRaw) return false;
+      const amountValue = Number(amountRaw);
+      const acbValue = acbRaw ? Number(acbRaw) : 0;
+      return !amountRaw || !Number.isFinite(amountValue) || amountValue < 0 || !Number.isFinite(acbValue) || acbValue < 0;
+    });
     if (!entityId || !classCode || !label || !Number.isFinite(rate) || !Number.isFinite(initialYearValue)) {
       if (ccaPoolFormError) {
         ccaPoolFormError.textContent = 'Fill out all required fields.';
       }
       return;
     }
+    if (hasInvalidStartingItem) {
+      if (ccaPoolFormError) {
+        ccaPoolFormError.textContent = 'Each starting balance item needs a valid opening balance.';
+      }
+      return;
+    }
+    const startingItems = normalizeCcaStartingItems(rawStartingItems);
+    const startingAmountValue = getCcaStartingItemsTotal(startingItems);
     const payload = {
       entityId,
       classCode,
       label,
       rate,
       initialYear: initialYearValue,
-      startingAmount: Number.isFinite(startingAmountValue) ? startingAmountValue : 0,
+      startingItems,
+      startingAmount: startingAmountValue,
       updatedAt: serverTimestamp()
     };
     try {
@@ -9928,9 +10137,10 @@ if (ccaPoolTableBody) {
           : '';
       }
       if (ccaPoolStartingAmountInput) {
-        const startingValue = toFiniteNumber(pool.startingAmount);
-        ccaPoolStartingAmountInput.value = startingValue ?? 0;
+        const startingValue = getCcaStartingItemsTotal(pool.startingItems) || toFiniteNumber(pool.startingAmount) || 0;
+        ccaPoolStartingAmountInput.value = startingValue.toFixed(2);
       }
+      renderCcaStartingItems(getCcaStartingItemsForEdit(pool));
       openCcaPoolModal();
       return;
     }

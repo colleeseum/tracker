@@ -1,6 +1,7 @@
 import functions from 'firebase-functions';
 import admin from 'firebase-admin';
 import nodemailer from 'nodemailer';
+import crypto from 'node:crypto';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
 const smtpPort = Number(process.env.SMTP2GO_PORT || 587);
@@ -216,6 +217,97 @@ async function sendConfirmationEmail({ sender, replyTo, subject }) {
   }
 }
 
+function generateConfirmationCode() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const random = crypto.randomBytes(3).toString('hex').toUpperCase();
+  return `FC-${date}-${random}`;
+}
+
+function formatStorageRequestLine(request, locale = 'en') {
+  const parts = [];
+  const typeLabel = request.vehicleTypeLabel || request.vehicleType || 'Vehicle';
+  if (typeLabel) parts.push(typeLabel);
+  if (request.vehicleLength) {
+    parts.push(locale === 'fr' ? `${request.vehicleLength} pi` : `${request.vehicleLength} ft`);
+  }
+  if (request.vehiclePlate) {
+    const suffix = request.vehicleProv ? ` (${request.vehicleProv})` : '';
+    parts.push(`${request.vehiclePlate}${suffix}`);
+  } else if (request.vehicleProv) {
+    parts.push(request.vehicleProv);
+  }
+  const addons = [];
+  if (request.battery) addons.push(locale === 'fr' ? 'Charge de batterie' : 'Battery charging');
+  if (request.propane) addons.push(locale === 'fr' ? 'Entreposage propane' : 'Propane storage');
+  if (addons.length) {
+    parts.push(addons.join(locale === 'fr' ? ' + ' : ' + '));
+  }
+  const seasonLabel = request.seasonLabel || request.season;
+  if (seasonLabel) {
+    parts.push(
+      locale === 'fr' ? `Saison : ${seasonLabel}` : `Season: ${seasonLabel}`
+    );
+  }
+  return parts.filter(Boolean).join(' • ');
+}
+
+function buildStorageRequestConfirmationMessage(locale, confirmationCode, tenant, requests) {
+  const isFrench = locale === 'fr';
+  const intro = isFrench
+    ? `Bonjour ${tenant.tenantName || ''},`
+    : `Hello ${tenant.tenantName || ''},`;
+  const title = isFrench
+    ? 'Nous avons bien reçu votre demande d’entreposage.'
+    : 'We received your storage request.';
+  const confirmationLine = isFrench
+    ? `Numéro de confirmation : ${confirmationCode}`
+    : `Confirmation number: ${confirmationCode}`;
+  const listLabel = isFrench
+    ? 'Demandes reçues :'
+    : 'Requests received:';
+  const items = requests.map((request, index) => {
+    const line = formatStorageRequestLine(request, locale);
+    return `${index + 1}. ${line}`;
+  });
+  const outro = isFrench
+    ? 'Nous vous contacterons sous peu par courriel pour les prochaines étapes.'
+    : 'We will contact you by email shortly with next steps.';
+  const text = [intro, '', title, confirmationLine, '', listLabel, ...items, '', outro]
+    .filter(Boolean)
+    .join('\n');
+  const htmlItems = requests
+    .map((request, index) => `<li><strong>${index + 1}.</strong> ${formatStorageRequestLine(request, locale)}</li>`)
+    .join('');
+  const html = `
+    <p>${intro}</p>
+    <p>${title}</p>
+    <p><strong>${confirmationLine}</strong></p>
+    <p>${listLabel}</p>
+    <ol>${htmlItems}</ol>
+    <p>${outro}</p>
+  `;
+  const subject = isFrench
+    ? `Confirmation ${confirmationCode} – demande d’entreposage`
+    : `Storage request confirmation ${confirmationCode}`;
+  return { subject, text, html };
+}
+
+async function sendStorageRequestConfirmationEmail({ to, locale, confirmationCode, tenant, requests }) {
+  if (!to) return;
+  const sender = defaultFrom;
+  if (!sender) {
+    throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
+  }
+  const message = buildStorageRequestConfirmationMessage(locale, confirmationCode, tenant, requests);
+  await transporter.sendMail({
+    from: sender,
+    to,
+    subject: message.subject,
+    html: message.html,
+    text: message.text
+  });
+}
+
 function parseAttachmentContent(rawContent) {
   let contentType;
   let content = rawContent;
@@ -386,4 +478,319 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
     );
 
   return { ok: true };
+});
+
+export const createStorageRequest = functions.https.onCall(async (data, context) => {
+  const payload = data || {};
+  const normalize = (value) => (typeof value === 'string' ? value.trim() : '');
+  const asNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+  const tenantName = normalize(payload.tenantName);
+  const tenantPhone = normalize(payload.tenantPhone);
+  const tenantAddress = normalize(payload.tenantAddress);
+  const tenantCity = normalize(payload.tenantCity);
+  const tenantProvince = normalize(payload.tenantProvince);
+  const tenantPostal = normalize(payload.tenantPostal);
+  const tenantEmail = normalize(payload.email);
+  const tenantEmailLower = tenantEmail.toLowerCase();
+  const season = normalize(payload.season);
+  const vehicleType = normalize(payload.vehicleType);
+  const confirmationCode =
+    normalize(payload.confirmationCode) || generateConfirmationCode();
+
+  if (!tenantEmail) {
+    throw new functions.https.HttpsError('invalid-argument', 'Email is required.');
+  }
+  if (!season || !tenantName || !tenantPhone || !tenantAddress || !tenantCity || !tenantProvince || !tenantPostal) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required tenant details.');
+  }
+  if (!vehicleType) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing vehicle type.');
+  }
+
+  const requesterIp = extractIp(context.rawRequest);
+  if (payload.captchaToken) {
+    await verifyCaptcha(payload.captchaToken, requesterIp);
+  }
+
+  const clientRef = db.collection('clients');
+  let clientId = null;
+  const emailQuery = tenantEmailLower
+    ? await clientRef.where('emailLower', '==', tenantEmailLower).limit(1).get()
+    : null;
+  if (emailQuery && !emailQuery.empty) {
+    clientId = emailQuery.docs[0].id;
+  } else if (tenantEmail) {
+    const existing = await clientRef.where('email', '==', tenantEmail).limit(1).get();
+    if (!existing.empty) {
+      clientId = existing.docs[0].id;
+    }
+  }
+
+  if (!clientId) {
+    const clientPayload = {
+      name: tenantName,
+      phone: tenantPhone,
+      email: tenantEmail,
+      emailLower: tenantEmailLower,
+      address: tenantAddress,
+      city: tenantCity,
+      province: tenantProvince,
+      postalCode: tenantPostal,
+      active: true,
+      notes: `Submitted via Entrepot website${payload.formLanguage ? ` (${payload.formLanguage})` : ''}`,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: null,
+      updatedBy: null
+    };
+    const clientDoc = await clientRef.add(clientPayload);
+    clientId = clientDoc.id;
+  }
+
+  const insuranceExpiration = normalize(payload.insuranceExpiration);
+  const insuranceDate =
+    insuranceExpiration && !Number.isNaN(Date.parse(insuranceExpiration))
+      ? admin.firestore.Timestamp.fromDate(new Date(insuranceExpiration))
+      : null;
+
+  const estimateAmount = asNumber(payload.estimatedCost);
+  const depositEstimate = asNumber(payload.deposit);
+
+  const requestPayload = {
+    season,
+    clientId,
+    vehicle: {
+      type: vehicleType,
+      typeLabel: normalize(payload.vehicleTypeLabel) || vehicleType || '—',
+      otherType: normalize(payload.vehicleTypeOther),
+      brand: normalize(payload.vehicleBrand),
+      model: normalize(payload.vehicleModel),
+      colour: normalize(payload.vehicleColour),
+      lengthFeet: asNumber(payload.vehicleLength),
+      year: asNumber(payload.vehicleYear),
+      plate: normalize(payload.vehiclePlate),
+      province: normalize(payload.vehicleProv)
+    },
+    insuranceCompany: normalize(payload.insuranceCompany),
+    policyNumber: normalize(payload.insurancePolicy),
+    insuranceExpiration: insuranceDate,
+    status: 'new',
+    addons: {
+      battery: payload.battery === true,
+      propane: payload.propane === true
+    },
+    contractAmount: null,
+    estimate: {
+      amount: estimateAmount,
+      deposit: depositEstimate
+    },
+    confirmationCode,
+    source: 'entrepot',
+    sourceLanguage: normalize(payload.formLanguage),
+    submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedBy: null,
+    createdBy: null
+  };
+
+  const requestDoc = await db.collection('storageRequests').add(requestPayload);
+
+  try {
+    const locale = normalize(payload.formLanguage) === 'fr' ? 'fr' : 'en';
+    await sendStorageRequestConfirmationEmail({
+      to: tenantEmail,
+      locale,
+      confirmationCode,
+      tenant: {
+        tenantName,
+        tenantPhone,
+        tenantAddress,
+        tenantCity,
+        tenantProvince,
+        tenantPostal,
+        email: tenantEmail,
+        formLanguage: normalize(payload.formLanguage)
+      },
+      requests: [
+        {
+          vehicleType,
+          vehicleTypeLabel: normalize(payload.vehicleTypeLabel) || vehicleType || '—',
+          vehicleTypeOther: normalize(payload.vehicleTypeOther),
+          vehicleBrand: normalize(payload.vehicleBrand),
+          vehicleModel: normalize(payload.vehicleModel),
+          vehicleColour: normalize(payload.vehicleColour),
+          vehicleLength: normalize(payload.vehicleLength),
+          vehicleYear: normalize(payload.vehicleYear),
+          vehiclePlate: normalize(payload.vehiclePlate),
+          vehicleProv: normalize(payload.vehicleProv),
+          battery: payload.battery === true,
+          propane: payload.propane === true
+        }
+      ]
+    });
+  } catch (err) {
+    console.error('Storage request confirmation email failed', err);
+  }
+
+  return { success: true, requestId: requestDoc.id, clientId, confirmationCode };
+});
+
+export const createStorageRequests = functions.https.onCall(async (data, context) => {
+  const payload = data || {};
+  const normalize = (value) => (typeof value === 'string' ? value.trim() : '');
+  const asNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+  const tenant = payload.tenant || {};
+  const tenantName = normalize(tenant.tenantName);
+  const tenantPhone = normalize(tenant.tenantPhone);
+  const tenantAddress = normalize(tenant.tenantAddress);
+  const tenantCity = normalize(tenant.tenantCity);
+  const tenantProvince = normalize(tenant.tenantProvince);
+  const tenantPostal = normalize(tenant.tenantPostal);
+  const tenantEmail = normalize(tenant.email);
+  const tenantEmailLower = tenantEmail.toLowerCase();
+  const season = normalize(tenant.season);
+
+  const requests = Array.isArray(payload.requests)
+    ? payload.requests.filter((entry) => entry && typeof entry === 'object')
+    : [];
+
+  if (!tenantEmail) {
+    throw new functions.https.HttpsError('invalid-argument', 'Email is required.');
+  }
+  if (!season || !tenantName || !tenantPhone || !tenantAddress || !tenantCity || !tenantProvince || !tenantPostal) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required tenant details.');
+  }
+  if (!requests.length) {
+    throw new functions.https.HttpsError('invalid-argument', 'At least one vehicle request is required.');
+  }
+
+  const requesterIp = extractIp(context.rawRequest);
+  if (payload.captchaToken) {
+    await verifyCaptcha(payload.captchaToken, requesterIp);
+  }
+
+  const clientRef = db.collection('clients');
+  let clientId = null;
+  const emailQuery = tenantEmailLower
+    ? await clientRef.where('emailLower', '==', tenantEmailLower).limit(1).get()
+    : null;
+  if (emailQuery && !emailQuery.empty) {
+    clientId = emailQuery.docs[0].id;
+  } else if (tenantEmail) {
+    const existing = await clientRef.where('email', '==', tenantEmail).limit(1).get();
+    if (!existing.empty) {
+      clientId = existing.docs[0].id;
+    }
+  }
+
+  if (!clientId) {
+    const clientPayload = {
+      name: tenantName,
+      phone: tenantPhone,
+      email: tenantEmail,
+      emailLower: tenantEmailLower,
+      address: tenantAddress,
+      city: tenantCity,
+      province: tenantProvince,
+      postalCode: tenantPostal,
+      active: true,
+      notes: `Submitted via Entrepot website${tenant.formLanguage ? ` (${tenant.formLanguage})` : ''}`,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: null,
+      updatedBy: null
+    };
+    const clientDoc = await clientRef.add(clientPayload);
+    clientId = clientDoc.id;
+  }
+
+  const confirmationCode = generateConfirmationCode();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const batch = db.batch();
+  const requestIds = [];
+
+  requests.forEach((request) => {
+    const vehicleType = normalize(request.vehicleType);
+    if (!vehicleType) {
+      return;
+    }
+    const insuranceExpiration = normalize(request.insuranceExpiration);
+    const insuranceDate =
+      insuranceExpiration && !Number.isNaN(Date.parse(insuranceExpiration))
+        ? admin.firestore.Timestamp.fromDate(new Date(insuranceExpiration))
+        : null;
+
+    const estimateAmount = asNumber(request.estimatedCost);
+    const depositEstimate = asNumber(request.deposit);
+
+    const ref = db.collection('storageRequests').doc();
+    requestIds.push(ref.id);
+    batch.set(ref, {
+      season: normalize(request.season) || season,
+      clientId,
+      vehicle: {
+        type: vehicleType,
+        typeLabel: normalize(request.vehicleTypeLabel) || vehicleType || '—',
+        otherType: normalize(request.vehicleTypeOther),
+        brand: normalize(request.vehicleBrand),
+        model: normalize(request.vehicleModel),
+        colour: normalize(request.vehicleColour),
+        lengthFeet: asNumber(request.vehicleLength),
+        year: asNumber(request.vehicleYear),
+        plate: normalize(request.vehiclePlate),
+        province: normalize(request.vehicleProv)
+      },
+      insuranceCompany: normalize(request.insuranceCompany),
+      policyNumber: normalize(request.insurancePolicy),
+      insuranceExpiration: insuranceDate,
+      status: 'new',
+      addons: {
+        battery: request.battery === true,
+        propane: request.propane === true
+      },
+      contractAmount: null,
+      estimate: {
+        amount: estimateAmount,
+        deposit: depositEstimate
+      },
+      confirmationCode,
+      source: 'entrepot',
+      sourceLanguage: normalize(tenant.formLanguage),
+      submittedAt: now,
+      updatedAt: now,
+      createdAt: now,
+      updatedBy: null,
+      createdBy: null
+    });
+  });
+
+  if (!requestIds.length) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing vehicle type on all requests.');
+  }
+
+  await batch.commit();
+
+  try {
+    const locale = tenant.formLanguage === 'fr' ? 'fr' : 'en';
+    await sendStorageRequestConfirmationEmail({
+      to: tenantEmail,
+      locale,
+      confirmationCode,
+      tenant,
+      requests
+    });
+  } catch (err) {
+    console.error('Storage request confirmation email failed', err);
+  }
+
+  return { success: true, confirmationCode, requestIds, clientId };
 });

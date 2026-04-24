@@ -1085,6 +1085,28 @@ form {
   align-self: flex-start;
 }
 
+.cca-starting-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cca-starting-items-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.cca-starting-items-header h4 {
+  margin: 0;
+}
+
+.cca-starting-items table input {
+  width: 100%;
+}
+
 .cca-table {
   width: 100%;
   border-collapse: collapse;

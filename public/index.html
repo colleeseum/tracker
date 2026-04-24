@@ -309,9 +309,6 @@
                   <button type="button" data-panel="offerTemplates" role="tab" aria-selected="false">
                     Offer templates
                   </button>
-                  <button type="button" data-panel="offers" role="tab" aria-selected="false">
-                    Offers
-                  </button>
                   <button type="button" data-panel="addons" role="tab" aria-selected="false">
                     Add-ons
                   </button>
@@ -421,13 +418,12 @@
                             <th>Label (FR)</th>
                             <th>Slug</th>
                             <th>Order</th>
-                            <th>Legacy values</th>
                             <th></th>
                           </tr>
                         </thead>
                         <tbody id="vehicle-type-table-body">
                           <tr>
-                            <td colspan="7" class="empty">No vehicle types yet.</td>
+                            <td colspan="6" class="empty">No vehicle types yet.</td>
                           </tr>
                         </tbody>
                       </table>
@@ -459,29 +455,6 @@
                   </section>
                 </div>
 
-                <div class="pricing-panel hidden" data-panel="offers">
-                  <section class="card pricing-section">
-                <div class="table-wrapper">
-                  <table>
-                    <thead>
-                    <tr>
-                      <th>Season</th>
-                      <th>Template</th>
-                      <th>Amount / Rate</th>
-                      <th>Minimum</th>
-                      <th>Hidden?</th>
-                      <th></th>
-                    </tr>
-                    </thead>
-                    <tbody id="offer-table-body">
-                      <tr>
-                        <td colspan="6" class="empty">No offers yet.</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                  </section>
-                </div>
 
                 <div class="pricing-panel hidden" data-panel="addons">
                   <section class="card pricing-section">
@@ -819,9 +792,32 @@
                     <input type="number" id="cca-pool-initial-year" min="1900" step="1" required />
                   </label>
                   <label>
-                    Starting amount
-                    <input type="number" id="cca-pool-starting-amount" min="0" step="0.01" />
+                    Starting balance
+                    <input type="number" id="cca-pool-starting-amount" min="0" step="0.01" readonly />
                   </label>
+                  <div class="wide cca-starting-items">
+                    <div class="cca-starting-items-header">
+                      <div>
+                        <h4>Starting balance breakdown</h4>
+                        <p class="hint">The sum of item opening balances becomes the starting balance.</p>
+                      </div>
+                      <button type="button" id="add-cca-pool-starting-item" class="secondary">Add item</button>
+                    </div>
+                    <div class="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Description</th>
+                            <th>Purchase date</th>
+                            <th>Opening balance</th>
+                            <th>ACB</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody id="cca-pool-starting-item-rows"></tbody>
+                      </table>
+                    </div>
+                  </div>
                   <div class="form-actions">
                     <button type="submit" id="cca-pool-submit">Save pool</button>
                     <button type="button" id="cca-pool-cancel" class="secondary hidden">Cancel edit</button>
