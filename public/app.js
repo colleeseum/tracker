@@ -1173,15 +1173,17 @@ function subscribeToClients() {
 function subscribeToStorageRequests() {
   cleanStorageSubscription();
   const ref = collection(db, 'storageRequests');
-  const q = query(ref, orderBy('season'), orderBy('createdAt'));
   unsubscribeStorageRequests = onSnapshot(
-    q,
+    ref,
     (snapshot) => {
-      storageRequests = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      storageRequests = snapshot.docs
+        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+        .sort(compareStorageRequests);
       renderStorageTable();
     },
     (error) => {
       storageFormError.textContent = error.message;
+      renderStorageTableMessage(`Unable to load storage requests: ${error.message}`);
     }
   );
 }
@@ -1670,17 +1672,23 @@ function renderClientTable() {
   });
 }
 
+function renderStorageTableMessage(message) {
+  if (!storageTableBody) return;
+  storageTableBody.innerHTML = '';
+  const row = document.createElement('tr');
+  const cell = document.createElement('td');
+  cell.colSpan = 7;
+  cell.className = 'empty';
+  cell.textContent = message;
+  row.appendChild(cell);
+  storageTableBody.appendChild(row);
+}
+
 function renderStorageTable() {
   if (!storageTableBody) return;
   storageTableBody.innerHTML = '';
   if (!storageRequests.length) {
-    const row = document.createElement('tr');
-    const cell = document.createElement('td');
-    cell.colSpan = 7;
-    cell.className = 'empty';
-    cell.textContent = 'No storage requests yet.';
-    row.appendChild(cell);
-    storageTableBody.appendChild(row);
+    renderStorageTableMessage('No storage requests yet.');
     return;
   }
 
@@ -1761,6 +1769,12 @@ function renderStorageTable() {
 
     storageTableBody.appendChild(row);
   });
+}
+
+function compareStorageRequests(left, right) {
+  const seasonOrder = String(left?.season || '').localeCompare(String(right?.season || ''));
+  if (seasonOrder !== 0) return seasonOrder;
+  return timestampToMillis(left?.createdAt) - timestampToMillis(right?.createdAt);
 }
 
 function timestampToMillis(value) {
