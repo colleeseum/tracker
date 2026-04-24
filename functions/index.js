@@ -512,9 +512,7 @@ export const createStorageRequest = functions.https.onCall(async (data, context)
   }
 
   const requesterIp = extractIp(context.rawRequest);
-  if (payload.captchaToken) {
-    await verifyCaptcha(payload.captchaToken, requesterIp);
-  }
+  await verifyCaptcha(payload.captchaToken, requesterIp);
 
   const clientRef = db.collection('clients');
   let clientId = null;
@@ -674,9 +672,7 @@ export const createStorageRequests = functions.https.onCall(async (data, context
   }
 
   const requesterIp = extractIp(context.rawRequest);
-  if (payload.captchaToken) {
-    await verifyCaptcha(payload.captchaToken, requesterIp);
-  }
+  await verifyCaptcha(payload.captchaToken, requesterIp);
 
   const clientRef = db.collection('clients');
   let clientId = null;
