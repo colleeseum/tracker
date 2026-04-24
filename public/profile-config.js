@@ -3,13 +3,13 @@ export const PROFILE_CONFIG = {
   "profiles": {
     "local": {
       "label": "Local emulator",
-      "projectId": "expense-tracker-local",
+      "projectId": "tracker-187c5",
       "useEmulators": true,
       "firebase": {
         "apiKey": "local",
-        "authDomain": "expense-tracker-local",
-        "projectId": "expense-tracker-local",
-        "storageBucket": "expense-tracker-local.appspot.com",
+        "authDomain": "tracker-187c5.firebaseapp.com",
+        "projectId": "tracker-187c5",
+        "storageBucket": "tracker-187c5.firebasestorage.app",
         "messagingSenderId": "0",
         "appId": "tracker-local",
         "measurementId": "G-LOCAL"
