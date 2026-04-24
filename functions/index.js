@@ -223,6 +223,54 @@ function generateConfirmationCode() {
   return `FC-${date}-${random}`;
 }
 
+async function upsertWebsiteClient({
+  tenantName,
+  tenantPhone,
+  tenantEmail,
+  tenantEmailLower,
+  tenantAddress,
+  tenantCity,
+  tenantProvince,
+  tenantPostal,
+  formLanguage
+}) {
+  if (!tenantEmailLower || tenantEmailLower.includes('/')) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid email address.');
+  }
+  const clientId = tenantEmailLower;
+  const clientDoc = db.collection('clients').doc(clientId);
+  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const clientPayload = {
+    name: tenantName,
+    phone: tenantPhone,
+    email: tenantEmail,
+    emailLower: tenantEmailLower,
+    address: tenantAddress,
+    city: tenantCity,
+    province: tenantProvince,
+    postalCode: tenantPostal,
+    active: true,
+    notes: `Submitted via Entrepot website${formLanguage ? ` (${formLanguage})` : ''}`,
+    updatedAt: timestamp,
+    updatedBy: null
+  };
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(clientDoc);
+    if (snapshot.exists) {
+      transaction.set(clientDoc, clientPayload, { merge: true });
+      return;
+    }
+    transaction.set(clientDoc, {
+      ...clientPayload,
+      createdAt: timestamp,
+      createdBy: null
+    });
+  });
+
+  return clientId;
+}
+
 function formatStorageRequestLine(request, locale = 'en') {
   const parts = [];
   const typeLabel = request.vehicleTypeLabel || request.vehicleType || 'Vehicle';
@@ -514,40 +562,17 @@ export const createStorageRequest = functions.https.onCall(async (data, context)
   const requesterIp = extractIp(context.rawRequest);
   await verifyCaptcha(payload.captchaToken, requesterIp);
 
-  const clientRef = db.collection('clients');
-  let clientId = null;
-  const emailQuery = tenantEmailLower
-    ? await clientRef.where('emailLower', '==', tenantEmailLower).limit(1).get()
-    : null;
-  if (emailQuery && !emailQuery.empty) {
-    clientId = emailQuery.docs[0].id;
-  } else if (tenantEmail) {
-    const existing = await clientRef.where('email', '==', tenantEmail).limit(1).get();
-    if (!existing.empty) {
-      clientId = existing.docs[0].id;
-    }
-  }
-
-  if (!clientId) {
-    const clientPayload = {
-      name: tenantName,
-      phone: tenantPhone,
-      email: tenantEmail,
-      emailLower: tenantEmailLower,
-      address: tenantAddress,
-      city: tenantCity,
-      province: tenantProvince,
-      postalCode: tenantPostal,
-      active: true,
-      notes: `Submitted via Entrepot website${payload.formLanguage ? ` (${payload.formLanguage})` : ''}`,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      createdBy: null,
-      updatedBy: null
-    };
-    const clientDoc = await clientRef.add(clientPayload);
-    clientId = clientDoc.id;
-  }
+  const clientId = await upsertWebsiteClient({
+    tenantName,
+    tenantPhone,
+    tenantEmail,
+    tenantEmailLower,
+    tenantAddress,
+    tenantCity,
+    tenantProvince,
+    tenantPostal,
+    formLanguage: payload.formLanguage
+  });
 
   const insuranceExpiration = normalize(payload.insuranceExpiration);
   const insuranceDate =
@@ -674,40 +699,17 @@ export const createStorageRequests = functions.https.onCall(async (data, context
   const requesterIp = extractIp(context.rawRequest);
   await verifyCaptcha(payload.captchaToken, requesterIp);
 
-  const clientRef = db.collection('clients');
-  let clientId = null;
-  const emailQuery = tenantEmailLower
-    ? await clientRef.where('emailLower', '==', tenantEmailLower).limit(1).get()
-    : null;
-  if (emailQuery && !emailQuery.empty) {
-    clientId = emailQuery.docs[0].id;
-  } else if (tenantEmail) {
-    const existing = await clientRef.where('email', '==', tenantEmail).limit(1).get();
-    if (!existing.empty) {
-      clientId = existing.docs[0].id;
-    }
-  }
-
-  if (!clientId) {
-    const clientPayload = {
-      name: tenantName,
-      phone: tenantPhone,
-      email: tenantEmail,
-      emailLower: tenantEmailLower,
-      address: tenantAddress,
-      city: tenantCity,
-      province: tenantProvince,
-      postalCode: tenantPostal,
-      active: true,
-      notes: `Submitted via Entrepot website${tenant.formLanguage ? ` (${tenant.formLanguage})` : ''}`,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      createdBy: null,
-      updatedBy: null
-    };
-    const clientDoc = await clientRef.add(clientPayload);
-    clientId = clientDoc.id;
-  }
+  const clientId = await upsertWebsiteClient({
+    tenantName,
+    tenantPhone,
+    tenantEmail,
+    tenantEmailLower,
+    tenantAddress,
+    tenantCity,
+    tenantProvince,
+    tenantPostal,
+    formLanguage: tenant.formLanguage
+  });
 
   const confirmationCode = generateConfirmationCode();
   const now = admin.firestore.FieldValue.serverTimestamp();
