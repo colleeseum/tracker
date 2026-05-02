@@ -13,6 +13,7 @@ import {
   addDoc,
   collection,
   connectFirestoreEmulator,
+  deleteField,
   deleteDoc,
   doc,
   getDoc,
@@ -45,6 +46,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const functionsApp = getFunctions(app);
 const storage = getStorage(app);
+const getSitePublishPreviewCallable = httpsCallable(functionsApp, 'getSitePublishPreview');
 const requestSitePublishCallable = httpsCallable(functionsApp, 'requestSitePublish');
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -111,7 +113,14 @@ const newStorageRequestButton = document.getElementById('new-storage-request');
 const pricingPrimaryActionButton = document.getElementById('pricing-primary-action');
 const pricingSecondaryActionButton = document.getElementById('pricing-secondary-action');
 const requestPublishButton = document.getElementById('request-publish');
-const publishStatusLabel = document.getElementById('publish-status');
+const publishPreviewModal = document.getElementById('publish-preview-modal');
+const closePublishPreviewModalButton = document.getElementById('close-publish-preview-modal');
+const publishPreviewSummary = document.getElementById('publish-preview-summary');
+const publishPreviewTableBody = document.getElementById('publish-preview-table-body');
+const confirmPublishPreviewButton = document.getElementById('confirm-publish-preview');
+const cancelPublishPreviewButton = document.getElementById('cancel-publish-preview');
+const publishPreviewError = document.getElementById('publish-preview-error');
+const publishHistoryTableBody = document.getElementById('publish-history-table-body');
 const addEntryButton = document.getElementById('add-entry');
 const transferButton = document.getElementById('transfer-funds');
 const openLedgerExportButton = document.getElementById('open-ledger-export');
@@ -335,7 +344,6 @@ const vehicleTypeFormTitle = document.getElementById('vehicle-type-form-title');
 const vehicleTypeValueInput = document.getElementById('vehicle-type-value');
 const vehicleTypeLabelEnInput = document.getElementById('vehicle-type-label-en');
 const vehicleTypeLabelFrInput = document.getElementById('vehicle-type-label-fr');
-const vehicleTypeSlugInput = document.getElementById('vehicle-type-slug');
 const vehicleTypeOrderInput = document.getElementById('vehicle-type-order');
 const vehicleTypeLegacyInput = document.getElementById('vehicle-type-legacy');
 const vehicleTypeFormError = document.getElementById('vehicle-type-form-error');
@@ -376,14 +384,20 @@ const closeAddonModalButton = document.getElementById('close-addon-modal');
 const addonForm = document.getElementById('addon-form');
 const addonFormTitle = document.getElementById('addon-form-title');
 const addonCodeInput = document.getElementById('addon-code');
-const addonSeasonSelect = document.getElementById('addon-season');
 const addonNameEnInput = document.getElementById('addon-name-en');
 const addonNameFrInput = document.getElementById('addon-name-fr');
 const addonDescriptionEnInput = document.getElementById('addon-description-en');
 const addonDescriptionFrInput = document.getElementById('addon-description-fr');
-const addonPriceInput = document.getElementById('addon-price');
 const addonOrderInput = document.getElementById('addon-order');
 const addonFormError = document.getElementById('addon-form-error');
+const seasonAddonModal = document.getElementById('season-addon-modal');
+const closeSeasonAddonModalButton = document.getElementById('close-season-addon-modal');
+const seasonAddonForm = document.getElementById('season-addon-form');
+const seasonAddonFormTitle = document.getElementById('season-addon-form-title');
+const seasonAddonCodeSelect = document.getElementById('season-addon-code');
+const seasonAddonPriceInput = document.getElementById('season-addon-price');
+const seasonAddonOrderInput = document.getElementById('season-addon-order');
+const seasonAddonFormError = document.getElementById('season-addon-form-error');
 const copyModal = document.getElementById('copy-modal');
 const closeCopyModalButton = document.getElementById('close-copy-modal');
 const copyForm = document.getElementById('copy-form');
@@ -706,8 +720,12 @@ let offerTemplateLookup = new Map();
 let unsubscribeOfferTemplates = null;
 let editingOfferTemplateId = null;
 let addOns = [];
+let addOnLookup = new Map();
 let unsubscribeAddOns = null;
 let editingAddonId = null;
+let seasonAddOns = [];
+let unsubscribeSeasonAddOns = null;
+let editingSeasonAddonId = null;
 let mileageLogs = [];
 let mileageRates = [];
 let unsubscribeMileageLogs = null;
@@ -832,8 +850,15 @@ let editingCategoryId = null;
 let sitePublishStatus = null;
 let latestContentUpdateMs = 0;
 let latestContentUpdatedBy = null;
+let contentRevision = 0;
 let publishRequestInFlight = false;
+let pendingPublishPreview = null;
+let publishPreviewStatus = null;
+let publishPreviewRequestId = 0;
 let unsubscribePublishStatus = null;
+let publishHistory = [];
+let expandedPublishHistoryIds = new Set();
+let unsubscribePublishHistory = null;
 
 const STORAGE_STATUS_OPTIONS = [
   { value: 'new', label: 'New' },
@@ -864,8 +889,10 @@ const PRICING_PANEL_ACTIONS = {
   etiquette: {
     primary: { label: 'Add etiquette note', handler: () => openEtiquetteModal('create') }
   },
-  copy: {
+  i18n: {
     primary: { label: 'Add copy entry', handler: () => openCopyModal('create') }
+  },
+  publishHistory: {
   }
 };
 
@@ -977,9 +1004,18 @@ function cleanOffersData() {
 
 function cleanAddOnsData() {
   addOns = [];
+  addOnLookup = new Map();
   editingAddonId = null;
   renderAddonTable();
   closeAddonModal();
+}
+
+function cleanSeasonAddOnsData() {
+  seasonAddOns = [];
+  addonPriceLookup = new Map();
+  editingSeasonAddonId = null;
+  renderSeasonAddonsTable(activeSeasonId);
+  closeSeasonAddonModal();
 }
 
 function cleanConditionsData() {
@@ -1001,6 +1037,20 @@ function cleanMarketingCopyData() {
   editingCopyId = null;
   renderCopyTable();
   closeCopyModal();
+}
+
+function cleanPublishHistoryData() {
+  publishHistory = [];
+  expandedPublishHistoryIds = new Set();
+  renderPublishHistoryTable();
+}
+
+function cleanPublishStateData() {
+  latestContentUpdateMs = 0;
+  latestContentUpdatedBy = null;
+  contentRevision = 0;
+  publishPreviewStatus = null;
+  updatePublishButtonState();
 }
 
 function cleanCategoriesData() {
@@ -1283,18 +1333,43 @@ function subscribeToAddOns() {
     q,
     (snapshot) => {
       addOns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-      addonPriceLookup = new Map();
+      addOnLookup = new Map();
       addOns.forEach((addon) => {
-        const key = buildAddonPriceKey(addon.seasonId, addon.code);
-        addonPriceLookup.set(key, Number(addon.price) || 0);
+        if (addon.code) addOnLookup.set(addon.code, addon);
+        addOnLookup.set(addon.id, addon);
       });
       renderAddonTable();
+      updateSeasonAddonOptions();
       renderSeasonOffersPanel();
       renderStorageTable();
       updateLatestContentTimestamp();
     },
     (error) => {
       addonFormError.textContent = error.message;
+    }
+  );
+}
+
+function subscribeToSeasonAddOns() {
+  cleanSeasonAddonSubscription();
+  const ref = collection(db, 'storageSeasonAddOns');
+  const q = query(ref, orderBy('order'));
+  unsubscribeSeasonAddOns = onSnapshot(
+    q,
+    (snapshot) => {
+      seasonAddOns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      addonPriceLookup = new Map();
+      seasonAddOns.forEach((addon) => {
+        const code = addon.code || addon.addonId;
+        const key = buildAddonPriceKey(addon.seasonId, code);
+        addonPriceLookup.set(key, Number(addon.price) || 0);
+      });
+      renderSeasonOffersPanel();
+      renderStorageTable();
+      updateLatestContentTimestamp();
+    },
+    (error) => {
+      if (seasonAddonFormError) seasonAddonFormError.textContent = error.message;
     }
   );
 }
@@ -1420,11 +1495,32 @@ function subscribeToPublishStatus() {
     statusDoc,
     (snapshot) => {
       sitePublishStatus = snapshot.exists() ? snapshot.data() : null;
+      publishPreviewStatus = null;
+      refreshPublishPreviewStatus();
       updatePublishButtonState();
       renderDashboard();
     },
     (error) => {
       console.error('Failed to load publish status', error);
+    }
+  );
+}
+
+function subscribeToPublishHistory() {
+  if (unsubscribePublishHistory) {
+    unsubscribePublishHistory();
+  }
+  const ref = collection(db, 'sitePublishHistory');
+  const q = query(ref, orderBy('requestedAt', 'desc'));
+  unsubscribePublishHistory = onSnapshot(
+    q,
+    (snapshot) => {
+      publishHistory = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      renderPublishHistoryTable();
+    },
+    (error) => {
+      console.error('Failed to load publish history', error);
+      renderPublishHistoryTable(`Unable to load publish history: ${error.message}`);
     }
   );
 }
@@ -1483,6 +1579,20 @@ function cleanAddonSubscription() {
     unsubscribeAddOns();
   }
   unsubscribeAddOns = null;
+}
+
+function cleanPublishHistorySubscription() {
+  if (unsubscribePublishHistory) {
+    unsubscribePublishHistory();
+  }
+  unsubscribePublishHistory = null;
+}
+
+function cleanSeasonAddonSubscription() {
+  if (unsubscribeSeasonAddOns) {
+    unsubscribeSeasonAddOns();
+  }
+  unsubscribeSeasonAddOns = null;
 }
 
 function cleanConditionSubscription() {
@@ -1786,12 +1896,14 @@ function timestampToMillis(value) {
 }
 
 function updateLatestContentTimestamp() {
+  contentRevision += 1;
   const candidates = [
     ...seasons,
     ...vehicleTypes,
     ...offerTemplates,
     ...offers,
     ...addOns,
+    ...seasonAddOns,
     ...conditions,
     ...etiquetteEntries,
     ...marketingCopyEntries
@@ -1811,6 +1923,8 @@ function updateLatestContentTimestamp() {
   );
   latestContentUpdateMs = newest.ms;
   latestContentUpdatedBy = newest.by;
+  publishPreviewStatus = null;
+  refreshPublishPreviewStatus();
   updatePublishButtonState();
   renderDashboard();
 }
@@ -1861,26 +1975,144 @@ function updatePricingToolbarActions() {
   }
 }
 
+async function refreshPublishPreviewStatus() {
+  if (!requestPublishButton || publishRequestInFlight) return;
+  const requestId = ++publishPreviewRequestId;
+  publishPreviewStatus = { loading: true, diffTotal: 0 };
+  updatePublishButtonState();
+  try {
+    const result = await getSitePublishPreviewCallable({ latestChangeAt: latestContentUpdateMs, contentRevision });
+    if (requestId !== publishPreviewRequestId) return;
+    publishPreviewStatus = {
+      loading: false,
+      diffTotal: Number(result.data?.diff?.total) || 0,
+      preview: result.data || null
+    };
+  } catch (error) {
+    if (requestId !== publishPreviewRequestId) return;
+    console.error('Publish preview status failed', error);
+    publishPreviewStatus = { loading: false, error };
+  }
+  updatePublishButtonState();
+}
+
+function refreshPublishPreviewAfterContentWrite() {
+  publishPreviewStatus = null;
+  updatePublishButtonState();
+  refreshPublishPreviewStatus();
+}
+
 function updatePublishButtonState() {
   if (!requestPublishButton) return;
   const showingPricing = isPricingViewActive();
   requestPublishButton.classList.toggle('hidden', !showingPricing);
-  if (publishStatusLabel) {
-    publishStatusLabel.classList.toggle('hidden', !showingPricing);
-  }
   if (!showingPricing) return;
-  const lastPublishedMillis = timestampToMillis(sitePublishStatus?.lastPublishedAt);
-  const hasChanges = latestContentUpdateMs > lastPublishedMillis;
-  const disabled = !hasChanges || publishRequestInFlight;
+  const isLoading = Boolean(publishPreviewStatus?.loading);
+  const hasChanges = Number(publishPreviewStatus?.diffTotal) > 0;
+  const hasError = Boolean(publishPreviewStatus?.error);
+  const disabled = isLoading || hasError || !hasChanges || publishRequestInFlight;
   requestPublishButton.disabled = disabled;
-  if (publishStatusLabel) {
-    const lastPublished = sitePublishStatus?.lastPublishedAt
-      ? new Date(timestampToMillis(sitePublishStatus.lastPublishedAt)).toLocaleString()
-      : 'never';
-    publishStatusLabel.textContent = hasChanges
-      ? `Changes pending publish (last publish: ${lastPublished}).`
-      : `Website text is up to date (last publish: ${lastPublished}).`;
+  requestPublishButton.textContent = hasError ? 'Publish check failed' : isLoading ? 'Checking changes' : 'Publish changes';
+  requestPublishButton.title = hasError
+    ? publishPreviewStatus.error?.message || 'Unable to check website text changes.'
+    : hasChanges
+      ? 'Review and publish website text changes.'
+      : 'No website text changes to publish.';
+  requestPublishButton.classList.toggle('publish-pending', hasChanges);
+}
+
+function formatPublishChangeType(type) {
+  if (type === 'added') return 'Added';
+  if (type === 'removed') return 'Removed';
+  return 'Changed';
+}
+
+function formatPublishDiffValue(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const localizedLines = [];
+    if (Object.prototype.hasOwnProperty.call(value, 'en')) {
+      localizedLines.push(`EN: ${formatPublishDiffValue(value.en)}`);
+    }
+    if (Object.prototype.hasOwnProperty.call(value, 'fr')) {
+      localizedLines.push(`FR: ${formatPublishDiffValue(value.fr)}`);
+    }
+    if (localizedLines.length) return localizedLines.join('\n');
   }
+  return JSON.stringify(value, null, 2);
+}
+
+function appendPublishDiffRows(tableBody, diff) {
+  const changes = Array.isArray(diff?.changes) ? diff.changes : [];
+  changes.forEach((change) => {
+    const fieldDiffs = Array.isArray(change.fieldDiffs) && change.fieldDiffs.length
+      ? change.fieldDiffs
+      : [{ field: Array.isArray(change.fields) ? change.fields.join(', ') : '—', before: null, after: null }];
+    fieldDiffs.forEach((fieldDiff) => {
+      const row = document.createElement('tr');
+      const cells = [
+        formatPublishChangeType(change.type),
+        `${change.collection}/${change.id}`,
+        fieldDiff.field || '—',
+        formatPublishDiffValue(fieldDiff.before),
+        formatPublishDiffValue(fieldDiff.after)
+      ];
+      cells.forEach((value, index) => {
+        const cell = document.createElement('td');
+        if (index >= 3) {
+          cell.className = 'publish-preview-value';
+        }
+        cell.textContent = value;
+        row.appendChild(cell);
+      });
+      tableBody.appendChild(row);
+    });
+  });
+}
+
+function renderPublishPreview(preview) {
+  const diff = preview?.diff || { total: 0, added: 0, changed: 0, removed: 0, changes: [] };
+  if (publishPreviewSummary) {
+    publishPreviewSummary.textContent =
+      diff.total === 0
+        ? 'No staged website text changes were found.'
+        : `${diff.total} staged change${diff.total === 1 ? '' : 's'}: ${diff.added || 0} added, ${
+            diff.changed || 0
+          } changed, ${diff.removed || 0} removed.`;
+  }
+  if (!publishPreviewTableBody) return;
+  publishPreviewTableBody.innerHTML = '';
+  if (!diff.changes?.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.className = 'empty';
+    cell.textContent = 'No changes to publish.';
+    row.appendChild(cell);
+    publishPreviewTableBody.appendChild(row);
+    return;
+  }
+  appendPublishDiffRows(publishPreviewTableBody, diff);
+}
+
+function openPublishPreviewModal(preview) {
+  if (!publishPreviewModal) return;
+  pendingPublishPreview = preview;
+  if (publishPreviewError) publishPreviewError.textContent = '';
+  renderPublishPreview(preview);
+  if (confirmPublishPreviewButton) {
+    confirmPublishPreviewButton.disabled = !preview?.diff?.total;
+  }
+  publishPreviewModal.classList.remove('hidden');
+}
+
+function closePublishPreviewModal() {
+  if (!publishPreviewModal) return;
+  publishPreviewModal.classList.add('hidden');
+  pendingPublishPreview = null;
+  if (publishPreviewError) publishPreviewError.textContent = '';
 }
 
 function ensureLegacySeasonOption(value) {
@@ -1900,9 +2132,6 @@ function updateSeasonOptions() {
   }
   if (storageSeasonSelect) {
     selects.push({ element: storageSeasonSelect, placeholder: 'Select season' });
-  }
-  if (addonSeasonSelect) {
-    selects.push({ element: addonSeasonSelect, placeholder: 'Select season' });
   }
   selects.forEach(({ element, placeholder }) => {
     const previousValue = element.value;
@@ -4144,7 +4373,7 @@ function renderSeasonAddonsTable(seasonId) {
     seasonAddonsTableBody.appendChild(row);
     return;
   }
-  const seasonAddons = addOns
+  const seasonAddons = seasonAddOns
     .filter((addon) => addon.seasonId === seasonId)
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
   if (!seasonAddons.length) {
@@ -4160,8 +4389,10 @@ function renderSeasonAddonsTable(seasonId) {
   seasonAddons.forEach((addon) => {
     const row = document.createElement('tr');
     row.dataset.addonId = addon.id;
-    const label = addon.name?.en || addon.code || '—';
-    const codeSuffix = addon.code ? ` (${addon.code})` : '';
+    const definition = getAddOnDefinition(addon);
+    const label = definition?.name?.en || addon.code || addon.addonId || '—';
+    const code = definition?.code || addon.code || addon.addonId || '';
+    const codeSuffix = code ? ` (${code})` : '';
     const cells = [label + codeSuffix, addon.price != null ? formatCurrency(addon.price) : '—'];
     cells.forEach((value) => {
       const cell = document.createElement('td');
@@ -4172,7 +4403,7 @@ function renderSeasonAddonsTable(seasonId) {
     const editButton = document.createElement('button');
     editButton.type = 'button';
     editButton.className = 'icon-button';
-    editButton.dataset.action = 'edit-addon';
+    editButton.dataset.action = 'edit-season-addon';
     editButton.dataset.id = addon.id;
     editButton.setAttribute('aria-label', `Edit ${label || 'add-on'}`);
     editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit ${label || 'add-on'}" />`;
@@ -4180,7 +4411,7 @@ function renderSeasonAddonsTable(seasonId) {
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
     deleteButton.className = 'icon-button';
-    deleteButton.dataset.action = 'delete-addon';
+    deleteButton.dataset.action = 'delete-season-addon';
     deleteButton.dataset.id = addon.id;
     deleteButton.setAttribute('aria-label', `Delete ${label || 'add-on'}`);
     deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete add-on" data-icon="trash" />';
@@ -4196,7 +4427,7 @@ function renderVehicleTypeTable() {
   if (!vehicleTypes.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 6;
+    cell.colSpan = 5;
     cell.className = 'empty';
     cell.textContent = 'No vehicle types yet.';
     row.appendChild(cell);
@@ -4209,7 +4440,6 @@ function renderVehicleTypeTable() {
       type.value || '—',
       type.labels?.en || '—',
       type.labels?.fr || '—',
-      type.slug || '—',
       Number.isFinite(type.order) ? type.order : '—'
     ];
     cells.forEach((value) => {
@@ -4380,7 +4610,7 @@ function renderAddonTable() {
   if (!addOns.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 6;
+    cell.colSpan = 5;
     cell.className = 'empty';
     cell.textContent = 'No add-on services yet.';
     row.appendChild(cell);
@@ -4388,23 +4618,18 @@ function renderAddonTable() {
     return;
   }
   const sortedAddons = [...addOns].sort((a, b) => {
-    const seasonA = formatSeasonDisplayLabel(a.seasonId).toLowerCase();
-    const seasonB = formatSeasonDisplayLabel(b.seasonId).toLowerCase();
-    if (seasonA !== seasonB) {
-      return seasonA.localeCompare(seasonB);
-    }
     const orderA = Number.isFinite(a.order) ? a.order : 0;
     const orderB = Number.isFinite(b.order) ? b.order : 0;
-    return orderA - orderB;
+    if (orderA !== orderB) return orderA - orderB;
+    return (a.code || '').localeCompare(b.code || '');
   });
   sortedAddons.forEach((addon) => {
     const row = document.createElement('tr');
     const cells = [
-      formatSeasonDisplayLabel(addon.seasonId),
       addon.code || '—',
       addon.name?.en || '—',
       addon.name?.fr || '—',
-      addon.price != null ? formatCurrency(addon.price) : '—'
+      Number.isFinite(addon.order) ? addon.order : '—'
     ];
     cells.forEach((value) => {
       const cell = document.createElement('td');
@@ -4577,6 +4802,89 @@ function renderCopyTable() {
     actionCell.appendChild(deleteButton);
     row.appendChild(actionCell);
     copyTableBody.appendChild(row);
+  });
+}
+
+function renderPublishHistoryTable(message = '') {
+  if (!publishHistoryTableBody) return;
+  publishHistoryTableBody.innerHTML = '';
+  if (message || !publishHistory.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.className = 'empty';
+    cell.textContent = message || 'No publish history yet.';
+    row.appendChild(cell);
+    publishHistoryTableBody.appendChild(row);
+    return;
+  }
+  publishHistory.forEach((entry) => {
+    const row = document.createElement('tr');
+    row.className = 'publish-history-row';
+    const total = Number(entry.diff?.total) || 0;
+    const summary = `${entry.diff?.added || 0} added, ${entry.diff?.changed || 0} changed, ${
+      entry.diff?.removed || 0
+    } removed`;
+    const hasDiffRows = Array.isArray(entry.diff?.changes) && entry.diff.changes.length > 0;
+    const expanded = expandedPublishHistoryIds.has(entry.id);
+    const cells = [
+      formatDateTimeFromMillis(timestampToMillis(entry.requestedAt)),
+      entry.requestedBy || '—',
+      entry.dryRun ? 'Dry run' : 'Published'
+    ];
+    cells.forEach((value) => {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+
+    const changesCell = document.createElement('td');
+    if (hasDiffRows) {
+      const toggleButton = document.createElement('button');
+      toggleButton.type = 'button';
+      toggleButton.className = 'link publish-history-toggle';
+      toggleButton.dataset.action = 'toggle-publish-history';
+      toggleButton.dataset.id = entry.id;
+      toggleButton.setAttribute('aria-expanded', String(expanded));
+      toggleButton.textContent = expanded ? `Hide ${total} change${total === 1 ? '' : 's'}` : `Show ${total} change${total === 1 ? '' : 's'}`;
+      changesCell.appendChild(toggleButton);
+    } else {
+      changesCell.textContent = total;
+    }
+    row.appendChild(changesCell);
+
+    const summaryCell = document.createElement('td');
+    summaryCell.textContent = summary;
+    row.appendChild(summaryCell);
+    publishHistoryTableBody.appendChild(row);
+
+    if (expanded && hasDiffRows) {
+      const detailRow = document.createElement('tr');
+      detailRow.className = 'publish-history-detail-row';
+      const detailCell = document.createElement('td');
+      detailCell.colSpan = 5;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'table-wrapper publish-history-detail-wrapper';
+      const table = document.createElement('table');
+      table.className = 'publish-preview-table publish-history-diff-table';
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th class="publish-preview-change-column">Change</th>
+            <th class="publish-preview-document-column">Document</th>
+            <th class="publish-preview-field-column">Field</th>
+            <th class="publish-preview-value-column">Old value</th>
+            <th class="publish-preview-value-column">New value</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      appendPublishDiffRows(table.querySelector('tbody'), entry.diff);
+      wrapper.appendChild(table);
+      detailCell.appendChild(wrapper);
+      detailRow.appendChild(detailCell);
+      publishHistoryTableBody.appendChild(detailRow);
+    }
   });
 }
 
@@ -6267,6 +6575,34 @@ function buildAddonPriceKey(seasonId, code) {
   return `${seasonId || GLOBAL_ADDON_PRICE_SCOPE}::${code}`;
 }
 
+function getAddOnDefinition(addonOrCode) {
+  const code =
+    typeof addonOrCode === 'string'
+      ? addonOrCode
+      : addonOrCode?.code || addonOrCode?.addonId || addonOrCode?.id || '';
+  if (!code) return null;
+  return addOnLookup.get(code) || addOns.find((addon) => addon.code === code || addon.id === code) || null;
+}
+
+function updateSeasonAddonOptions(selectedCode = '') {
+  if (!seasonAddonCodeSelect) return;
+  const previousValue = selectedCode || seasonAddonCodeSelect.value;
+  seasonAddonCodeSelect.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select add-on';
+  seasonAddonCodeSelect.appendChild(placeholder);
+  addOns.forEach((addon) => {
+    const option = document.createElement('option');
+    option.value = addon.code || addon.id;
+    option.textContent = addon.name?.en || addon.code || addon.id;
+    seasonAddonCodeSelect.appendChild(option);
+  });
+  if (previousValue && Array.from(seasonAddonCodeSelect.options).some((option) => option.value === previousValue)) {
+    seasonAddonCodeSelect.value = previousValue;
+  }
+}
+
 function getAddonPrice(code, seasonId) {
   if (!code) return 0;
   if (seasonId) {
@@ -6495,7 +6831,6 @@ function openVehicleTypeModal(mode, entry = null) {
     vehicleTypeValueInput.value = entry.value || '';
     vehicleTypeLabelEnInput.value = entry.labels?.en || '';
     vehicleTypeLabelFrInput.value = entry.labels?.fr || '';
-    vehicleTypeSlugInput.value = entry.slug || '';
     vehicleTypeOrderInput.value = Number.isFinite(entry.order) ? entry.order : 0;
     vehicleTypeLegacyInput.value = (entry.legacyValues || []).join(', ');
   } else {
@@ -6503,7 +6838,6 @@ function openVehicleTypeModal(mode, entry = null) {
     vehicleTypeFormTitle.textContent = 'New vehicle type';
     vehicleTypeForm.reset();
     vehicleTypeOrderInput.value = 0;
-    vehicleTypeSlugInput.value = '';
     vehicleTypeLegacyInput.value = '';
   }
   vehicleTypeFormError.textContent = '';
@@ -6516,7 +6850,6 @@ function closeVehicleTypeModal() {
   vehicleTypeModal.classList.add('hidden');
   vehicleTypeForm.reset();
   vehicleTypeOrderInput.value = 0;
-  vehicleTypeSlugInput.value = '';
   vehicleTypeLegacyInput.value = '';
   vehicleTypeFormError.textContent = '';
   editingVehicleTypeId = null;
@@ -6622,20 +6955,15 @@ function syncOfferPriceFields() {
   offerUnitFrWrapper.classList.toggle('hidden', !showPerFoot);
 }
 
-function openAddonModal(mode, addon = null, options = {}) {
-  updateSeasonOptions();
+function openAddonModal(mode, addon = null) {
   if (mode === 'edit' && addon) {
     editingAddonId = addon.id;
     addonFormTitle.textContent = `Edit ${addon.code || 'add-on'}`;
     addonCodeInput.value = addon.code || '';
-    if (addonSeasonSelect) {
-      addonSeasonSelect.value = addon.seasonId || '';
-    }
     addonNameEnInput.value = addon.name?.en || '';
     addonNameFrInput.value = addon.name?.fr || '';
     addonDescriptionEnInput.value = addon.description?.en || '';
     addonDescriptionFrInput.value = addon.description?.fr || '';
-    addonPriceInput.value = addon.price ?? '';
     addonOrderInput.value = Number.isFinite(addon.order) ? addon.order : 0;
     addonCodeInput.disabled = true;
   } else {
@@ -6644,11 +6972,6 @@ function openAddonModal(mode, addon = null, options = {}) {
     addonForm.reset();
     addonOrderInput.value = 0;
     addonCodeInput.disabled = false;
-    if (addonSeasonSelect) {
-      const preferredSeasonId =
-        options?.seasonId && seasonLookup.has(options.seasonId) ? options.seasonId : seasons[0]?.id || '';
-      addonSeasonSelect.value = preferredSeasonId || '';
-    }
   }
   addonFormError.textContent = '';
   addonModal.classList.remove('hidden');
@@ -6661,10 +6984,45 @@ function closeAddonModal() {
   addonOrderInput.value = 0;
   addonFormError.textContent = '';
   addonCodeInput.disabled = false;
-  if (addonSeasonSelect) {
-    addonSeasonSelect.value = '';
-  }
   editingAddonId = null;
+}
+
+function openSeasonAddonModal(mode, seasonAddon = null, options = {}) {
+  if (!seasonAddonModal) return;
+  updateSeasonAddonOptions(seasonAddon?.code || seasonAddon?.addonId || '');
+  if (mode === 'edit' && seasonAddon) {
+    editingSeasonAddonId = seasonAddon.id;
+    const definition = getAddOnDefinition(seasonAddon);
+    seasonAddonFormTitle.textContent = `Edit ${definition?.name?.en || seasonAddon.code || 'season add-on'}`;
+    seasonAddonCodeSelect.value = seasonAddon.code || seasonAddon.addonId || '';
+    seasonAddonCodeSelect.disabled = true;
+    seasonAddonPriceInput.value = seasonAddon.price ?? '';
+    seasonAddonOrderInput.value = Number.isFinite(seasonAddon.order) ? seasonAddon.order : 0;
+  } else {
+    editingSeasonAddonId = null;
+    seasonAddonFormTitle.textContent = 'New season add-on';
+    seasonAddonForm.reset();
+    seasonAddonCodeSelect.disabled = false;
+    seasonAddonOrderInput.value = 0;
+    if (options?.code) {
+      seasonAddonCodeSelect.value = options.code;
+    }
+  }
+  seasonAddonForm.dataset.seasonId = options?.seasonId || seasonAddon?.seasonId || activeSeasonId || '';
+  seasonAddonFormError.textContent = '';
+  seasonAddonModal.classList.remove('hidden');
+  seasonAddonCodeSelect.focus();
+}
+
+function closeSeasonAddonModal() {
+  if (!seasonAddonModal) return;
+  seasonAddonModal.classList.add('hidden');
+  seasonAddonForm.reset();
+  seasonAddonForm.dataset.seasonId = '';
+  seasonAddonCodeSelect.disabled = false;
+  seasonAddonOrderInput.value = 0;
+  seasonAddonFormError.textContent = '';
+  editingSeasonAddonId = null;
 }
 
 function openConditionModal(mode, entry = null) {
@@ -6799,12 +7157,15 @@ async function deleteCategoryById(categoryId) {
 async function deleteSeasonById(seasonId) {
   const season = seasonLookup.get(seasonId);
   const label = season?.label?.en || season?.name?.en || seasonId;
-  if (!window.confirm(`Delete season "${label}" and its offers? This cannot be undone.`)) return;
+  if (!window.confirm(`Delete season "${label}" and its offers/add-on prices? This cannot be undone.`)) return;
   const batch = writeBatch(db);
   batch.delete(doc(db, 'storageSeasons', seasonId));
   offers
     .filter((offer) => offer.seasonId === seasonId)
     .forEach((offer) => batch.delete(doc(db, 'storageOffers', offer.id)));
+  seasonAddOns
+    .filter((addon) => addon.seasonId === seasonId)
+    .forEach((addon) => batch.delete(doc(db, 'storageSeasonAddOns', addon.id)));
   await batch.commit();
 }
 
@@ -6847,12 +7208,12 @@ async function duplicateSeasonOffers(sourceSeasonId, targetSeasonId) {
 
 async function duplicateSeasonAddOns(sourceSeasonId, targetSeasonId) {
   if (!sourceSeasonId || !targetSeasonId) return;
-  const sourceAddons = addOns.filter((addon) => addon.seasonId === sourceSeasonId);
+  const sourceAddons = seasonAddOns.filter((addon) => addon.seasonId === sourceSeasonId);
   if (!sourceAddons.length) return;
   const batch = writeBatch(db);
   sourceAddons.forEach((addon) => {
     const { id, createdAt, createdBy, updatedAt, updatedBy, ...rest } = addon;
-    const newRef = doc(collection(db, 'storageAddOns'));
+    const newRef = doc(collection(db, 'storageSeasonAddOns'));
     batch.set(newRef, {
       ...rest,
       seasonId: targetSeasonId,
@@ -6913,6 +7274,7 @@ async function deleteOfferById(offerId) {
   const label = offer?.label?.en || offerId;
   if (!window.confirm(`Delete offer "${label}"?`)) return;
   await deleteDoc(doc(db, 'storageOffers', offerId));
+  refreshPublishPreviewAfterContentWrite();
 }
 
 async function deleteOfferTemplateById(templateId) {
@@ -6936,7 +7298,22 @@ async function deleteAddonById(addonId) {
   const addon = addOns.find((item) => item.id === addonId || item.code === addonId);
   const label = addon?.name?.en || addonId;
   if (!window.confirm(`Delete add-on "${label}"?`)) return;
-  await deleteDoc(doc(db, 'storageAddOns', addonId));
+  const relatedSeasonAddOns = seasonAddOns.filter((item) => {
+    if (!addon) return false;
+    return item.code === addon.code || item.addonId === addon.id;
+  });
+  const batch = writeBatch(db);
+  relatedSeasonAddOns.forEach((item) => batch.delete(doc(db, 'storageSeasonAddOns', item.id)));
+  batch.delete(doc(db, 'storageAddOns', addonId));
+  await batch.commit();
+}
+
+async function deleteSeasonAddonById(addonId) {
+  const addon = seasonAddOns.find((item) => item.id === addonId);
+  const definition = getAddOnDefinition(addon);
+  const label = definition?.name?.en || addon?.code || addonId;
+  if (!window.confirm(`Delete season add-on "${label}"?`)) return;
+  await deleteDoc(doc(db, 'storageSeasonAddOns', addonId));
 }
 
 async function deleteConditionById(conditionId) {
@@ -7056,19 +7433,28 @@ if (clientModal) {
 
 if (requestPublishButton) {
   requestPublishButton.addEventListener('click', async () => {
-    if (!latestContentUpdateMs) {
+    if (!contentRevision) {
+      return;
+    }
+    if (publishPreviewStatus?.preview && Number(publishPreviewStatus.diffTotal) === 0) {
+      openPublishPreviewModal(publishPreviewStatus.preview);
       return;
     }
     publishRequestInFlight = true;
     updatePublishButtonState();
     try {
-      await requestSitePublishCallable({ latestChangeAt: latestContentUpdateMs });
-      if (publishStatusLabel) {
-        publishStatusLabel.textContent = 'Publish requested. GitHub will redeploy shortly.';
-      }
+      const preview = publishPreviewStatus?.preview && Number(publishPreviewStatus.diffTotal) > 0
+        ? publishPreviewStatus.preview
+        : (await getSitePublishPreviewCallable({ latestChangeAt: latestContentUpdateMs, contentRevision })).data || {};
+      publishPreviewStatus = {
+        loading: false,
+        diffTotal: Number(preview?.diff?.total) || 0,
+        preview
+      };
+      openPublishPreviewModal(preview);
     } catch (error) {
-      console.error('Publish request failed', error);
-      alert(error.message || 'Publish request failed.');
+      console.error('Publish preview failed', error);
+      alert(error.message || 'Publish preview failed.');
     } finally {
       publishRequestInFlight = false;
       updatePublishButtonState();
@@ -7206,7 +7592,7 @@ if (duplicateSeasonButton) {
 if (addAddonToSeasonButton) {
   addAddonToSeasonButton.addEventListener('click', () => {
     if (!activeSeasonId) return;
-    openAddonModal('create', null, { seasonId: activeSeasonId });
+    openSeasonAddonModal('create', null, { seasonId: activeSeasonId });
   });
 }
 
@@ -7308,17 +7694,17 @@ if (seasonOffersTableBody) {
 
 if (seasonAddonsTableBody) {
   seasonAddonsTableBody.addEventListener('click', (event) => {
-    const editButton = event.target.closest('button[data-action="edit-addon"]');
+    const editButton = event.target.closest('button[data-action="edit-season-addon"]');
     if (editButton) {
-      const addon = addOns.find((item) => item.id === editButton.dataset.id);
+      const addon = seasonAddOns.find((item) => item.id === editButton.dataset.id);
       if (addon) {
-        openAddonModal('edit', addon);
+        openSeasonAddonModal('edit', addon, { seasonId: addon.seasonId });
       }
       return;
     }
-    const deleteButton = event.target.closest('button[data-action="delete-addon"]');
+    const deleteButton = event.target.closest('button[data-action="delete-season-addon"]');
     if (deleteButton) {
-      deleteAddonById(deleteButton.dataset.id);
+      deleteSeasonAddonById(deleteButton.dataset.id);
     }
   });
 }
@@ -7400,6 +7786,86 @@ if (addonModal) {
   addonModal.addEventListener('click', (event) => {
     if (event.target === addonModal) {
       closeAddonModal();
+    }
+  });
+}
+
+if (closeSeasonAddonModalButton) {
+  closeSeasonAddonModalButton.addEventListener('click', () => {
+    closeSeasonAddonModal();
+  });
+}
+
+if (seasonAddonModal) {
+  seasonAddonModal.addEventListener('click', (event) => {
+    if (event.target === seasonAddonModal) {
+      closeSeasonAddonModal();
+    }
+  });
+}
+
+if (closePublishPreviewModalButton) {
+  closePublishPreviewModalButton.addEventListener('click', closePublishPreviewModal);
+}
+
+if (cancelPublishPreviewButton) {
+  cancelPublishPreviewButton.addEventListener('click', closePublishPreviewModal);
+}
+
+if (publishPreviewModal) {
+  publishPreviewModal.addEventListener('click', (event) => {
+    if (event.target === publishPreviewModal) {
+      closePublishPreviewModal();
+    }
+  });
+}
+
+if (publishHistoryTableBody) {
+  publishHistoryTableBody.addEventListener('click', (event) => {
+    const toggleButton = event.target.closest('button[data-action="toggle-publish-history"]');
+    if (!toggleButton) return;
+    const historyId = toggleButton.dataset.id;
+    if (!historyId) return;
+    if (expandedPublishHistoryIds.has(historyId)) {
+      expandedPublishHistoryIds.delete(historyId);
+    } else {
+      expandedPublishHistoryIds.add(historyId);
+    }
+    renderPublishHistoryTable();
+  });
+}
+
+if (confirmPublishPreviewButton) {
+  confirmPublishPreviewButton.addEventListener('click', async () => {
+    publishRequestInFlight = true;
+    confirmPublishPreviewButton.disabled = true;
+    if (publishPreviewError) publishPreviewError.textContent = '';
+    updatePublishButtonState();
+    try {
+      const result = await requestSitePublishCallable({
+        latestChangeAt: latestContentUpdateMs,
+        contentRevision,
+        previewTotal: pendingPublishPreview?.diff?.total || 0
+      });
+      closePublishPreviewModal();
+      requestPublishButton.title = result.data?.dryRun
+        ? 'Dry-run publish recorded locally. Run the local export script to update Entrepôt.'
+        : 'Publish requested. GitHub will redeploy shortly.';
+      publishPreviewStatus = null;
+      refreshPublishPreviewStatus();
+    } catch (error) {
+      console.error('Publish request failed', error);
+      if (publishPreviewError) {
+        publishPreviewError.textContent = error.message || 'Publish request failed.';
+      } else {
+        alert(error.message || 'Publish request failed.');
+      }
+    } finally {
+      publishRequestInFlight = false;
+      if (confirmPublishPreviewButton) {
+        confirmPublishPreviewButton.disabled = !pendingPublishPreview?.diff?.total;
+      }
+      updatePublishButtonState();
     }
   });
 }
@@ -7839,7 +8305,7 @@ if (vehicleTypeForm) {
     const value = vehicleTypeValueInput.value.trim();
     const labelEn = vehicleTypeLabelEnInput.value.trim();
     const labelFr = vehicleTypeLabelFrInput.value.trim();
-    const slugInput = vehicleTypeSlugInput.value.trim();
+    const existingVehicleType = editingVehicleTypeId ? vehicleTypeLookup.get(editingVehicleTypeId) : null;
     const orderValue = Number(vehicleTypeOrderInput.value) || 0;
     const legacyValues = vehicleTypeLegacyInput.value
       ? vehicleTypeLegacyInput.value
@@ -7856,7 +8322,7 @@ if (vehicleTypeForm) {
     const payload = {
       value,
       labels: { en: labelEn, fr: labelFr },
-      slug: slugInput || slugify(labelEn || value),
+      slug: existingVehicleType?.slug || slugify(labelEn || value),
       order: orderValue,
       legacyValues,
       updatedAt: serverTimestamp(),
@@ -8004,10 +8470,10 @@ addonForm.addEventListener('submit', async (event) => {
 
   const payload = {
     code: addonCodeInput.value.trim(),
-    seasonId: addonSeasonSelect ? addonSeasonSelect.value : '',
     name: { en: addonNameEnInput.value.trim(), fr: addonNameFrInput.value.trim() },
     description: { en: addonDescriptionEnInput.value.trim(), fr: addonDescriptionFrInput.value.trim() },
-    price: addonPriceInput.value ? Number(addonPriceInput.value) : 0,
+    price: deleteField(),
+    seasonId: deleteField(),
     order: Number(addonOrderInput.value) || 0,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null
@@ -8015,10 +8481,6 @@ addonForm.addEventListener('submit', async (event) => {
 
   if (!payload.code) {
     addonFormError.textContent = 'Add-on code is required.';
-    return;
-  }
-  if (!payload.seasonId) {
-    addonFormError.textContent = 'Select a season.';
     return;
   }
   if (!payload.name.en || !payload.name.fr) {
@@ -8039,6 +8501,53 @@ addonForm.addEventListener('submit', async (event) => {
     closeAddonModal();
   } catch (error) {
     addonFormError.textContent = error.message;
+  }
+});
+
+seasonAddonForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  seasonAddonFormError.textContent = '';
+
+  const seasonId = seasonAddonForm.dataset.seasonId || activeSeasonId || '';
+  const code = seasonAddonCodeSelect.value;
+  const definition = getAddOnDefinition(code);
+  const price = seasonAddonPriceInput.value ? Number(seasonAddonPriceInput.value) : null;
+  const payload = {
+    seasonId,
+    addonId: definition?.id || code,
+    code,
+    price,
+    order: Number(seasonAddonOrderInput.value) || 0,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null
+  };
+
+  if (!payload.seasonId) {
+    seasonAddonFormError.textContent = 'Select a season.';
+    return;
+  }
+  if (!payload.code) {
+    seasonAddonFormError.textContent = 'Select an add-on.';
+    return;
+  }
+  if (payload.price == null || Number.isNaN(payload.price)) {
+    seasonAddonFormError.textContent = 'Enter a price.';
+    return;
+  }
+
+  try {
+    if (editingSeasonAddonId) {
+      await setDoc(doc(db, 'storageSeasonAddOns', editingSeasonAddonId), payload, { merge: true });
+    } else {
+      await addDoc(collection(db, 'storageSeasonAddOns'), {
+        ...payload,
+        createdAt: serverTimestamp(),
+        createdBy: auth.currentUser?.uid || null
+      });
+    }
+    closeSeasonAddonModal();
+  } catch (error) {
+    seasonAddonFormError.textContent = error.message;
   }
 });
 
@@ -8656,9 +9165,11 @@ onAuthStateChanged(auth, async (user) => {
     cleanOfferTemplateSubscription();
     cleanOfferSubscription();
     cleanAddonSubscription();
+    cleanSeasonAddonSubscription();
     cleanConditionSubscription();
     cleanEtiquetteSubscription();
     cleanMarketingCopySubscription();
+    cleanPublishHistorySubscription();
     cleanCategorySubscription();
     cleanCcaPoolSubscription();
     cleanCcaRecordSubscription();
@@ -8670,9 +9181,12 @@ onAuthStateChanged(auth, async (user) => {
     cleanOfferTemplateData();
     cleanOffersData();
     cleanAddOnsData();
+    cleanSeasonAddOnsData();
     cleanConditionsData();
     cleanEtiquetteData();
     cleanMarketingCopyData();
+    cleanPublishHistoryData();
+    cleanPublishStateData();
     cleanCategoriesData();
     hideEntryModal();
     closeModal();
@@ -8682,6 +9196,8 @@ onAuthStateChanged(auth, async (user) => {
     closeOfferTemplateModal();
     closeOfferModal();
     closeAddonModal();
+    closeSeasonAddonModal();
+    closePublishPreviewModal();
     ledgerAccountSelection = [];
     if (ledgerFilterMenu) {
       ledgerFilterMenu.classList.add('hidden');
@@ -8696,12 +9212,15 @@ onAuthStateChanged(auth, async (user) => {
   try {
     await assertAuthorizedAccess();
   } catch (error) {
+    const authMessage = error?.code === 'permission-denied'
+      ? `You are not authorized to use this application. Signed in as ${user.email || user.uid}.`
+      : `Unable to verify application access: ${error?.code || 'unknown'} ${error?.message || ''}`.trim();
     showAppUI(false);
     if (loginError) {
-      loginError.textContent = 'You are not authorized to use this application.';
+      loginError.textContent = authMessage;
     }
     if (loginStatusMessage) {
-      loginStatusMessage.textContent = 'You are not authorized to use this application.';
+      loginStatusMessage.textContent = authMessage;
       loginStatusMessage.classList.remove('hidden');
     }
     activeUser.textContent = '';
@@ -8724,9 +9243,11 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToOfferTemplates();
   subscribeToOffers();
   subscribeToAddOns();
+  subscribeToSeasonAddOns();
   subscribeToConditions();
   subscribeToEtiquette();
   subscribeToMarketingCopy();
+  subscribeToPublishHistory();
   subscribeToCategories();
   subscribeToPublishStatus();
   subscribeToExpensesStream();

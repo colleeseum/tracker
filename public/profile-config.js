@@ -17,7 +17,7 @@ export const PROFILE_CONFIG = {
       "emulator": {
         "host": "127.0.0.1",
         "authPort": 9099,
-        "firestorePort": 8080,
+        "firestorePort": 8081,
         "functionsPort": 5001,
         "storagePort": 9199
       }
@@ -38,7 +38,7 @@ export const PROFILE_CONFIG = {
       "emulator": {
         "host": "127.0.0.1",
         "authPort": 9099,
-        "firestorePort": 8080,
+        "firestorePort": 8081,
         "functionsPort": 5001,
         "storagePort": 9199
       }

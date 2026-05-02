@@ -205,8 +205,9 @@ function normalizeSeason(season, offersBySeason) {
 async function main() {
   const outputPath = resolveOutputPath();
 
-  const [addOns, conditions, etiquette, i18nDocs, seasons, offers, vehicleTypes] = await Promise.all([
+  const [addOns, seasonAddOns, conditions, etiquette, i18nDocs, seasons, offers, vehicleTypes] = await Promise.all([
     fetchCollection('storageAddOns', 'order'),
+    fetchCollection('storageSeasonAddOns', 'order'),
     fetchCollection('storageConditions', 'order'),
     fetchCollection('storageEtiquette', 'order'),
     fetchCollection('i18nEntries'),
@@ -216,9 +217,22 @@ async function main() {
   ]);
 
   const servicePrices = {};
-  addOns.forEach((addon) => {
-    const code = addon.code || addon.id;
-    if (!code) return;
+  const activeSeasonIds = seasons
+    .filter((season) => season.active !== false)
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .map((season) => season.id);
+  activeSeasonIds.forEach((seasonId) => {
+    seasonAddOns
+      .filter((addon) => addon.seasonId === seasonId)
+      .forEach((addon) => {
+        const code = addon.code || addon.addonId;
+        if (!code || Object.prototype.hasOwnProperty.call(servicePrices, code)) return;
+        servicePrices[code] = Number(addon.price) || 0;
+      });
+  });
+  seasonAddOns.forEach((addon) => {
+    const code = addon.code || addon.addonId;
+    if (!code || Object.prototype.hasOwnProperty.call(servicePrices, code)) return;
     servicePrices[code] = Number(addon.price) || 0;
   });
 

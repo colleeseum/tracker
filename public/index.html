@@ -103,7 +103,6 @@
                   Add secondary item
                 </button>
                 <button id="request-publish" type="button" class="hidden secondary">Publish website text</button>
-                <span id="publish-status" class="hint hidden"></span>
                 <button id="add-entry" type="button">Add entry</button>
                 <button id="transfer-funds" type="button" class="secondary">Transfer funds</button>
                 <button id="open-ledger-export" type="button" class="secondary hidden">Export CSV</button>
@@ -321,6 +320,9 @@
                   <button type="button" data-panel="i18n" role="tab" aria-selected="false">
                     Website text
                   </button>
+                  <button type="button" data-panel="publishHistory" role="tab" aria-selected="false">
+                    History
+                  </button>
                 </div>
               </div>
 
@@ -416,14 +418,13 @@
                             <th>Value</th>
                             <th>Label (EN)</th>
                             <th>Label (FR)</th>
-                            <th>Slug</th>
                             <th>Order</th>
                             <th></th>
                           </tr>
                         </thead>
                         <tbody id="vehicle-type-table-body">
                           <tr>
-                            <td colspan="6" class="empty">No vehicle types yet.</td>
+                            <td colspan="5" class="empty">No vehicle types yet.</td>
                           </tr>
                         </tbody>
                       </table>
@@ -462,17 +463,16 @@
                       <table>
                         <thead>
                           <tr>
-                            <th>Season</th>
                             <th>Code</th>
                             <th>Name (EN)</th>
                             <th>Name (FR)</th>
-                            <th>Price</th>
+                            <th>Order</th>
                             <th></th>
                           </tr>
                         </thead>
                         <tbody id="addon-table-body">
                           <tr>
-                            <td colspan="6" class="empty">No add-on services yet.</td>
+                            <td colspan="5" class="empty">No add-on services yet.</td>
                           </tr>
                         </tbody>
                       </table>
@@ -545,6 +545,29 @@
                         <tbody id="copy-table-body">
                           <tr>
                             <td colspan="6" class="empty">No i18n entries yet.</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+
+                <div class="pricing-panel hidden" data-panel="publishHistory">
+                  <section class="card pricing-section">
+                    <div class="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>By</th>
+                            <th>Mode</th>
+                            <th>Changes</th>
+                            <th>Summary</th>
+                          </tr>
+                        </thead>
+                        <tbody id="publish-history-table-body">
+                          <tr>
+                            <td colspan="5" class="empty">No publish history yet.</td>
                           </tr>
                         </tbody>
                       </table>
@@ -1335,10 +1358,6 @@
                 <input type="text" id="vehicle-type-label-fr" required />
               </label>
               <label>
-                Slug
-                <input type="text" id="vehicle-type-slug" placeholder="auto-generated if empty" />
-              </label>
-              <label>
                 Order
                 <input type="number" id="vehicle-type-order" step="0.1" value="0" />
               </label>
@@ -1526,12 +1545,6 @@
                 <input type="text" id="addon-code" placeholder="battery" required />
               </label>
               <label>
-                Season
-                <select id="addon-season" required>
-                  <option value="">Select season</option>
-                </select>
-              </label>
-              <label>
                 Name (EN)
                 <input type="text" id="addon-name-en" required />
               </label>
@@ -1548,16 +1561,72 @@
                 <textarea id="addon-description-fr" rows="2"></textarea>
               </label>
               <label>
-                Price
-                <input type="number" id="addon-price" step="0.01" required />
-              </label>
-              <label>
                 Order
                 <input type="number" id="addon-order" step="0.1" value="0" />
               </label>
               <button type="submit" class="wide">Save add-on</button>
               <p class="error" id="addon-form-error"></p>
             </form>
+          </div>
+        </div>
+
+        <div id="season-addon-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3 id="season-addon-form-title">New season add-on</h3>
+              <button id="close-season-addon-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="season-addon-form" class="grid-form">
+              <label class="wide">
+                Add-on
+                <select id="season-addon-code" required>
+                  <option value="">Select add-on</option>
+                </select>
+              </label>
+              <label>
+                Price
+                <input type="number" id="season-addon-price" step="0.01" required />
+              </label>
+              <label>
+                Order
+                <input type="number" id="season-addon-order" step="0.1" value="0" />
+              </label>
+              <button type="submit" class="wide">Save season add-on</button>
+              <p class="error" id="season-addon-form-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="publish-preview-modal" class="modal hidden">
+          <div class="modal-content card publish-preview-content">
+            <div class="modal-header">
+              <h3>Push website text</h3>
+              <button id="close-publish-preview-modal" type="button" class="link">Close</button>
+            </div>
+            <div class="publish-preview-summary" id="publish-preview-summary"></div>
+            <div class="table-wrapper publish-preview-table-wrapper">
+              <table class="publish-preview-table">
+                <thead>
+	                  <tr>
+	                    <th class="publish-preview-change-column">Change</th>
+	                    <th class="publish-preview-document-column">Document</th>
+	                    <th class="publish-preview-field-column">Field</th>
+	                    <th class="publish-preview-value-column">Old value</th>
+	                    <th class="publish-preview-value-column">New value</th>
+	                  </tr>
+                </thead>
+                <tbody id="publish-preview-table-body">
+                  <tr>
+	                    <td colspan="5" class="empty">No changes to publish.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-actions">
+              <button id="confirm-publish-preview" type="button">Continue</button>
+              <button id="cancel-publish-preview" type="button" class="secondary">Cancel</button>
+            </div>
+            <p class="error" id="publish-preview-error"></p>
           </div>
         </div>
 
@@ -1876,6 +1945,6 @@
     </main>
 
     <script type="module" src="firebase-config.js"></script>
-    <script type="module" src="app.js"></script>
+    <script type="module" src="app.js?v=20260502-delete-publish-refresh"></script>
   </body>
 </html>

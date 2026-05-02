@@ -146,10 +146,10 @@ async function main() {
       labels: entry.labels,
       slug: slugify(entry.value),
       order: entry.order,
-      legacyValues: [entry.value],
+      legacyValues: Array.from(new Set([entry.value, id])).filter(Boolean),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
-    batch.set(db.collection('vehicleTypes').doc(id), payload, { merge: true });
+    batch.set(db.collection('vehicleTypes').doc(key), payload, { merge: true });
     updates += 1;
   });
 
@@ -157,6 +157,31 @@ async function main() {
     await batch.commit();
   }
   console.log(`Updated ${updates} vehicleTypes documents.`);
+
+  const templateUpdates = [];
+  templateSnap.forEach((docSnap) => {
+    const data = docSnap.data() || {};
+    const types = Array.isArray(data.vehicleTypes) ? data.vehicleTypes : [];
+    const mapped = types.map((id) => typeAssignments.get(id) || id);
+    const changed =
+      mapped.length !== types.length ||
+      mapped.some((value, index) => value !== types[index]);
+    if (changed) {
+      templateUpdates.push({ ref: docSnap.ref, vehicleTypes: mapped });
+    }
+  });
+
+  if (templateUpdates.length) {
+    const templateBatch = db.batch();
+    templateUpdates.forEach(({ ref, vehicleTypes }) => {
+      templateBatch.update(ref, {
+        vehicleTypes,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await templateBatch.commit();
+  }
+  console.log(`Updated ${templateUpdates.length} offerTemplates documents.`);
 }
 
 main().catch((err) => {

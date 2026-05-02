@@ -60,9 +60,9 @@ From the repository root run:
 firebase emulators:start
 ```
 
-This launches Firestore (8080), Auth (9099) and Hosting (5000). The Emulator UI is enabled, so you can inspect data at `http://localhost:4000`.
+This launches Firestore (8081), Auth (9099) and Hosting (5002). The Emulator UI is enabled, so you can inspect data at `http://localhost:4000`.
 
-Then open `http://localhost:5000` in the browser to use the app.
+Then open `http://localhost:5002` in the browser to use the app. Port 8080 is left free for the local Entrepôt site.
 
 ## Using the app
 
@@ -87,19 +87,21 @@ Then open `http://localhost:5000` in the browser to use the app.
 - `storageRequests/{requestId}` — seasonal storage applications linked to a `clientId`, vehicle metadata (type, brand, model, plate, etc.), insurance details, add-on booleans, `season`, and `status` (New → Picked-Up).
 - `storageSeasons/{seasonId}` — localized season metadata (names, timeframe, descriptions, ordering, active flag) used to power pricing.
 - `storageOffers/{offerId}` — per-season offers with price mode (flat/perFoot/contact), vehicle type filters, localized labels/notes, ordering, and visibility flags.
-- `storageAddOns/{addonId}` — add-on services (battery maintenance, propane storage, etc.) with localized copy and per-season pricing.
+- `storageAddOns/{addonId}` — add-on service definitions (battery maintenance, propane storage, etc.) with localized copy.
+- `storageSeasonAddOns/{seasonAddonId}` — per-season add-on pricing linked by `seasonId` and add-on `code`.
 - `storageConditions/{conditionId}` — global “conditions” policies (localized text, optional tooltips) shown on the marketing site and in contracts.
 - `storageEtiquette/{entryId}` — drop-off etiquette reminders with localized copy/tooltips.
 - `i18nEntries/{copyId}` — localized site copy (navigation, hero, forms, contracts, etc.) that powers the public-facing site.
 - `categories/{categoryId}` — ledger category definitions with a `label`, `type` (`income` or `expense`), and numeric `code`. The Add Entry modal only shows categories whose type matches the current entry.
-- `admin/sitePublish` — bookkeeping doc that stores the last publish timestamp written by the “Publish” button.
+- `admin/sitePublish` — bookkeeping doc that stores the last publish timestamp and last published content snapshot used for publish previews.
+- `sitePublishHistory/{publishId}` — one document per website-text push, including who pushed it and the diff that was approved.
 
 ### Seeding i18n entries from `~/personal/entrepot`
 
 When running against the Firebase Emulator Suite, you can populate the `i18nEntries` collection from the existing static data in `~/personal/entrepot/static/site.js`:
 
 ```bash
-# Make sure the Firestore emulator is running on localhost:8080 first
+# Make sure the Firestore emulator is running on localhost:8081 first
 cd functions
 node scripts/import-pricing.mjs
 ```
@@ -115,7 +117,7 @@ cd functions
 node scripts/export-site-data.mjs --out ../entrepot/static/generated/website-text.generated.js
 ```
 
-The script reads Firestore (`storageAddOns`, `storageConditions`, `storageEtiquette`, `i18nEntries`), serializes the latest values, and writes an ES module that Entrepôt imports at build time. Run the script locally (pointing at the emulator or production) or in CI before deploying the marketing site.
+The script reads Firestore (`storageAddOns`, `storageSeasonAddOns`, `storageConditions`, `storageEtiquette`, `i18nEntries`), serializes the latest values, and writes an ES module that Entrepôt imports at build time. Run the script locally (pointing at the emulator or production) or in CI before deploying the marketing site.
 
 ## Backing up and restoring Firestore
 
@@ -195,7 +197,16 @@ the generated document IDs for traceability.
    - `ENTREPOT_PAT`: personal access token that can push to the Entrepôt repo.
    - `FIREBASE_SERVICE_ACCOUNT`: JSON key for a service account with Firestore read access (use `secrets` format and the workflow writes it to disk).
 3. In Firebase Functions, set `GITHUB_PUBLISH_REPO`, `GITHUB_PUBLISH_TOKEN`, and (optionally) `GITHUB_PUBLISH_EVENT`. The new callable function `requestSitePublish` uses these to dispatch the GitHub workflow.
-4. When you edit pricing/conditions/i18n in Tracker, the “Publish website text” button (visible on the Pricing view) becomes active once it detects a change newer than the last publish timestamp. Clicking it calls the callable function, which updates `admin/sitePublish` and triggers the GitHub workflow. The workflow exports content and pushes the generated file to the Entrepôt repository.
+4. When you edit pricing/conditions/i18n in Tracker, the “Publish website text” button (visible on the Pricing view) becomes active once it detects a change newer than the last publish timestamp. Clicking it opens a diff preview against the last published snapshot. Continuing calls the callable function, writes a `sitePublishHistory` entry with the approved diff, updates `admin/sitePublish`, and triggers the GitHub workflow. The workflow exports content and pushes the generated file to the Entrepôt repository.
+
+Local/emulator publishes run as dry-runs: they write `sitePublishHistory` and update `admin/sitePublish.lastPublishedSnapshot`, but skip the GitHub dispatch. To update the local Entrepôt generated file after a dry-run publish:
+
+```bash
+cd functions
+npm run publish:site:local
+```
+
+This marks the local Firestore publish baseline and writes `entrepot/static/generated/website-text.generated.js`. The mark script refuses non-emulator profiles unless `ALLOW_NON_LOCAL_PUBLISH_MARK=true` is set intentionally.
 
 `firestore.rules` currently allow any authenticated user to read or update the `accounts` and `expenses` collections while workflows are being redesigned. Tighten these rules once roles are defined again.
 

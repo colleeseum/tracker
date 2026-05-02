@@ -21,6 +21,19 @@ const englishSenderKeyword = (process.env.ENGLISH_SENDER_KEYWORD || 'warehouse@a
 const githubRepo = process.env.GITHUB_PUBLISH_REPO || '';
 const githubToken = process.env.GITHUB_PUBLISH_TOKEN || '';
 const githubEventType = process.env.GITHUB_PUBLISH_EVENT || 'tracker-content-publish';
+const publishDryRun = process.env.FUNCTIONS_EMULATOR === 'true' || process.env.PUBLISH_DRY_RUN === 'true';
+const PUBLISH_COLLECTIONS = [
+  'storageSeasons',
+  'storageOffers',
+  'offerTemplates',
+  'vehicleTypes',
+  'storageAddOns',
+  'storageSeasonAddOns',
+  'storageConditions',
+  'storageEtiquette',
+  'i18nEntries'
+];
+const AUDIT_FIELDS = new Set(['createdAt', 'createdBy', 'updatedAt', 'updatedBy']);
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -221,6 +234,117 @@ function generateConfirmationCode() {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const random = crypto.randomBytes(3).toString('hex').toUpperCase();
   return `FC-${date}-${random}`;
+}
+
+function normalizePublishValue(value) {
+  if (value === null || value === undefined) return value ?? null;
+  if (typeof value?.toDate === 'function') {
+    return value.toDate().toISOString();
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizePublishValue(item));
+  }
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !AUDIT_FIELDS.has(key))
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, normalizePublishValue(nested)])
+    );
+  }
+  return value;
+}
+
+async function buildPublishSnapshot() {
+  const snapshot = {};
+  for (const collectionName of PUBLISH_COLLECTIONS) {
+    const docs = await db.collection(collectionName).get();
+    snapshot[collectionName] = {};
+    docs.docs
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .forEach((docSnap) => {
+        snapshot[collectionName][docSnap.id] = normalizePublishValue(docSnap.data() || {});
+      });
+  }
+  return snapshot;
+}
+
+function stableStringify(value) {
+  return JSON.stringify(normalizePublishValue(value));
+}
+
+function buildPublishFieldDiffs(before = {}, after = {}) {
+  const fields = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]))
+    .filter((field) => stableStringify(before?.[field]) !== stableStringify(after?.[field]))
+    .sort();
+  return fields.map((field) => ({
+    field,
+    before: before?.[field] === undefined ? null : before[field],
+    after: after?.[field] === undefined ? null : after[field]
+  }));
+}
+
+function summarizePublishDiff(previousSnapshot = {}, nextSnapshot = {}) {
+  const changes = [];
+  const collections = Array.from(
+    new Set([...Object.keys(previousSnapshot || {}), ...Object.keys(nextSnapshot || {})])
+  ).sort();
+  collections.forEach((collectionName) => {
+    const beforeDocs = previousSnapshot?.[collectionName] || {};
+    const afterDocs = nextSnapshot?.[collectionName] || {};
+    const ids = Array.from(new Set([...Object.keys(beforeDocs), ...Object.keys(afterDocs)])).sort();
+    ids.forEach((id) => {
+      const before = beforeDocs[id];
+      const after = afterDocs[id];
+      if (before === undefined) {
+        changes.push({
+          collection: collectionName,
+          id,
+          type: 'added',
+          fields: Object.keys(after || {}).sort(),
+          fieldDiffs: buildPublishFieldDiffs({}, after || {})
+        });
+        return;
+      }
+      if (after === undefined) {
+        changes.push({
+          collection: collectionName,
+          id,
+          type: 'removed',
+          fields: Object.keys(before || {}).sort(),
+          fieldDiffs: buildPublishFieldDiffs(before || {}, {})
+        });
+        return;
+      }
+      if (stableStringify(before) === stableStringify(after)) return;
+      const fieldDiffs = buildPublishFieldDiffs(before, after);
+      changes.push({
+        collection: collectionName,
+        id,
+        type: 'changed',
+        fields: fieldDiffs.map((entry) => entry.field),
+        fieldDiffs
+      });
+    });
+  });
+  return {
+    total: changes.length,
+    added: changes.filter((change) => change.type === 'added').length,
+    changed: changes.filter((change) => change.type === 'changed').length,
+    removed: changes.filter((change) => change.type === 'removed').length,
+    changes
+  };
+}
+
+async function getPublishPreview() {
+  const statusSnap = await db.collection('admin').doc('sitePublish').get();
+  const previousSnapshot = statusSnap.data()?.lastPublishedSnapshot || {};
+  const nextSnapshot = await buildPublishSnapshot();
+  return {
+    previousSnapshot,
+    nextSnapshot,
+    diff: summarizePublishDiff(previousSnapshot, nextSnapshot)
+  };
 }
 
 async function upsertWebsiteClient({
@@ -478,11 +602,19 @@ export const sendEmail = functions.https.onCall(async (data, context) => {
   }
 });
 
+export const getSitePublishPreview = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in to preview a publish.');
+  }
+  const preview = await getPublishPreview();
+  return { diff: preview.diff };
+});
+
 export const requestSitePublish = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Sign in to request a publish.');
   }
-  if (!githubRepo || !githubToken) {
+  if (!publishDryRun && (!githubRepo || !githubToken)) {
     throw new functions.https.HttpsError(
       'failed-precondition',
       'Publish target is not configured. Set GITHUB_PUBLISH_REPO and GITHUB_PUBLISH_TOKEN.'
@@ -490,42 +622,65 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
   }
 
   const latestChangeAt = data?.latestChangeAt || null;
-  const response = await fetch(`https://api.github.com/repos/${githubRepo}/dispatches`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${githubToken}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'tracker-publish'
-    },
-    body: JSON.stringify({
-      event_type: githubEventType,
-      client_payload: {
-        requestedBy: context.auth.token?.email || context.auth.uid,
-        latestChangeAt
-      }
-    })
-  });
+  const requestedBy = context.auth.token?.email || context.auth.uid;
+  const historyRef = db.collection('sitePublishHistory').doc();
+  const preview = await getPublishPreview();
 
-  if (!response.ok) {
-    const text = await response.text();
-    console.error('GitHub dispatch failed', response.status, text);
-    throw new functions.https.HttpsError('internal', 'GitHub workflow dispatch failed.');
+  if (!publishDryRun) {
+    const response = await fetch(`https://api.github.com/repos/${githubRepo}/dispatches`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${githubToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'tracker-publish'
+      },
+      body: JSON.stringify({
+        event_type: githubEventType,
+        client_payload: {
+          requestedBy,
+          latestChangeAt,
+          publishId: historyRef.id
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('GitHub dispatch failed', response.status, text);
+      throw new functions.https.HttpsError('internal', 'GitHub workflow dispatch failed.');
+    }
   }
 
-  await db
-    .collection('admin')
-    .doc('sitePublish')
-    .set(
-      {
-        lastPublishedAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastRequestedBy: context.auth.token?.email || context.auth.uid,
-        lastChangeReference: latestChangeAt
-      },
-      { merge: true }
-    );
+  const publishPayload = {
+    requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+    requestedBy,
+    requestedByUid: context.auth.uid,
+    latestChangeAt,
+    dryRun: publishDryRun,
+    githubRepo: publishDryRun ? null : githubRepo,
+    githubEventType,
+    diff: preview.diff
+  };
 
-  return { ok: true };
+  const batch = db.batch();
+  batch.set(historyRef, publishPayload);
+  batch.set(
+    db.collection('admin').doc('sitePublish'),
+    {
+      lastPublishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastRequestedBy: requestedBy,
+      lastRequestedByUid: context.auth.uid,
+      lastChangeReference: latestChangeAt,
+      lastPublishHistoryId: historyRef.id,
+      lastPublishDryRun: publishDryRun,
+      lastPublishedSnapshot: preview.nextSnapshot
+    },
+    { merge: true }
+  );
+  await batch.commit();
+
+  return { ok: true, dryRun: publishDryRun, publishId: historyRef.id, diff: preview.diff };
 });
 
 export const createStorageRequest = functions.https.onCall(async (data, context) => {
