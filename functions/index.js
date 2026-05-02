@@ -2,6 +2,7 @@ import functions from 'firebase-functions';
 import admin from 'firebase-admin';
 import nodemailer from 'nodemailer';
 import crypto from 'node:crypto';
+import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
 const smtpPort = Number(process.env.SMTP2GO_PORT || 587);
@@ -19,7 +20,6 @@ const rateLimitExemptReplyTo = (process.env.RATE_LIMIT_EXEMPT_REPLY_TO || '').to
 const frenchSenderKeyword = (process.env.FRENCH_SENDER_KEYWORD || 'entrepot@as-colle.com').toLowerCase();
 const englishSenderKeyword = (process.env.ENGLISH_SENDER_KEYWORD || 'warehouse@as-colle.com').toLowerCase();
 const githubRepo = process.env.GITHUB_PUBLISH_REPO || '';
-const githubToken = process.env.GITHUB_PUBLISH_TOKEN || '';
 const githubEventType = process.env.GITHUB_PUBLISH_EVENT || 'tracker-content-publish';
 const publishDryRun = process.env.FUNCTIONS_EMULATOR === 'true' || process.env.PUBLISH_DRY_RUN === 'true';
 const PUBLISH_COLLECTIONS = [
@@ -37,6 +37,196 @@ const AUDIT_FIELDS = new Set(['createdAt', 'createdBy', 'updatedAt', 'updatedBy'
 
 admin.initializeApp();
 const db = admin.firestore();
+
+let cachedGithubToken = null;
+let githubTokenLoadPromise = null;
+
+let cachedPublishCallbackToken = null;
+let publishCallbackTokenLoadPromise = null;
+
+async function loadGithubPublishToken() {
+  if (cachedGithubToken) return cachedGithubToken;
+  if (githubTokenLoadPromise) return githubTokenLoadPromise;
+
+  githubTokenLoadPromise = (async () => {
+    const direct = process.env.GITHUB_PUBLISH_TOKEN;
+    if (direct) {
+      cachedGithubToken = direct;
+      return cachedGithubToken;
+    }
+
+    const secretResource =
+      process.env.GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE ||
+      process.env.GITHUB_PUBLISH_TOKEN_SECRET ||
+      '';
+    if (!secretResource) {
+      cachedGithubToken = '';
+      return cachedGithubToken;
+    }
+
+    const versionName = secretResource.includes('/versions/')
+      ? secretResource
+      : `${secretResource}/versions/latest`;
+    const client = new SecretManagerServiceClient();
+    const [result] = await client.accessSecretVersion({ name: versionName });
+    const token = result?.payload?.data ? result.payload.data.toString('utf8').trim() : '';
+    cachedGithubToken = token;
+    return cachedGithubToken;
+  })()
+    .catch((err) => {
+      console.error('Failed to load GitHub publish token from Secret Manager.', err);
+      cachedGithubToken = '';
+      return cachedGithubToken;
+    })
+    .finally(() => {
+      githubTokenLoadPromise = null;
+    });
+
+  return githubTokenLoadPromise;
+}
+
+async function loadPublishCallbackToken() {
+  if (cachedPublishCallbackToken) return cachedPublishCallbackToken;
+  if (publishCallbackTokenLoadPromise) return publishCallbackTokenLoadPromise;
+
+  publishCallbackTokenLoadPromise = (async () => {
+    const direct = process.env.PUBLISH_CALLBACK_TOKEN;
+    if (direct) {
+      cachedPublishCallbackToken = direct;
+      return cachedPublishCallbackToken;
+    }
+
+    const secretResource =
+      process.env.PUBLISH_CALLBACK_TOKEN_SECRET_RESOURCE ||
+      process.env.PUBLISH_CALLBACK_TOKEN_SECRET ||
+      '';
+    if (!secretResource) {
+      cachedPublishCallbackToken = '';
+      return cachedPublishCallbackToken;
+    }
+
+    const versionName = secretResource.includes('/versions/')
+      ? secretResource
+      : `${secretResource}/versions/latest`;
+    const client = new SecretManagerServiceClient();
+    const [result] = await client.accessSecretVersion({ name: versionName });
+    const token = result?.payload?.data ? result.payload.data.toString('utf8').trim() : '';
+    cachedPublishCallbackToken = token;
+    return cachedPublishCallbackToken;
+  })()
+    .catch((err) => {
+      console.error('Failed to load publish callback token from Secret Manager.', err);
+      cachedPublishCallbackToken = '';
+      return cachedPublishCallbackToken;
+    })
+    .finally(() => {
+      publishCallbackTokenLoadPromise = null;
+    });
+
+  return publishCallbackTokenLoadPromise;
+}
+
+function extractBearerToken(req) {
+  const header = req?.headers?.authorization || req?.headers?.Authorization || '';
+  if (typeof header !== 'string') return '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : '';
+}
+
+function sanitizePublishJobStatus(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return 'unknown';
+  if (raw.length > 80) return raw.slice(0, 80);
+  return raw;
+}
+
+function sanitizePublishJobDetails(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    return value.length > 2000 ? value.slice(0, 2000) : value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'object') {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export const reportSitePublishJobUpdate = functions.https.onRequest(async (req, res) => {
+  if (req.method !== 'POST') {
+    res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  const expected = await loadPublishCallbackToken();
+  const presented =
+    (req.headers['x-tracker-callback-token'] || '').toString().trim() ||
+    extractBearerToken(req);
+  if (!expected || !presented || expected !== presented) {
+    res.status(403).send('Forbidden');
+    return;
+  }
+
+  const publishId = (req.body?.publishId || req.query?.publishId || '').toString().trim();
+  const status = sanitizePublishJobStatus(req.body?.status || req.query?.status);
+  const details = sanitizePublishJobDetails(req.body?.details);
+  if (!publishId) {
+    res.status(400).send('Missing publishId');
+    return;
+  }
+
+  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const jobRef = db.collection('sitePublishJobs').doc(publishId);
+  const historyRef = db.collection('sitePublishHistory').doc(publishId);
+  const event = {
+    at: timestamp,
+    status,
+    details: details ?? null
+  };
+
+  const terminal = new Set([
+    'deploy_succeeded',
+    'deploy_failed',
+    'no_changes',
+    'failed'
+  ]);
+  const update = {
+    publishId,
+    status,
+    updatedAt: timestamp,
+    events: admin.firestore.FieldValue.arrayUnion(event)
+  };
+  if (terminal.has(status)) {
+    update.completedAt = timestamp;
+  }
+
+  const historyPatch = {};
+  if (status === 'commit_pushed' && details && typeof details.commitSha === 'string') {
+    historyPatch.commitSha = details.commitSha.trim();
+  }
+  if (status === 'deploy_succeeded' && details && typeof details.pageUrl === 'string') {
+    historyPatch.pageUrl = details.pageUrl.trim();
+  }
+
+  const ops = [jobRef.set(update, { merge: true })];
+  if (Object.keys(historyPatch).length) {
+    ops.push(
+      historyRef.set(
+        {
+          ...historyPatch,
+          updatedAt: timestamp
+        },
+        { merge: true }
+      )
+    );
+  }
+  await Promise.all(ops);
+  res.status(200).json({ ok: true });
+});
 
 const RATE_LIMIT = 2;
 const RATE_LIMIT_COLLECTION = 'emailRateLimits';
@@ -614,19 +804,37 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Sign in to request a publish.');
   }
+  const githubToken = publishDryRun ? '' : await loadGithubPublishToken();
   if (!publishDryRun && (!githubRepo || !githubToken)) {
     throw new functions.https.HttpsError(
       'failed-precondition',
-      'Publish target is not configured. Set GITHUB_PUBLISH_REPO and GITHUB_PUBLISH_TOKEN.'
+      'Publish target is not configured. Set GITHUB_PUBLISH_REPO and either GITHUB_PUBLISH_TOKEN or GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE.'
     );
   }
 
   const latestChangeAt = data?.latestChangeAt || null;
   const requestedBy = context.auth.token?.email || context.auth.uid;
   const historyRef = db.collection('sitePublishHistory').doc();
+  const jobRef = db.collection('sitePublishJobs').doc(historyRef.id);
   const preview = await getPublishPreview();
 
+  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const jobPayload = {
+    publishId: historyRef.id,
+    requestedAt: timestamp,
+    requestedBy,
+    requestedByUid: context.auth.uid,
+    status: publishDryRun ? 'dry_run_recorded' : 'dispatch_sending',
+    updatedAt: timestamp,
+    events: admin.firestore.FieldValue.arrayUnion({
+      at: timestamp,
+      status: publishDryRun ? 'dry_run_recorded' : 'dispatch_sending',
+      details: null
+    })
+  };
+
   if (!publishDryRun) {
+    await jobRef.set(jobPayload, { merge: true });
     const response = await fetch(`https://api.github.com/repos/${githubRepo}/dispatches`, {
       method: 'POST',
       headers: {
@@ -648,19 +856,48 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
     if (!response.ok) {
       const text = await response.text();
       console.error('GitHub dispatch failed', response.status, text);
+      await jobRef.set(
+        {
+          status: 'dispatch_failed',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          events: admin.firestore.FieldValue.arrayUnion({
+            at: admin.firestore.FieldValue.serverTimestamp(),
+            status: 'dispatch_failed',
+            details: { httpStatus: response.status }
+          }),
+          completedAt: admin.firestore.FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
       throw new functions.https.HttpsError('internal', 'GitHub workflow dispatch failed.');
     }
+
+    await jobRef.set(
+      {
+        status: 'dispatch_sent',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        events: admin.firestore.FieldValue.arrayUnion({
+          at: admin.firestore.FieldValue.serverTimestamp(),
+          status: 'dispatch_sent',
+          details: null
+        })
+      },
+      { merge: true }
+    );
+  } else {
+    await jobRef.set(jobPayload, { merge: true });
   }
 
   const publishPayload = {
-    requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+    requestedAt: timestamp,
     requestedBy,
     requestedByUid: context.auth.uid,
     latestChangeAt,
     dryRun: publishDryRun,
     githubRepo: publishDryRun ? null : githubRepo,
     githubEventType,
-    diff: preview.diff
+    diff: preview.diff,
+    publishJobId: historyRef.id
   };
 
   const batch = db.batch();

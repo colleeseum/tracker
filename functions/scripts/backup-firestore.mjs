@@ -14,6 +14,7 @@ const { projectId } = await loadActiveProfile();
 
 admin.initializeApp({ projectId });
 const db = admin.firestore();
+db.settings({ preferRest: true });
 
 function getArgValue(flag) {
   const index = process.argv.indexOf(flag);

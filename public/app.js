@@ -4811,7 +4811,7 @@ function renderPublishHistoryTable(message = '') {
   if (message || !publishHistory.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     cell.className = 'empty';
     cell.textContent = message || 'No publish history yet.';
     row.appendChild(cell);
@@ -4853,6 +4853,26 @@ function renderPublishHistoryTable(message = '') {
     }
     row.appendChild(changesCell);
 
+    const commitCell = document.createElement('td');
+    const commitSha = typeof entry.commitSha === 'string' ? entry.commitSha.trim() : '';
+    if (commitSha) {
+      const shortSha = commitSha.slice(0, 7);
+      const repo = typeof entry.githubRepo === 'string' ? entry.githubRepo.trim() : '';
+      if (repo) {
+        const link = document.createElement('a');
+        link.href = `https://github.com/${repo}/commit/${commitSha}`;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.textContent = shortSha;
+        commitCell.appendChild(link);
+      } else {
+        commitCell.textContent = shortSha;
+      }
+    } else {
+      commitCell.textContent = '—';
+    }
+    row.appendChild(commitCell);
+
     const summaryCell = document.createElement('td');
     summaryCell.textContent = summary;
     row.appendChild(summaryCell);
@@ -4862,7 +4882,7 @@ function renderPublishHistoryTable(message = '') {
       const detailRow = document.createElement('tr');
       detailRow.className = 'publish-history-detail-row';
       const detailCell = document.createElement('td');
-      detailCell.colSpan = 5;
+      detailCell.colSpan = 6;
       const wrapper = document.createElement('div');
       wrapper.className = 'table-wrapper publish-history-detail-wrapper';
       const table = document.createElement('table');

@@ -1,6 +1,8 @@
 {
   "name": "emailer-functions",
-  "engines": {"node": "20"},
+  "engines": {
+    "node": "20"
+  },
   "scripts": {
     "export:site:local": "node scripts/export-site-data.mjs --out ../../entrepot/static/generated/website-text.generated.js",
     "mark:site:local": "node scripts/mark-local-publish.mjs",
@@ -8,6 +10,7 @@
     "publish:site:local": "node scripts/mark-local-publish.mjs && node scripts/export-site-data.mjs --out ../../entrepot/static/generated/website-text.generated.js"
   },
   "dependencies": {
+    "@google-cloud/secret-manager": "^5.6.0",
     "firebase-admin": "^11.11.1",
     "firebase-functions": "^4.4.0",
     "nodemailer": "^6.9.8"
