@@ -19,8 +19,12 @@ const publicAllowedRecipients = (process.env.PUBLIC_ALLOWED_RECIPIENTS || '')
 const rateLimitExemptReplyTo = (process.env.RATE_LIMIT_EXEMPT_REPLY_TO || '').toLowerCase();
 const frenchSenderKeyword = (process.env.FRENCH_SENDER_KEYWORD || 'entrepot@as-colle.com').toLowerCase();
 const englishSenderKeyword = (process.env.ENGLISH_SENDER_KEYWORD || 'warehouse@as-colle.com').toLowerCase();
-const githubRepo = process.env.GITHUB_PUBLISH_REPO || '';
+const githubRepo = process.env.GITHUB_PUBLISH_REPO || 'colleeseum/entrepot';
 const githubEventType = process.env.GITHUB_PUBLISH_EVENT || 'tracker-content-publish';
+const githubTokenSecretResource =
+  process.env.GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE ||
+  process.env.GITHUB_PUBLISH_TOKEN_SECRET ||
+  'projects/1044638579272/secrets/Entrepot';
 const publishDryRun = process.env.FUNCTIONS_EMULATOR === 'true' || process.env.PUBLISH_DRY_RUN === 'true';
 const TRACKER_ADMIN_EMAILS = new Set(['sergecolle@gmail.com', 'arcolle@gmail.com']);
 const PUBLISH_COLLECTIONS = [
@@ -56,10 +60,7 @@ async function loadGithubPublishToken() {
       return cachedGithubToken;
     }
 
-    const secretResource =
-      process.env.GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE ||
-      process.env.GITHUB_PUBLISH_TOKEN_SECRET ||
-      '';
+    const secretResource = githubTokenSecretResource;
     if (!secretResource) {
       cachedGithubToken = '';
       return cachedGithubToken;
