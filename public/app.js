@@ -125,6 +125,7 @@ const confirmPublishPreviewButton = document.getElementById('confirm-publish-pre
 const cancelPublishPreviewButton = document.getElementById('cancel-publish-preview');
 const publishPreviewError = document.getElementById('publish-preview-error');
 const publishHistoryTableBody = document.getElementById('publish-history-table-body');
+const publishJobStatusElement = document.getElementById('publish-job-status');
 const addEntryButton = document.getElementById('add-entry');
 const transferButton = document.getElementById('transfer-funds');
 const openLedgerExportButton = document.getElementById('open-ledger-export');
@@ -894,8 +895,13 @@ let publishPreviewStatus = null;
 let publishPreviewRequestId = 0;
 let unsubscribePublishStatus = null;
 let publishHistory = [];
+let publishJobsById = new Map();
 let expandedPublishHistoryIds = new Set();
 let unsubscribePublishHistory = null;
+let activePublishJobId = null;
+let publishJobStatus = null;
+let unsubscribePublishJob = null;
+let unsubscribePublishJobs = null;
 
 const STORAGE_STATUS_OPTIONS = [
   { value: 'new', label: 'New' },
@@ -1078,6 +1084,7 @@ function cleanMarketingCopyData() {
 
 function cleanPublishHistoryData() {
   publishHistory = [];
+  publishJobsById = new Map();
   expandedPublishHistoryIds = new Set();
   renderPublishHistoryTable();
 }
@@ -1087,6 +1094,8 @@ function cleanPublishStateData() {
   latestContentUpdatedBy = null;
   contentRevision = 0;
   publishPreviewStatus = null;
+  publishJobStatus = null;
+  activePublishJobId = null;
   updatePublishButtonState();
 }
 
@@ -1546,6 +1555,12 @@ function subscribeToPublishStatus() {
     statusDoc,
     (snapshot) => {
       sitePublishStatus = snapshot.exists() ? snapshot.data() : null;
+      const jobId = typeof sitePublishStatus?.lastPublishHistoryId === 'string'
+        ? sitePublishStatus.lastPublishHistoryId.trim()
+        : '';
+      if (jobId) {
+        subscribeToPublishJob(jobId);
+      }
       publishPreviewStatus = null;
       refreshPublishPreviewStatus();
       updatePublishButtonState();
@@ -1553,6 +1568,28 @@ function subscribeToPublishStatus() {
     },
     (error) => {
       console.error('Failed to load publish status', error);
+    }
+  );
+}
+
+function subscribeToPublishJob(jobId) {
+  if (!jobId || activePublishJobId === jobId) return;
+  if (unsubscribePublishJob) {
+    unsubscribePublishJob();
+  }
+  activePublishJobId = jobId;
+  publishJobStatus = null;
+  updatePublishButtonState();
+  unsubscribePublishJob = onSnapshot(
+    doc(db, 'sitePublishJobs', jobId),
+    (snapshot) => {
+      publishJobStatus = snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+      updatePublishButtonState();
+    },
+    (error) => {
+      console.error('Failed to load publish job status', error);
+      publishJobStatus = { id: jobId, status: 'failed', errorMessage: error.message };
+      updatePublishButtonState();
     }
   );
 }
@@ -1572,6 +1609,25 @@ function subscribeToPublishHistory() {
     (error) => {
       console.error('Failed to load publish history', error);
       renderPublishHistoryTable(`Unable to load publish history: ${error.message}`);
+    }
+  );
+}
+
+function subscribeToPublishJobs() {
+  if (unsubscribePublishJobs) {
+    unsubscribePublishJobs();
+  }
+  const ref = collection(db, 'sitePublishJobs');
+  const q = query(ref, orderBy('requestedAt', 'desc'));
+  unsubscribePublishJobs = onSnapshot(
+    q,
+    (snapshot) => {
+      publishJobsById = new Map(snapshot.docs.map((docSnap) => [docSnap.id, { id: docSnap.id, ...docSnap.data() }]));
+      renderPublishHistoryTable();
+      updatePublishButtonState();
+    },
+    (error) => {
+      console.error('Failed to load publish jobs', error);
     }
   );
 }
@@ -1637,6 +1693,23 @@ function cleanPublishHistorySubscription() {
     unsubscribePublishHistory();
   }
   unsubscribePublishHistory = null;
+}
+
+function cleanPublishJobsSubscription() {
+  if (unsubscribePublishJobs) {
+    unsubscribePublishJobs();
+  }
+  unsubscribePublishJobs = null;
+  publishJobsById = new Map();
+}
+
+function cleanPublishJobSubscription() {
+  if (unsubscribePublishJob) {
+    unsubscribePublishJob();
+  }
+  unsubscribePublishJob = null;
+  activePublishJobId = null;
+  publishJobStatus = null;
 }
 
 function cleanSeasonAddonSubscription() {
@@ -2053,22 +2126,111 @@ function refreshPublishPreviewAfterContentWrite() {
   refreshPublishPreviewStatus();
 }
 
+function getPublishJobStep(status) {
+  const steps = {
+    dispatch_sending: { label: 'Contacting GitHub', progress: 12, active: true },
+    dispatch_sent: { label: 'Queued in GitHub', progress: 20, active: true },
+    workflow_started: { label: 'Workflow started', progress: 30, active: true },
+    export_done: { label: 'Updating data', progress: 45, active: true },
+    commit_pushed: { label: 'Committing data', progress: 65, active: true },
+    deploy_started: { label: 'Deploying site', progress: 82, active: true },
+    deploy_succeeded: { label: 'Published', progress: 100, active: false, done: true },
+    no_changes: { label: 'No file changes', progress: 100, active: false, done: true },
+    deploy_failed: { label: 'Deploy failed', progress: 100, active: false, failed: true },
+    dispatch_failed: { label: 'GitHub dispatch failed', progress: 100, active: false, failed: true },
+    failed: { label: 'Publish failed', progress: 100, active: false, failed: true },
+    no_workflow_callback: { label: 'No workflow callback', progress: 100, active: false, failed: true },
+    dry_run_recorded: { label: 'Dry run recorded', progress: 100, active: false, done: true }
+  };
+  return steps[status] || { label: status ? `Publish status: ${status}` : 'Publishing', progress: 10, active: true };
+}
+
+function isPublishJobStale(job) {
+  if (!job?.status) return false;
+  const status = String(job.status);
+  if (!getPublishJobStep(status).active) return false;
+  const updatedAt = timestampToMillis(job.updatedAt) || timestampToMillis(job.requestedAt);
+  return Boolean(updatedAt && Date.now() - updatedAt > 3 * 60 * 1000);
+}
+
+function formatPublishJobStatus(status, job = null) {
+  if (job && isPublishJobStale(job)) return getPublishJobStep('no_workflow_callback').label;
+  return getPublishJobStep(status).label;
+}
+
+function isFailedPublishJobStatus(status, job = null) {
+  if (job && isPublishJobStale(job)) return true;
+  return Boolean(getPublishJobStep(status).failed);
+}
+
+function getVisiblePublishJobStatus() {
+  if (!publishJobStatus?.status) return null;
+  const status = String(publishJobStatus.status);
+  const completedAt = timestampToMillis(publishJobStatus.completedAt);
+  const isTerminal = ['deploy_succeeded', 'no_changes', 'deploy_failed', 'dispatch_failed', 'failed', 'dry_run_recorded'].includes(status);
+  if (isTerminal && completedAt && Date.now() - completedAt > 10 * 60 * 1000) {
+    return null;
+  }
+  if (isPublishJobStale(publishJobStatus)) {
+    return { ...getPublishJobStep('no_workflow_callback'), status };
+  }
+  return {
+    ...getPublishJobStep(status),
+    status
+  };
+}
+
+function renderPublishJobStatus() {
+  if (!publishJobStatusElement) return;
+  const visibleStatus = getVisiblePublishJobStatus();
+  publishJobStatusElement.innerHTML = '';
+  if (!visibleStatus || !isPricingViewActive()) {
+    publishJobStatusElement.classList.add('hidden');
+    publishJobStatusElement.classList.remove('failed', 'done');
+    return;
+  }
+
+  publishJobStatusElement.classList.remove('hidden');
+  publishJobStatusElement.classList.toggle('failed', Boolean(visibleStatus.failed));
+  publishJobStatusElement.classList.toggle('done', Boolean(visibleStatus.done));
+  const label = document.createElement('span');
+  label.className = 'publish-job-label';
+  label.textContent = visibleStatus.label;
+  const track = document.createElement('span');
+  track.className = 'publish-job-progress';
+  const bar = document.createElement('span');
+  bar.style.width = `${Math.max(5, Math.min(100, visibleStatus.progress))}%`;
+  track.appendChild(bar);
+  publishJobStatusElement.append(label, track);
+}
+
 function updatePublishButtonState() {
   if (!requestPublishButton) return;
   const showingPricing = isPricingViewActive();
   requestPublishButton.classList.toggle('hidden', !showingPricing);
+  renderPublishJobStatus();
   if (!showingPricing) return;
   const isLoading = Boolean(publishPreviewStatus?.loading);
   const hasChanges = Number(publishPreviewStatus?.diffTotal) > 0;
   const hasError = Boolean(publishPreviewStatus?.error);
-  const disabled = isLoading || hasError || !hasChanges || publishRequestInFlight;
+  const visibleJobStatus = getVisiblePublishJobStatus();
+  const publishJobActive = Boolean(visibleJobStatus?.active);
+  const disabled = isLoading || hasError || !hasChanges || publishRequestInFlight || publishJobActive;
   requestPublishButton.disabled = disabled;
-  requestPublishButton.textContent = hasError ? 'Publish check failed' : isLoading ? 'Checking changes' : 'Publish changes';
+  requestPublishButton.textContent = publishJobActive
+    ? 'Publishing'
+    : hasError
+      ? 'Publish check failed'
+      : isLoading
+        ? 'Checking changes'
+        : 'Publish changes';
   requestPublishButton.title = hasError
     ? publishPreviewStatus.error?.message || 'Unable to check website text changes.'
-    : hasChanges
-      ? 'Review and publish website text changes.'
-      : 'No website text changes to publish.';
+    : publishJobActive
+      ? 'A website publish is already in progress.'
+      : hasChanges
+        ? 'Review and publish website text changes.'
+        : 'No website text changes to publish.';
   requestPublishButton.classList.toggle('publish-pending', hasChanges);
 }
 
@@ -2098,9 +2260,23 @@ function formatPublishDiffValue(value) {
 function appendPublishDiffRows(tableBody, diff) {
   const changes = Array.isArray(diff?.changes) ? diff.changes : [];
   changes.forEach((change) => {
-    const fieldDiffs = Array.isArray(change.fieldDiffs) && change.fieldDiffs.length
-      ? change.fieldDiffs
-      : [{ field: Array.isArray(change.fields) ? change.fields.join(', ') : '—', before: null, after: null }];
+    const wholeDocumentBefore = change.before ??
+      (change.type === 'removed' && Array.isArray(change.fieldDiffs)
+        ? Object.fromEntries(change.fieldDiffs.map((fieldDiff) => [fieldDiff.field, fieldDiff.before]))
+        : null);
+    const wholeDocumentAfter = change.after ??
+      (change.type === 'added' && Array.isArray(change.fieldDiffs)
+        ? Object.fromEntries(change.fieldDiffs.map((fieldDiff) => [fieldDiff.field, fieldDiff.after]))
+        : null);
+    const fieldDiffs = change.type === 'added' || change.type === 'removed'
+      ? [{
+          field: 'Document',
+          before: change.type === 'removed' ? wholeDocumentBefore : null,
+          after: change.type === 'added' ? wholeDocumentAfter : null
+        }]
+      : Array.isArray(change.fieldDiffs) && change.fieldDiffs.length
+        ? change.fieldDiffs
+        : [{ field: Array.isArray(change.fields) ? change.fields.join(', ') : '—', before: null, after: null }];
     fieldDiffs.forEach((fieldDiff) => {
       const row = document.createElement('tr');
       const cells = [
@@ -4862,7 +5038,7 @@ function renderPublishHistoryTable(message = '') {
   if (message || !publishHistory.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.className = 'empty';
     cell.textContent = message || 'No publish history yet.';
     row.appendChild(cell);
@@ -4872,6 +5048,7 @@ function renderPublishHistoryTable(message = '') {
   publishHistory.forEach((entry) => {
     const row = document.createElement('tr');
     row.className = 'publish-history-row';
+    const job = publishJobsById.get(entry.publishJobId || entry.id);
     const total = Number(entry.diff?.total) || 0;
     const summary = `${entry.diff?.added || 0} added, ${entry.diff?.changed || 0} changed, ${
       entry.diff?.removed || 0
@@ -4888,6 +5065,14 @@ function renderPublishHistoryTable(message = '') {
       cell.textContent = value;
       row.appendChild(cell);
     });
+
+    const statusCell = document.createElement('td');
+    const rawStatus = job?.status || (entry.dryRun ? 'dry_run_recorded' : 'unknown');
+    statusCell.textContent = formatPublishJobStatus(rawStatus, job);
+    if (isFailedPublishJobStatus(rawStatus, job)) {
+      statusCell.className = 'error';
+    }
+    row.appendChild(statusCell);
 
     const changesCell = document.createElement('td');
     if (hasDiffRows) {
@@ -4933,7 +5118,7 @@ function renderPublishHistoryTable(message = '') {
       const detailRow = document.createElement('tr');
       detailRow.className = 'publish-history-detail-row';
       const detailCell = document.createElement('td');
-      detailCell.colSpan = 6;
+      detailCell.colSpan = 7;
       const wrapper = document.createElement('div');
       wrapper.className = 'table-wrapper publish-history-detail-wrapper';
       const table = document.createElement('table');
@@ -7545,9 +7730,11 @@ if (requestPublishButton) {
     publishRequestInFlight = true;
     updatePublishButtonState();
     try {
-      const preview = publishPreviewStatus?.preview && Number(publishPreviewStatus.diffTotal) > 0
-        ? publishPreviewStatus.preview
-        : (await getSitePublishPreviewCallable({ latestChangeAt: latestContentUpdateMs, contentRevision })).data || {};
+      const preview = (await getSitePublishPreviewCallable({
+        latestChangeAt: latestContentUpdateMs,
+        contentRevision,
+        forceRefresh: true
+      })).data || {};
       publishPreviewStatus = {
         loading: false,
         diffTotal: Number(preview?.diff?.total) || 0,
@@ -7949,6 +8136,9 @@ if (confirmPublishPreviewButton) {
         contentRevision,
         previewTotal: pendingPublishPreview?.diff?.total || 0
       });
+      if (result.data?.publishId) {
+        subscribeToPublishJob(result.data.publishId);
+      }
       closePublishPreviewModal();
       requestPublishButton.title = result.data?.dryRun
         ? 'Dry-run publish recorded locally. Run the local export script to update Entrepôt.'
@@ -9275,6 +9465,8 @@ function handleSignedOutState() {
   cleanEtiquetteSubscription();
   cleanMarketingCopySubscription();
   cleanPublishHistorySubscription();
+  cleanPublishJobsSubscription();
+  cleanPublishJobSubscription();
   cleanCategorySubscription();
   cleanCcaPoolSubscription();
   cleanCcaRecordSubscription();
@@ -9376,6 +9568,7 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToEtiquette();
   subscribeToMarketingCopy();
   subscribeToPublishHistory();
+  subscribeToPublishJobs();
   subscribeToCategories();
   subscribeToPublishStatus();
   subscribeToExpensesStream();

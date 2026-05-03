@@ -2349,6 +2349,12 @@ th {
   vertical-align: top;
 }
 
+.publish-preview-table td:nth-child(2),
+.publish-preview-table td:nth-child(3) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .publish-preview-value {
   color: #1f2937;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
@@ -2395,4 +2401,51 @@ th {
   border-color: #2563eb;
   background: #2563eb;
   color: #fff;
+}
+
+.publish-job-status {
+  align-items: center;
+  color: #334155;
+  display: inline-flex;
+  font-size: 0.85rem;
+  font-weight: 700;
+  gap: 0.6rem;
+  min-width: 220px;
+  white-space: nowrap;
+}
+
+.publish-job-status.hidden {
+  display: none;
+}
+
+.publish-job-status.failed {
+  color: #b91c1c;
+}
+
+.publish-job-status.done {
+  color: #047857;
+}
+
+.publish-job-progress {
+  background: #dbe4f0;
+  border-radius: 999px;
+  display: inline-flex;
+  height: 6px;
+  overflow: hidden;
+  width: 90px;
+}
+
+.publish-job-progress span {
+  background: #2563eb;
+  border-radius: inherit;
+  display: block;
+  transition: width 180ms ease;
+}
+
+.publish-job-status.failed .publish-job-progress span {
+  background: #dc2626;
+}
+
+.publish-job-status.done .publish-job-progress span {
+  background: #059669;
 }

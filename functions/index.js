@@ -182,10 +182,11 @@ export const reportSitePublishJobUpdate = functions.https.onRequest(async (req, 
   }
 
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const eventTimestamp = admin.firestore.Timestamp.now();
   const jobRef = db.collection('sitePublishJobs').doc(publishId);
   const historyRef = db.collection('sitePublishHistory').doc(publishId);
   const event = {
-    at: timestamp,
+    at: eventTimestamp,
     status,
     details: details ?? null
   };
@@ -225,6 +226,27 @@ export const reportSitePublishJobUpdate = functions.https.onRequest(async (req, 
         { merge: true }
       )
     );
+  }
+  if (status === 'deploy_succeeded' || status === 'no_changes') {
+    const historySnap = await historyRef.get();
+    const history = historySnap.exists ? historySnap.data() : {};
+    if (history?.publishedSnapshot) {
+      ops.push(
+        db.collection('admin').doc('sitePublish').set(
+          {
+            lastPublishedAt: timestamp,
+            lastPublishedBy: history.requestedBy || null,
+            lastRequestedBy: history.requestedBy || null,
+            lastRequestedByUid: history.requestedByUid || null,
+            lastChangeReference: history.latestChangeAt || null,
+            lastPublishHistoryId: publishId,
+            lastPublishDryRun: Boolean(history.dryRun),
+            lastPublishedSnapshot: history.publishedSnapshot
+          },
+          { merge: true }
+        )
+      );
+    }
   }
   await Promise.all(ops);
   res.status(200).json({ ok: true });
@@ -493,6 +515,7 @@ function summarizePublishDiff(previousSnapshot = {}, nextSnapshot = {}) {
           collection: collectionName,
           id,
           type: 'added',
+          after: after || {},
           fields: Object.keys(after || {}).sort(),
           fieldDiffs: buildPublishFieldDiffs({}, after || {})
         });
@@ -503,6 +526,7 @@ function summarizePublishDiff(previousSnapshot = {}, nextSnapshot = {}) {
           collection: collectionName,
           id,
           type: 'removed',
+          before: before || {},
           fields: Object.keys(before || {}).sort(),
           fieldDiffs: buildPublishFieldDiffs(before || {}, {})
         });
@@ -827,6 +851,7 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
   const preview = await getPublishPreview();
 
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const eventTimestamp = admin.firestore.Timestamp.now();
   const jobPayload = {
     publishId: historyRef.id,
     requestedAt: timestamp,
@@ -835,7 +860,7 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
     status: publishDryRun ? 'dry_run_recorded' : 'dispatch_sending',
     updatedAt: timestamp,
     events: admin.firestore.FieldValue.arrayUnion({
-      at: timestamp,
+      at: eventTimestamp,
       status: publishDryRun ? 'dry_run_recorded' : 'dispatch_sending',
       details: null
     })
@@ -864,12 +889,13 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
     if (!response.ok) {
       const text = await response.text();
       console.error('GitHub dispatch failed', response.status, text);
+      const failureTimestamp = admin.firestore.Timestamp.now();
       await jobRef.set(
         {
           status: 'dispatch_failed',
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           events: admin.firestore.FieldValue.arrayUnion({
-            at: admin.firestore.FieldValue.serverTimestamp(),
+            at: failureTimestamp,
             status: 'dispatch_failed',
             details: { httpStatus: response.status }
           }),
@@ -880,12 +906,13 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
       throw new functions.https.HttpsError('internal', 'GitHub workflow dispatch failed.');
     }
 
+    const sentTimestamp = admin.firestore.Timestamp.now();
     await jobRef.set(
       {
         status: 'dispatch_sent',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         events: admin.firestore.FieldValue.arrayUnion({
-          at: admin.firestore.FieldValue.serverTimestamp(),
+          at: sentTimestamp,
           status: 'dispatch_sent',
           details: null
         })
@@ -905,6 +932,7 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
     githubRepo: publishDryRun ? null : githubRepo,
     githubEventType,
     diff: preview.diff,
+    publishedSnapshot: preview.nextSnapshot,
     publishJobId: historyRef.id
   };
 
@@ -913,13 +941,11 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
   batch.set(
     db.collection('admin').doc('sitePublish'),
     {
-      lastPublishedAt: admin.firestore.FieldValue.serverTimestamp(),
       lastRequestedBy: requestedBy,
       lastRequestedByUid: context.auth.uid,
       lastChangeReference: latestChangeAt,
       lastPublishHistoryId: historyRef.id,
-      lastPublishDryRun: publishDryRun,
-      lastPublishedSnapshot: preview.nextSnapshot
+      lastPublishDryRun: publishDryRun
     },
     { merge: true }
   );
