@@ -104,6 +104,10 @@ const settingsNavButtons = Array.from(settingsNav?.querySelectorAll('button[data
 const closeSettingsNavButton = document.getElementById('close-settings-nav');
 const panelTitle = document.getElementById('panel-title');
 const panelSubtitle = document.getElementById('panel-subtitle');
+
+if (authSection) {
+  authSection.classList.add('hidden');
+}
 const accountsView = document.getElementById('accounts-view');
 const ledgerView = document.getElementById('ledger-view');
 const newAccountButton = document.getElementById('new-account');
@@ -7443,6 +7447,37 @@ function setNumericInputValue(input, value) {
   input.value = num ?? '';
 }
 
+// Do not close modals by clicking the backdrop. Explicit Close/Cancel and Save actions
+// are the only intended ways out of modal editing flows.
+document.addEventListener(
+  'click',
+  (event) => {
+    if (event.target?.classList?.contains('modal')) {
+      event.stopImmediatePropagation();
+    }
+  },
+  true
+);
+
+document.querySelectorAll('.modal').forEach((modalElement) => {
+  ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((eventName) => {
+    modalElement.addEventListener(
+      eventName,
+      (event) => {
+        if (event.target === modalElement) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      },
+      true
+    );
+  });
+});
+
+function shouldCloseModalFromBackdrop() {
+  return false;
+}
+
 accountList.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-action="edit"]');
   if (!button) return;
@@ -7462,7 +7497,7 @@ closeModalButton.addEventListener('click', () => {
 });
 
 modal.addEventListener('click', (event) => {
-  if (event.target === modal) {
+  if (shouldCloseModalFromBackdrop(event)) {
     closeModal();
   }
 });
@@ -7492,7 +7527,7 @@ if (closeClientModalButton) {
 
 if (clientModal) {
   clientModal.addEventListener('click', (event) => {
-    if (event.target === clientModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeClientModal();
     }
   });
@@ -7608,7 +7643,7 @@ if (closeStorageModalButton) {
 
 if (storageModal) {
   storageModal.addEventListener('click', (event) => {
-    if (event.target === storageModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeStorageModal();
     }
   });
@@ -7688,7 +7723,7 @@ if (closeSeasonModalButton) {
 
 if (seasonModal) {
   seasonModal.addEventListener('click', (event) => {
-    if (event.target === seasonModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeSeasonModal();
     }
   });
@@ -7719,7 +7754,7 @@ if (closeVehicleTypeModalButton) {
 
 if (vehicleTypeModal) {
   vehicleTypeModal.addEventListener('click', (event) => {
-    if (event.target === vehicleTypeModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeVehicleTypeModal();
     }
   });
@@ -7801,7 +7836,7 @@ if (closeOfferModalButton) {
 
 if (offerModal) {
   offerModal.addEventListener('click', (event) => {
-    if (event.target === offerModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeOfferModal();
     }
   });
@@ -7820,7 +7855,7 @@ if (closeOfferTemplateModalButton) {
 
 if (offerTemplateModal) {
   offerTemplateModal.addEventListener('click', (event) => {
-    if (event.target === offerTemplateModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeOfferTemplateModal();
     }
   });
@@ -7851,7 +7886,7 @@ if (closeAddonModalButton) {
 
 if (addonModal) {
   addonModal.addEventListener('click', (event) => {
-    if (event.target === addonModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeAddonModal();
     }
   });
@@ -7865,7 +7900,7 @@ if (closeSeasonAddonModalButton) {
 
 if (seasonAddonModal) {
   seasonAddonModal.addEventListener('click', (event) => {
-    if (event.target === seasonAddonModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeSeasonAddonModal();
     }
   });
@@ -7881,7 +7916,7 @@ if (cancelPublishPreviewButton) {
 
 if (publishPreviewModal) {
   publishPreviewModal.addEventListener('click', (event) => {
-    if (event.target === publishPreviewModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closePublishPreviewModal();
     }
   });
@@ -7962,7 +7997,7 @@ if (closeCopyModalButton) {
 
 if (copyModal) {
   copyModal.addEventListener('click', (event) => {
-    if (event.target === copyModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeCopyModal();
     }
   });
@@ -7999,7 +8034,7 @@ if (closeCategoryModalButton) {
 
 if (categoryModal) {
   categoryModal.addEventListener('click', (event) => {
-    if (event.target === categoryModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeCategoryModal();
     }
   });
@@ -8030,7 +8065,7 @@ if (closeConditionModalButton) {
 
 if (conditionModal) {
   conditionModal.addEventListener('click', (event) => {
-    if (event.target === conditionModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeConditionModal();
     }
   });
@@ -8061,7 +8096,7 @@ if (closeEtiquetteModalButton) {
 
 if (etiquetteModal) {
   etiquetteModal.addEventListener('click', (event) => {
-    if (event.target === etiquetteModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeEtiquetteModal();
     }
   });
@@ -8891,7 +8926,7 @@ if (closeMileageModalButton) {
 
 if (mileageModal) {
   mileageModal.addEventListener('click', (event) => {
-    if (event.target === mileageModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeMileageModal();
     }
   });
@@ -9067,7 +9102,7 @@ if (closeReportDetailModalButton) {
 
 if (reportDetailModal) {
   reportDetailModal.addEventListener('click', (event) => {
-    if (event.target === reportDetailModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeReportDetailModal();
       return;
     }
@@ -9219,60 +9254,86 @@ signOutButton.addEventListener('click', async () => {
   await signOut(auth);
 });
 
+const AUTH_RESTORE_GRACE_MS = 1500;
+let initialAuthSettled = false;
+let pendingSignedOutTimer = null;
+
+function handleSignedOutState() {
+  showAppUI(false);
+  cleanAccountSubscription();
+  cleanExpensesSubscription();
+  cleanMileageSettingsSubscription();
+  cleanClientSubscription();
+  cleanStorageSubscription();
+  cleanSeasonSubscription();
+  cleanVehicleTypeSubscription();
+  cleanOfferTemplateSubscription();
+  cleanOfferSubscription();
+  cleanAddonSubscription();
+  cleanSeasonAddonSubscription();
+  cleanConditionSubscription();
+  cleanEtiquetteSubscription();
+  cleanMarketingCopySubscription();
+  cleanPublishHistorySubscription();
+  cleanCategorySubscription();
+  cleanCcaPoolSubscription();
+  cleanCcaRecordSubscription();
+  cleanAccounts();
+  cleanClients();
+  cleanStorageRequests();
+  cleanSeasonsData();
+  cleanVehicleTypesData();
+  cleanOfferTemplateData();
+  cleanOffersData();
+  cleanAddOnsData();
+  cleanSeasonAddOnsData();
+  cleanConditionsData();
+  cleanEtiquetteData();
+  cleanMarketingCopyData();
+  cleanPublishHistoryData();
+  cleanPublishStateData();
+  cleanCategoriesData();
+  hideEntryModal();
+  closeModal();
+  closeClientModal();
+  closeStorageModal();
+  closeSeasonModal();
+  closeOfferTemplateModal();
+  closeOfferModal();
+  closeAddonModal();
+  closeSeasonAddonModal();
+  closePublishPreviewModal();
+  ledgerAccountSelection = [];
+  if (ledgerFilterMenu) {
+    ledgerFilterMenu.classList.add('hidden');
+  }
+  if (ledgerFilterSummary) {
+    ledgerFilterSummary.textContent = 'All accounts';
+  }
+  activeUser.textContent = '';
+}
+
 onAuthStateChanged(auth, async (user) => {
+  if (pendingSignedOutTimer) {
+    window.clearTimeout(pendingSignedOutTimer);
+    pendingSignedOutTimer = null;
+  }
+
+  if (!user && !initialAuthSettled) {
+    pendingSignedOutTimer = window.setTimeout(() => {
+      pendingSignedOutTimer = null;
+      initialAuthSettled = true;
+      if (!auth.currentUser) {
+        handleSignedOutState();
+      }
+    }, AUTH_RESTORE_GRACE_MS);
+    return;
+  }
+
+  initialAuthSettled = true;
+
   if (!user) {
-    showAppUI(false);
-    cleanAccountSubscription();
-    cleanExpensesSubscription();
-    cleanMileageSettingsSubscription();
-    cleanClientSubscription();
-    cleanStorageSubscription();
-    cleanSeasonSubscription();
-    cleanVehicleTypeSubscription();
-    cleanOfferTemplateSubscription();
-    cleanOfferSubscription();
-    cleanAddonSubscription();
-    cleanSeasonAddonSubscription();
-    cleanConditionSubscription();
-    cleanEtiquetteSubscription();
-    cleanMarketingCopySubscription();
-    cleanPublishHistorySubscription();
-    cleanCategorySubscription();
-    cleanCcaPoolSubscription();
-    cleanCcaRecordSubscription();
-    cleanAccounts();
-    cleanClients();
-    cleanStorageRequests();
-    cleanSeasonsData();
-    cleanVehicleTypesData();
-    cleanOfferTemplateData();
-    cleanOffersData();
-    cleanAddOnsData();
-    cleanSeasonAddOnsData();
-    cleanConditionsData();
-    cleanEtiquetteData();
-    cleanMarketingCopyData();
-    cleanPublishHistoryData();
-    cleanPublishStateData();
-    cleanCategoriesData();
-    hideEntryModal();
-    closeModal();
-    closeClientModal();
-    closeStorageModal();
-    closeSeasonModal();
-    closeOfferTemplateModal();
-    closeOfferModal();
-    closeAddonModal();
-    closeSeasonAddonModal();
-    closePublishPreviewModal();
-    ledgerAccountSelection = [];
-    if (ledgerFilterMenu) {
-      ledgerFilterMenu.classList.add('hidden');
-    }
-    if (ledgerFilterSummary) {
-      ledgerFilterSummary.textContent = 'All accounts';
-    }
-    activeUser.textContent = '';
+    handleSignedOutState();
     return;
   }
 
@@ -10383,7 +10444,7 @@ if (closeLedgerExportModalButton) {
 
 if (ledgerExportModal) {
   ledgerExportModal.addEventListener('click', (event) => {
-    if (event.target === ledgerExportModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       hideLedgerExportModal();
     }
   });
@@ -10474,7 +10535,7 @@ closeEntryModalButton.addEventListener('click', () => {
 });
 
 entryModal.addEventListener('click', (event) => {
-  if (event.target === entryModal) {
+  if (shouldCloseModalFromBackdrop(event)) {
     hideEntryModal();
   }
 });
@@ -10590,7 +10651,7 @@ if (closeCcaPoolModalButton) {
 
 if (ccaPoolModal) {
   ccaPoolModal.addEventListener('click', (event) => {
-    if (event.target === ccaPoolModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeCcaPoolModal();
     }
   });
@@ -10827,7 +10888,7 @@ if (closeCcaRecordModalButton) {
 
 if (ccaRecordModal) {
   ccaRecordModal.addEventListener('click', (event) => {
-    if (event.target === ccaRecordModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       closeCcaRecordModal();
     }
   });
@@ -11257,7 +11318,7 @@ if (closeBillPaymentModalButton) {
 
 if (billPaymentModal) {
   billPaymentModal.addEventListener('click', (event) => {
-    if (event.target === billPaymentModal) {
+    if (shouldCloseModalFromBackdrop(event)) {
       hideBillPaymentModal();
     }
   });
@@ -11318,7 +11379,7 @@ closeTransferModalButton.addEventListener('click', () => {
 });
 
 transferModal.addEventListener('click', (event) => {
-  if (event.target === transferModal) {
+  if (shouldCloseModalFromBackdrop(event)) {
     hideTransferModal();
   }
 });
