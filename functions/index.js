@@ -807,10 +807,16 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
     throw new functions.https.HttpsError('unauthenticated', 'Sign in to request a publish.');
   }
   const githubToken = publishDryRun ? '' : await loadGithubPublishToken();
-  if (!publishDryRun && (!githubRepo || !githubToken)) {
+  if (!publishDryRun && !githubRepo) {
     throw new functions.https.HttpsError(
       'failed-precondition',
-      'Publish target is not configured. Set GITHUB_PUBLISH_REPO and either GITHUB_PUBLISH_TOKEN or GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE.'
+      'Publish target repository is not configured.'
+    );
+  }
+  if (!publishDryRun && !githubToken) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      `GitHub publish token could not be loaded from ${githubTokenSecretResource}. Verify the secret exists and the function service account has Secret Manager Secret Accessor access.`
     );
   }
 
