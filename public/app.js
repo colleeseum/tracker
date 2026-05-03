@@ -6925,11 +6925,23 @@ function estimateStorageAmount(request) {
 
 function resolveStorageAmount(request) {
   if (!request) return null;
-  const overrideAmount = Number(request.contractAmount);
-  if (Number.isFinite(overrideAmount)) {
-    return overrideAmount;
+  if (request.contractAmount !== null && request.contractAmount !== undefined && request.contractAmount !== '') {
+    const overrideAmount = Number(request.contractAmount);
+    if (Number.isFinite(overrideAmount)) {
+      return overrideAmount;
+    }
   }
-  return estimateStorageAmount(request);
+  const estimatedAmount = estimateStorageAmount(request);
+  if (Number.isFinite(estimatedAmount)) {
+    return estimatedAmount;
+  }
+  if (request.estimate?.amount !== null && request.estimate?.amount !== undefined && request.estimate?.amount !== '') {
+    const submittedEstimate = Number(request.estimate.amount);
+    if (Number.isFinite(submittedEstimate)) {
+      return submittedEstimate;
+    }
+  }
+  return null;
 }
 
 function formatAmountInputValue(amount) {
@@ -6939,11 +6951,16 @@ function formatAmountInputValue(amount) {
 
 function syncStorageAmountInput(request) {
   if (!storageAmountInput) return;
-  const overrideAmount = request && Number.isFinite(Number(request.contractAmount)) ? Number(request.contractAmount) : null;
-  const suggestedAmount = request ? estimateStorageAmount(request) : null;
+  const hasOverride =
+    request && request.contractAmount !== null && request.contractAmount !== undefined && request.contractAmount !== '';
+  const overrideValue = hasOverride ? Number(request.contractAmount) : null;
+  const overrideAmount = Number.isFinite(overrideValue) ? overrideValue : null;
+  const suggestedAmount = request ? resolveStorageAmount({ ...request, contractAmount: null }) : null;
   const valueToDisplay = overrideAmount != null ? overrideAmount : suggestedAmount;
   storageAmountInput.value = formatAmountInputValue(valueToDisplay);
-  storageAmountInput.placeholder = suggestedAmount ? `Suggested ${formatCurrency(suggestedAmount)}` : 'Auto-calculated from pricing';
+  storageAmountInput.placeholder = Number.isFinite(suggestedAmount)
+    ? `Suggested ${formatCurrency(suggestedAmount)}`
+    : 'Auto-calculated from pricing';
 }
 
 function setStorageFormReadOnly(readOnly) {
