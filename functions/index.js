@@ -25,6 +25,10 @@ const githubTokenSecretResource =
   process.env.GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE ||
   process.env.GITHUB_PUBLISH_TOKEN_SECRET ||
   'projects/1044638579272/secrets/Entrepot';
+const publishCallbackTokenSecretResource =
+  process.env.PUBLISH_CALLBACK_TOKEN_SECRET_RESOURCE ||
+  process.env.PUBLISH_CALLBACK_TOKEN_SECRET ||
+  'projects/1044638579272/secrets/TRACKER_PUBLISH_CALLBACK_TOKEN';
 const publishDryRun = process.env.FUNCTIONS_EMULATOR === 'true' || process.env.PUBLISH_DRY_RUN === 'true';
 const TRACKER_ADMIN_EMAILS = new Set(['sergecolle@gmail.com', 'arcolle@gmail.com']);
 const PUBLISH_COLLECTIONS = [
@@ -46,7 +50,6 @@ const db = admin.firestore();
 let cachedGithubToken = null;
 let githubTokenLoadPromise = null;
 
-let cachedPublishCallbackToken = null;
 let publishCallbackTokenLoadPromise = null;
 
 async function loadGithubPublishToken() {
@@ -88,38 +91,27 @@ async function loadGithubPublishToken() {
 }
 
 async function loadPublishCallbackToken() {
-  if (cachedPublishCallbackToken) return cachedPublishCallbackToken;
+  const direct = process.env.PUBLISH_CALLBACK_TOKEN;
+  if (direct) {
+    return direct.trim();
+  }
+
   if (publishCallbackTokenLoadPromise) return publishCallbackTokenLoadPromise;
 
   publishCallbackTokenLoadPromise = (async () => {
-    const direct = process.env.PUBLISH_CALLBACK_TOKEN;
-    if (direct) {
-      cachedPublishCallbackToken = direct;
-      return cachedPublishCallbackToken;
-    }
-
-    const secretResource =
-      process.env.PUBLISH_CALLBACK_TOKEN_SECRET_RESOURCE ||
-      process.env.PUBLISH_CALLBACK_TOKEN_SECRET ||
-      '';
-    if (!secretResource) {
-      cachedPublishCallbackToken = '';
-      return cachedPublishCallbackToken;
-    }
+    const secretResource = publishCallbackTokenSecretResource;
+    if (!secretResource) return '';
 
     const versionName = secretResource.includes('/versions/')
       ? secretResource
       : `${secretResource}/versions/latest`;
     const client = new SecretManagerServiceClient();
     const [result] = await client.accessSecretVersion({ name: versionName });
-    const token = result?.payload?.data ? result.payload.data.toString('utf8').trim() : '';
-    cachedPublishCallbackToken = token;
-    return cachedPublishCallbackToken;
+    return result?.payload?.data ? result.payload.data.toString('utf8').trim() : '';
   })()
     .catch((err) => {
       console.error('Failed to load publish callback token from Secret Manager.', err);
-      cachedPublishCallbackToken = '';
-      return cachedPublishCallbackToken;
+      return '';
     })
     .finally(() => {
       publishCallbackTokenLoadPromise = null;
