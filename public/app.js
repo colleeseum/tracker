@@ -902,6 +902,7 @@ let activePublishJobId = null;
 let publishJobStatus = null;
 let unsubscribePublishJob = null;
 let unsubscribePublishJobs = null;
+let publishJobTimer = null;
 
 const STORAGE_STATUS_OPTIONS = [
   { value: 'new', label: 'New' },
@@ -1096,6 +1097,7 @@ function cleanPublishStateData() {
   publishPreviewStatus = null;
   publishJobStatus = null;
   activePublishJobId = null;
+  stopPublishJobTimer();
   updatePublishButtonState();
 }
 
@@ -1710,6 +1712,7 @@ function cleanPublishJobSubscription() {
   unsubscribePublishJob = null;
   activePublishJobId = null;
   publishJobStatus = null;
+  stopPublishJobTimer();
 }
 
 function cleanSeasonAddonSubscription() {
@@ -2126,6 +2129,29 @@ function refreshPublishPreviewAfterContentWrite() {
   refreshPublishPreviewStatus();
 }
 
+function stopPublishJobTimer() {
+  if (publishJobTimer) {
+    window.clearInterval(publishJobTimer);
+  }
+  publishJobTimer = null;
+}
+
+function syncPublishJobTimer() {
+  const active = Boolean(publishJobStatus?.status && getPublishJobStep(String(publishJobStatus.status)).active);
+  if (!active) {
+    stopPublishJobTimer();
+    return;
+  }
+  if (publishJobTimer) return;
+  publishJobTimer = window.setInterval(() => {
+    updatePublishButtonState();
+    renderPublishHistoryTable();
+    if (!publishJobStatus?.status || !getPublishJobStep(String(publishJobStatus.status)).active) {
+      stopPublishJobTimer();
+    }
+  }, 5000);
+}
+
 function getPublishJobStep(status) {
   const steps = {
     dispatch_sending: { label: 'Contacting GitHub', progress: 12, active: true },
@@ -2182,6 +2208,7 @@ function getVisiblePublishJobStatus() {
 
 function renderPublishJobStatus() {
   if (!publishJobStatusElement) return;
+  syncPublishJobTimer();
   const visibleStatus = getVisiblePublishJobStatus();
   publishJobStatusElement.innerHTML = '';
   if (!visibleStatus || !isPricingViewActive()) {
