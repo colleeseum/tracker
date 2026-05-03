@@ -223,21 +223,21 @@ export const reportSitePublishJobUpdate = functions.https.onRequest(async (req, 
     const historySnap = await historyRef.get();
     const history = historySnap.exists ? historySnap.data() : {};
     if (history?.publishedSnapshot) {
-      ops.push(
-        db.collection('admin').doc('sitePublish').set(
-          {
-            lastPublishedAt: timestamp,
-            lastPublishedBy: history.requestedBy || null,
-            lastRequestedBy: history.requestedBy || null,
-            lastRequestedByUid: history.requestedByUid || null,
-            lastChangeReference: history.latestChangeAt || null,
-            lastPublishHistoryId: publishId,
-            lastPublishDryRun: Boolean(history.dryRun),
-            lastPublishedSnapshot: history.publishedSnapshot
-          },
-          { merge: true }
-        )
-      );
+      const statusRef = db.collection('admin').doc('sitePublish');
+      ops.push(statusRef.set(
+        {
+          lastPublishedAt: timestamp,
+          lastPublishedBy: history.requestedBy || null,
+          lastRequestedBy: history.requestedBy || null,
+          lastRequestedByUid: history.requestedByUid || null,
+          lastChangeReference: history.latestChangeAt || null,
+          lastPublishHistoryId: publishId,
+          lastPublishDryRun: Boolean(history.dryRun)
+        },
+        { merge: true }
+      ));
+      // Replace the full snapshot map so documents removed from staging are also removed from the baseline.
+      ops.push(statusRef.update({ lastPublishedSnapshot: history.publishedSnapshot }));
     }
   }
   await Promise.all(ops);
