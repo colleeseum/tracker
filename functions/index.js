@@ -22,6 +22,7 @@ const englishSenderKeyword = (process.env.ENGLISH_SENDER_KEYWORD || 'warehouse@a
 const githubRepo = process.env.GITHUB_PUBLISH_REPO || '';
 const githubEventType = process.env.GITHUB_PUBLISH_EVENT || 'tracker-content-publish';
 const publishDryRun = process.env.FUNCTIONS_EMULATOR === 'true' || process.env.PUBLISH_DRY_RUN === 'true';
+const TRACKER_ADMIN_EMAILS = new Set(['sergecolle@gmail.com', 'arcolle@gmail.com']);
 const PUBLISH_COLLECTIONS = [
   'storageSeasons',
   'storageOffers',
@@ -918,6 +919,238 @@ export const requestSitePublish = functions.https.onCall(async (data, context) =
   await batch.commit();
 
   return { ok: true, dryRun: publishDryRun, publishId: historyRef.id, diff: preview.diff };
+});
+
+function normalizeLocaleMap(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    return { en: value, fr: value };
+  }
+  const en = typeof value.en === 'string' ? value.en : '';
+  const fr = typeof value.fr === 'string' ? value.fr : '';
+  if (!en && !fr) return null;
+  return { en, fr };
+}
+
+function normalizePrice(price) {
+  if (!price || typeof price !== 'object') return null;
+  const mode = price.mode || null;
+  if (!mode) return null;
+  if (mode === 'flat') {
+    const amount = Number(price.amount);
+    return Number.isFinite(amount) ? { mode, amount } : null;
+  }
+  if (mode === 'perFoot') {
+    const rate = Number(price.rate);
+    const minimum = Number(price.minimum);
+    return {
+      mode,
+      rate: Number.isFinite(rate) ? rate : 0,
+      minimum: Number.isFinite(minimum) ? minimum : 0,
+      unit: normalizeLocaleMap(price.unit) || price.unit || { en: '/ ft', fr: '/ pi' }
+    };
+  }
+  return { mode: 'contact' };
+}
+
+function toPlainTimestamp(timestamp) {
+  if (!timestamp) return null;
+  if (typeof timestamp.toDate === 'function') {
+    return timestamp.toDate().toISOString();
+  }
+  return null;
+}
+
+function normalizeOffer(offer) {
+  return {
+    id: offer.id,
+    label: normalizeLocaleMap(offer.label) || { en: '', fr: '' },
+    price: normalizePrice(offer.price),
+    vehicleTypes: Array.isArray(offer.vehicleTypes)
+      ? offer.vehicleTypes.filter((value) => typeof value === 'string' && value.length > 0)
+      : [],
+    note: normalizeLocaleMap(offer.note),
+    hideInTable: Boolean(offer.hideInTable),
+    order: typeof offer.order === 'number' ? offer.order : 0,
+    updatedAt: toPlainTimestamp(offer.updatedAt)
+  };
+}
+
+export const getWebsiteContent = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in to view staging website content.');
+  }
+  const email = (context.auth.token?.email || '').toLowerCase();
+  if (!email || !TRACKER_ADMIN_EMAILS.has(email)) {
+    throw new functions.https.HttpsError('permission-denied', 'Not authorized.');
+  }
+
+  const [
+    addOnsSnap,
+    seasonAddOnsSnap,
+    conditionsSnap,
+    etiquetteSnap,
+    i18nSnap,
+    seasonsSnap,
+    offersSnap,
+    vehicleTypesSnap
+  ] = await Promise.all([
+    db.collection('storageAddOns').orderBy('order').get(),
+    db.collection('storageSeasonAddOns').orderBy('order').get(),
+    db.collection('storageConditions').orderBy('order').get(),
+    db.collection('storageEtiquette').orderBy('order').get(),
+    db.collection('i18nEntries').get(),
+    db.collection('storageSeasons').orderBy('order').get(),
+    db.collection('storageOffers').orderBy('order').get(),
+    db.collection('vehicleTypes').orderBy('order').get()
+  ]);
+
+  const STORAGE_ADDONS = addOnsSnap.docs.map((docSnap) => {
+    const entry = docSnap.data() || {};
+    return {
+      id: docSnap.id,
+      code: entry.code || docSnap.id,
+      name: normalizeLocaleMap(entry.name) || { en: '', fr: '' },
+      description: normalizeLocaleMap(entry.description),
+      order: typeof entry.order === 'number' ? entry.order : 0,
+      active: entry.active !== false,
+      updatedAt: toPlainTimestamp(entry.updatedAt)
+    };
+  });
+
+  const STORAGE_SEASON_ADDONS = seasonAddOnsSnap.docs.map((docSnap) => {
+    const entry = docSnap.data() || {};
+    return {
+      id: docSnap.id,
+      seasonId: entry.seasonId || null,
+      code: entry.code || entry.addonId || docSnap.id,
+      price: typeof entry.price === 'number' ? entry.price : Number(entry.price) || 0,
+      order: typeof entry.order === 'number' ? entry.order : 0,
+      active: entry.active !== false,
+      updatedAt: toPlainTimestamp(entry.updatedAt)
+    };
+  });
+
+  const STORAGE_CONDITIONS = conditionsSnap.docs.map((docSnap) => {
+    const entry = docSnap.data() || {};
+    return {
+      text: entry.text || { en: '', fr: '' },
+      tooltip: entry.tooltip || { en: '', fr: '' },
+      order: entry.order || 0,
+      updatedAt: toPlainTimestamp(entry.updatedAt)
+    };
+  });
+
+  const STORAGE_ETIQUETTE = etiquetteSnap.docs.map((docSnap) => {
+    const entry = docSnap.data() || {};
+    return {
+      text: entry.text || { en: '', fr: '' },
+      tooltip: entry.tooltip || { en: '', fr: '' },
+      order: entry.order || 0,
+      updatedAt: toPlainTimestamp(entry.updatedAt)
+    };
+  });
+
+  const offersBySeason = new Map();
+  offersSnap.docs.forEach((docSnap) => {
+    const offer = { id: docSnap.id, ...docSnap.data() };
+    const seasonId = offer.seasonId;
+    if (!seasonId) return;
+    const normalizedOffer = normalizeOffer(offer);
+    if (!offersBySeason.has(seasonId)) offersBySeason.set(seasonId, []);
+    offersBySeason.get(seasonId).push(normalizedOffer);
+  });
+
+  const STORAGE_SEASONS = seasonsSnap.docs
+    .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+    .filter((season) => season.active !== false)
+    .map((season) => {
+      const offers = offersBySeason.get(season.id) || [];
+      offers.sort((a, b) => (a.order || 0) - (b.order || 0));
+      return {
+        id: season.id,
+        name: normalizeLocaleMap(season.name) || { en: '', fr: '' },
+        seasonLabel: normalizeLocaleMap(season.label) || normalizeLocaleMap(season.name) || { en: '', fr: '' },
+        timeframe: normalizeLocaleMap(season.timeframe),
+        duration: normalizeLocaleMap(season.duration) || normalizeLocaleMap(season.timeframe) || null,
+        dropoffWindow: normalizeLocaleMap(season.dropoffWindow),
+        pickupDeadline: normalizeLocaleMap(season.pickupDeadline),
+        description: normalizeLocaleMap(season.description),
+        ruleTitle: normalizeLocaleMap(season.ruleTitle),
+        policies: Array.isArray(season.policies)
+          ? season.policies
+              .map((policy) => {
+                if (!policy) return null;
+                if (typeof policy === 'string') return { text: { en: policy, fr: policy } };
+                if (policy.text || policy.tooltip || policy.tooltipKey) {
+                  const entry = {};
+                  if (policy.text) entry.text = normalizeLocaleMap(policy.text) || { en: '', fr: '' };
+                  if (policy.tooltip) entry.tooltip = normalizeLocaleMap(policy.tooltip);
+                  if (policy.tooltipKey) entry.tooltipKey = policy.tooltipKey;
+                  return entry;
+                }
+                const text = normalizeLocaleMap(policy);
+                return text ? { text } : null;
+              })
+              .filter(Boolean)
+          : [],
+        offers,
+        order: typeof season.order === 'number' ? season.order : 0,
+        active: season.active !== false,
+        updatedAt: toPlainTimestamp(season.updatedAt)
+      };
+    })
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const VEHICLE_TYPES = vehicleTypesSnap.docs
+    .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+    .map((entry) => {
+      const labels = normalizeLocaleMap(entry.label) || { en: '', fr: '' };
+      const value =
+        (typeof entry.value === 'string' && entry.value.trim()) ||
+        (typeof entry.type === 'string' && entry.type.trim()) ||
+        entry.id ||
+        labels.en ||
+        labels.fr ||
+        '';
+      if (!value) return null;
+      const legacyValues = Array.isArray(entry.legacyValues)
+        ? entry.legacyValues.filter((item) => typeof item === 'string' && item.trim().length > 0)
+        : [];
+      return {
+        id: entry.id,
+        value,
+        labels,
+        slug: typeof entry.slug === 'string' && entry.slug.trim() ? entry.slug.trim() : null,
+        legacyValues,
+        order: typeof entry.order === 'number' ? entry.order : 0,
+        active: entry.active !== false,
+        updatedAt: toPlainTimestamp(entry.updatedAt)
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if ((a.order || 0) !== (b.order || 0)) return (a.order || 0) - (b.order || 0);
+      return (a.value || '').localeCompare(b.value || '');
+    });
+
+  const I18N = {};
+  i18nSnap.docs.forEach((docSnap) => {
+    const entry = docSnap.data() || {};
+    const key = entry.key || docSnap.id;
+    if (!key) return;
+    I18N[key] = entry.text || { en: '', fr: '' };
+  });
+
+  return {
+    STORAGE_ADDONS,
+    STORAGE_SEASON_ADDONS,
+    STORAGE_CONDITIONS,
+    STORAGE_ETIQUETTE,
+    STORAGE_SEASONS,
+    VEHICLE_TYPES,
+    I18N
+  };
 });
 
 export const createStorageRequest = functions.https.onCall(async (data, context) => {

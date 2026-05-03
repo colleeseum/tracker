@@ -798,9 +798,37 @@ function parseInitialReportLinkParams() {
   };
 }
 
+function parseInitialPricingPanelParam() {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('view') !== 'pricing') return null;
+  const panel = (params.get('panel') || '').trim();
+  if (!panel) return null;
+  const allowed = new Set([
+    'seasons',
+    'vehicleTypes',
+    'offerTemplates',
+    'addons',
+    'policies',
+    'etiquette',
+    'i18n',
+    'publishHistory'
+  ]);
+  return allowed.has(panel) ? panel : null;
+}
+
+function parseInitialI18nEditKeyParam() {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const key = (params.get('editI18nKey') || params.get('i18nKey') || '').trim();
+  return key || null;
+}
+
 const initialViewName = parseInitialViewParam();
 const initialSettingsSectionName = parseInitialSettingsSectionParam();
 const initialReportLinkParams = parseInitialReportLinkParams();
+const initialPricingPanelName = parseInitialPricingPanelParam();
+const initialI18nEditKey = parseInitialI18nEditKeyParam();
 let pendingReportLinkParams = initialReportLinkParams ? { ...initialReportLinkParams } : null;
 let reportFilters = {
   type: 'balance',
@@ -818,6 +846,11 @@ let reportGeneratedOnce = false;
 let reportDrilldownLookup = new Map();
 let reportDrilldownCounter = 1;
 let reportDetailRowCounter = 1;
+
+let pendingI18nEditKey = initialI18nEditKey;
+if (initialPricingPanelName) {
+  activePricingPanel = initialPricingPanelName;
+}
 let ccaPools = [];
 let ccaPoolLookup = new Map();
 let unsubscribeCcaPools = null;
@@ -1384,6 +1417,20 @@ function subscribeToMarketingCopy() {
       marketingCopyEntries = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       renderCopyTable();
       updateLatestContentTimestamp();
+
+      if (pendingI18nEditKey) {
+        const key = pendingI18nEditKey;
+        const entry = marketingCopyEntries.find((item) => item.key === key || item.id === key);
+        if (entry) {
+          // Ensure the right view/tab is visible, then open the modal.
+          if (currentView !== 'pricing') {
+            setView('pricing');
+          }
+          showPricingPanel('i18n');
+          openCopyModal('edit', entry);
+          pendingI18nEditKey = null;
+        }
+      }
     },
     (error) => {
       copyFormError.textContent = error.message;

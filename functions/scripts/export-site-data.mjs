@@ -1,16 +1,43 @@
 import fs from 'fs';
 import path from 'path';
-import admin from 'firebase-admin';
 import { fileURLToPath } from 'url';
 import { loadActiveProfile } from '../../lib/profile-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const { projectId } = await loadActiveProfile();
+const { projectId, useEmulators } = await loadActiveProfile();
 
-admin.initializeApp({ projectId });
-const db = admin.firestore();
+let db = null;
+let emulatorBaseUrl = null;
+
+const shouldUseEmulatorRest =
+  useEmulators &&
+  (process.env.EXPORT_SITE_DATA_USE_EMULATOR_REST === '1' ||
+    process.env.EXPORT_SITE_DATA_USE_EMULATOR_REST === 'true');
+
+if (shouldUseEmulatorRest) {
+  // Fallback path: emulator REST API (no OAuth) for environments where gRPC is flaky.
+  // Note: emulator REST enforces Firestore security rules, so this only works if your
+  // rules allow reads or you supply an auth token (not implemented here).
+  const host = process.env.FIRESTORE_EMULATOR_HOST;
+  if (!host) {
+    throw new Error(
+      'Missing FIRESTORE_EMULATOR_HOST while useEmulators=true. Start emulators and ensure the local profile is active.',
+    );
+  }
+  emulatorBaseUrl = `http://${host}/v1/projects/${projectId}/databases/(default)/documents`;
+} else {
+  // Default path: firebase-admin (works with emulator without requiring auth and ignores rules).
+  const adminModule = await import('firebase-admin');
+  const admin = adminModule.default || adminModule;
+  admin.initializeApp({ projectId });
+  db = admin.firestore();
+  // Prefer REST when talking to production to avoid gRPC edge cases.
+  if (!useEmulators) {
+    db.settings({ preferRest: true });
+  }
+}
 
 function resolveOutputPath() {
   const outFlagIndex = process.argv.findIndex((arg) => arg === '--out');
@@ -33,6 +60,77 @@ function toPlainTimestamp(timestamp) {
 }
 
 async function fetchCollection(name, orderField) {
+  if (emulatorBaseUrl) {
+    // Firestore REST documents use typed field encodings.
+    const decodeValue = (value) => {
+      if (!value || typeof value !== 'object') return null;
+      if (value.stringValue !== undefined) return value.stringValue;
+      if (value.booleanValue !== undefined) return Boolean(value.booleanValue);
+      if (value.integerValue !== undefined) return Number(value.integerValue);
+      if (value.doubleValue !== undefined) return Number(value.doubleValue);
+      if (value.timestampValue !== undefined) return value.timestampValue;
+      if (value.nullValue !== undefined) return null;
+      if (value.mapValue) {
+        const fields = value.mapValue.fields || {};
+        const out = {};
+        Object.entries(fields).forEach(([k, v]) => {
+          out[k] = decodeValue(v);
+        });
+        return out;
+      }
+      if (value.arrayValue) {
+        const values = Array.isArray(value.arrayValue.values)
+          ? value.arrayValue.values
+          : [];
+        return values.map(decodeValue);
+      }
+      return null;
+    };
+
+    const decodeFields = (fields) => {
+      const out = {};
+      Object.entries(fields || {}).forEach(([k, v]) => {
+        out[k] = decodeValue(v);
+      });
+      return out;
+    };
+
+    const docs = [];
+    let pageToken = null;
+    do {
+      const url = new URL(`${emulatorBaseUrl}/${name}`);
+      // Sorting is done client-side to keep the export simple and deterministic.
+      url.searchParams.set('pageSize', '1000');
+      if (pageToken) url.searchParams.set('pageToken', pageToken);
+      const res = await fetch(url.toString());
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Failed to read emulator ${name}: ${res.status} ${body}`);
+      }
+      const json = await res.json();
+      const pageDocs = Array.isArray(json.documents) ? json.documents : [];
+      pageDocs.forEach((doc) => {
+        const fullName = doc.name || '';
+        const id = fullName.split('/').pop();
+        docs.push({ id, ...decodeFields(doc.fields) });
+      });
+      pageToken = json.nextPageToken || null;
+    } while (pageToken);
+
+    if (orderField) {
+      docs.sort((a, b) => {
+        const av = a?.[orderField];
+        const bv = b?.[orderField];
+        const an = typeof av === 'number' ? av : Number.isFinite(Number(av)) ? Number(av) : null;
+        const bn = typeof bv === 'number' ? bv : Number.isFinite(Number(bv)) ? Number(bv) : null;
+        if (an !== null && bn !== null && an !== bn) return an - bn;
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
+      });
+    }
+
+    return docs;
+  }
+
   let ref = db.collection(name);
   if (orderField) {
     ref = ref.orderBy(orderField);
@@ -216,25 +314,25 @@ async function main() {
     fetchCollection('vehicleTypes', 'order')
   ]);
 
-  const servicePrices = {};
-  const activeSeasonIds = seasons
-    .filter((season) => season.active !== false)
-    .sort((a, b) => (a.order || 0) - (b.order || 0))
-    .map((season) => season.id);
-  activeSeasonIds.forEach((seasonId) => {
-    seasonAddOns
-      .filter((addon) => addon.seasonId === seasonId)
-      .forEach((addon) => {
-        const code = addon.code || addon.addonId;
-        if (!code || Object.prototype.hasOwnProperty.call(servicePrices, code)) return;
-        servicePrices[code] = Number(addon.price) || 0;
-      });
-  });
-  seasonAddOns.forEach((addon) => {
-    const code = addon.code || addon.addonId;
-    if (!code || Object.prototype.hasOwnProperty.call(servicePrices, code)) return;
-    servicePrices[code] = Number(addon.price) || 0;
-  });
+  const normalizedAddOns = addOns.map((entry) => ({
+    id: entry.id,
+    code: entry.code || entry.id,
+    name: normalizeLocaleMap(entry.name) || { en: '', fr: '' },
+    description: normalizeLocaleMap(entry.description),
+    order: typeof entry.order === 'number' ? entry.order : 0,
+    active: entry.active !== false,
+    updatedAt: toPlainTimestamp(entry.updatedAt)
+  }));
+
+  const normalizedSeasonAddOns = seasonAddOns.map((entry) => ({
+    id: entry.id,
+    seasonId: entry.seasonId || null,
+    code: entry.code || entry.addonId || entry.id,
+    price: typeof entry.price === 'number' ? entry.price : Number(entry.price) || 0,
+    order: typeof entry.order === 'number' ? entry.order : 0,
+    active: entry.active !== false,
+    updatedAt: toPlainTimestamp(entry.updatedAt)
+  }));
 
   const normalizedConditions = conditions.map((entry) => ({
     text: entry.text || { en: '', fr: '' },
@@ -284,7 +382,9 @@ async function main() {
   });
 
   const banner = `// Auto-generated by Tracker on ${new Date().toISOString()}\n// Do not edit manually. Run "node functions/scripts/export-site-data.mjs --out <path>" instead.\n\n`;
-  const fileContents = `${banner}export const SERVICE_PRICES = ${serialize(servicePrices)};\n\nexport const STORAGE_CONDITIONS = ${serialize(
+  const fileContents = `${banner}export const STORAGE_ADDONS = ${serialize(normalizedAddOns)};\n\nexport const STORAGE_SEASON_ADDONS = ${serialize(
+    normalizedSeasonAddOns
+  )};\n\nexport const STORAGE_CONDITIONS = ${serialize(
     normalizedConditions
   )};\n\nexport const STORAGE_ETIQUETTE = ${serialize(normalizedEtiquette)};\n\nexport const VEHICLE_TYPES = ${serialize(
     normalizedVehicleTypes
