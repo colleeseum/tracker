@@ -420,13 +420,27 @@ form {
 }
 
 .checkbox {
+  display: inline-flex;
   flex-direction: row;
   align-items: center;
   gap: 0.5rem;
+  width: fit-content;
 }
 
 .checkbox input {
+  flex: 0 0 auto;
   width: auto;
+  margin: 0;
+}
+
+.storage-addon-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.storage-addon-options .checkbox {
+  font-weight: 500;
 }
 .account-defaults {
   display: flex;

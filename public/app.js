@@ -4370,7 +4370,7 @@ function deriveSeasonCodeForContract(request) {
     if (yearMatches.length === 1) {
       const start = Number(yearMatches[0]);
       if (Number.isFinite(start)) {
-        return `W${String(start).slice(2)}${String(start + 1).slice(2)}`;
+        return `W${String(start).slice(2)}`;
       }
     }
   }
@@ -4398,6 +4398,15 @@ function buildStorageContractId(request) {
   const requestIdShort = shortIdToken(requestIdSource, 6, 'REQXXX');
   const dateToken = getTorontoDateToken(new Date());
   return `CT-${seasonCode}-${caseIdShort}-${requestIdShort}-${dateToken}`;
+}
+
+function resolveStorageContractId(request) {
+  const existing = String(request?.contractId || '').trim();
+  const seasonCode = deriveSeasonCodeForContract(request);
+  if (existing && existing.startsWith(`CT-${seasonCode}-`)) {
+    return existing;
+  }
+  return buildStorageContractId(request);
 }
 
 function buildStorageReceiptId(request) {
@@ -4730,7 +4739,7 @@ async function generateStorageContractPdf(request, contractId) {
 
     pair('SAISON:', formatSeasonDisplayLabel(data.season, 'fr'), leftX, 710, { font: helveticaBold, size: 10.2 });
     line(leftX, 708, leftX + 42, 708, 0.8);
-    rightPair('Numero de Contrat:', effectiveContractId, rightEdgeX, 710, { maxWidth: 260 });
+    rightPair('Numero de Contrat:', effectiveContractId, rightEdgeX, 710, { size: 8.6 });
 
     headingTight('INFORMATION DE LOCATAIRE:', 686, 205);
     row([
@@ -4807,7 +4816,7 @@ async function generateStorageContractPdf(request, contractId) {
   const tenantAddressLine = [data.tenantAddress, data.tenantCity, data.tenantProvince, data.tenantPostal]
     .filter(Boolean)
     .join(', ');
-  const effectiveContractId = String(contractId || request?.contractId || buildStorageContractId(request));
+  const effectiveContractId = String(contractId || resolveStorageContractId(request));
   const contractAmount = resolveStorageAmount(request);
   const batteryFee = data.battery === 'yes' ? getAddonPrice('battery', data.season) : 0;
   const propaneFee = data.propane === 'yes' ? getAddonPrice('propane', data.season) : 0;
@@ -8980,8 +8989,8 @@ async function generateAndDownloadStorageDraftContract({ autoDownload = true } =
   if (storageContractModalError) storageContractModalError.textContent = '';
   updateStorageContractButtons();
   try {
-    const resolvedContractId = String(request.contractId || buildStorageContractId(request));
-    if (!request.contractId) {
+    const resolvedContractId = String(resolveStorageContractId(request));
+    if (request.contractId !== resolvedContractId) {
       await updateDoc(doc(db, 'storageRequests', request.id), {
         caseId: resolveStorageCaseId(request),
         contractId: resolvedContractId,
@@ -10149,8 +10158,8 @@ if (uploadStorageSignedContractButton) {
     if (storageContractModalError) storageContractModalError.textContent = '';
     updateStorageContractButtons();
     try {
-      const resolvedContractId = String(request.contractId || buildStorageContractId(request));
-      if (!request.contractId) {
+      const resolvedContractId = String(resolveStorageContractId(request));
+      if (request.contractId !== resolvedContractId) {
         await updateDoc(doc(db, 'storageRequests', request.id), {
           caseId: resolveStorageCaseId(request),
           contractId: resolvedContractId,

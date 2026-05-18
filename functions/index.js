@@ -910,7 +910,7 @@ function deriveSeasonCodeForEmail(seasonId, pricingData = {}) {
     if (yearMatches.length >= 2) return `W${yearMatches[0].slice(2)}${yearMatches[1].slice(2)}`;
     if (yearMatches.length === 1) {
       const start = Number(yearMatches[0]);
-      if (Number.isFinite(start)) return `W${String(start).slice(2)}${String(start + 1).slice(2)}`;
+      if (Number.isFinite(start)) return `W${String(start).slice(2)}`;
     }
   }
   if (normalizedLabel.includes('summer') || normalizedLabel.includes('ete') || normalizedLabel.includes('été')) {
