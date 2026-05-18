@@ -40,6 +40,25 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
+      - name: Configure Functions environment
+        env:
+          SMTP2GO_HOST: ${{ secrets.SMTP2GO_HOST }}
+          SMTP2GO_PORT: ${{ secrets.SMTP2GO_PORT }}
+          SMTP2GO_USER: ${{ secrets.SMTP2GO_USER }}
+          SMTP2GO_PASS: ${{ secrets.SMTP2GO_PASS }}
+          SMTP2GO_FROM: ${{ secrets.SMTP2GO_FROM }}
+        run: |
+          : "${SMTP2GO_USER:?Missing SMTP2GO_USER secret}"
+          : "${SMTP2GO_PASS:?Missing SMTP2GO_PASS secret}"
+          : "${SMTP2GO_FROM:?Missing SMTP2GO_FROM secret}"
+          {
+            printf 'SMTP2GO_HOST=%s\n' "${SMTP2GO_HOST:-mail.smtp2go.com}"
+            printf 'SMTP2GO_PORT=%s\n' "${SMTP2GO_PORT:-587}"
+            printf 'SMTP2GO_USER=%s\n' "$SMTP2GO_USER"
+            printf 'SMTP2GO_PASS=%s\n' "$SMTP2GO_PASS"
+            printf 'SMTP2GO_FROM=%s\n' "$SMTP2GO_FROM"
+          } > functions/.env
+
       - name: Deploy to Firebase
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
