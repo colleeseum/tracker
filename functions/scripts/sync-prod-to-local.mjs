@@ -2,13 +2,22 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import admin from 'firebase-admin';
 import { fileURLToPath } from 'node:url';
-import { loadProfileConfig } from '../../lib/profile-config.js';
 import { deserializeData, serializeData } from './utils/firestore-serialization.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '../..');
 const DEFAULT_BACKUP_DIR = path.resolve(ROOT_DIR, 'backups');
+const PROFILE_CONFIG_PATH = path.resolve(ROOT_DIR, 'public/profile-config.js');
+
+async function loadProfileConfig() {
+  const source = await fs.readFile(PROFILE_CONFIG_PATH, 'utf8');
+  const match = source.match(/export\s+const\s+PROFILE_CONFIG\s*=\s*([\s\S]*);\s*$/);
+  if (!match) {
+    throw new Error('Missing PROFILE_CONFIG export in public/profile-config.js.');
+  }
+  return JSON.parse(match[1]);
+}
 
 function hasFlag(flag) {
   return process.argv.includes(flag);

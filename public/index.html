@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tracker Expenses</title>
-    <link rel="stylesheet" href="styles.css?v=20260518-reserved-storage-label" />
+    <link rel="stylesheet" href="styles.css?v=20260518-client-email-compose" />
     <script data-app-version="__APP_VERSION__"></script>
   </head>
   <body>
@@ -132,7 +132,7 @@
                   <strong id="dashboard-kpi-mileage">0 km</strong>
                 </div>
                 <div class="kpi-pill">
-                  <span>Pending storage</span>
+                  <span>New storage</span>
                   <strong id="dashboard-kpi-storage">0</strong>
                 </div>
                 <div class="kpi-pill">
@@ -259,12 +259,13 @@
                       <th>City</th>
                       <th>Province</th>
                       <th>Postal code</th>
-                      <th></th>
+                      <th>Non-storage</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody id="client-table-body">
                     <tr>
-                      <td colspan="9" class="empty">No clients yet. Add one to get started.</td>
+                      <td colspan="10" class="empty">No clients yet. Add one to get started.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1154,6 +1155,10 @@
                 <input type="checkbox" id="client-active" checked />
                 <span>Active client</span>
               </label>
+              <label class="checkbox">
+                <input type="checkbox" id="client-non-storage" />
+                <span>Not a storage client</span>
+              </label>
               <label class="wide">
                 Notes
                 <textarea id="client-notes" rows="3" placeholder="Private notes"></textarea>
@@ -1376,6 +1381,37 @@
               <button id="send-storage-confirmation-email" type="button">Send</button>
             </div>
             <p class="error" id="storage-confirmation-email-error"></p>
+          </div>
+        </div>
+
+        <div id="client-email-modal" class="modal hidden">
+          <div class="modal-content card storage-email-modal-content">
+            <div class="modal-header">
+              <h3 id="client-email-title">Send Client Email</h3>
+              <button id="close-client-email-modal" type="button" class="link">Close</button>
+            </div>
+            <form id="client-email-form" class="grid-form">
+              <div class="wide storage-email-meta">
+                <div>
+                  <strong>To</strong>
+                  <span id="client-email-to">—</span>
+                </div>
+              </div>
+              <label class="wide">
+                Title
+                <input type="text" id="client-email-subject" required autocomplete="off" />
+              </label>
+              <label class="wide">
+                Body
+                <textarea id="client-email-body" rows="8" required></textarea>
+              </label>
+              <iframe id="client-email-preview" class="email-template-preview-frame" title="Client email preview"></iframe>
+              <div class="modal-actions wide">
+                <button id="client-email-cancel" type="button" class="secondary">Cancel</button>
+                <button id="client-email-send" type="submit">Send</button>
+              </div>
+              <p class="error wide" id="client-email-error"></p>
+            </form>
           </div>
         </div>
 
@@ -2139,6 +2175,6 @@
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://unpkg.com/mustache@4.2.0/mustache.min.js"></script>
     <script type="module" src="firebase-config.js"></script>
-    <script type="module" src="app.js?v=20260518-reserved-storage-label"></script>
+    <script type="module" src="app.js?v=20260518-client-email-compose"></script>
   </body>
 </html>

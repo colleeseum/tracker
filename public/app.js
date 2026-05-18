@@ -51,6 +51,7 @@ const requestSitePublishCallable = httpsCallable(functionsApp, 'requestSitePubli
 const sendStorageConfirmationEmailCallable = httpsCallable(functionsApp, 'sendStorageConfirmationEmail');
 const sendStorageContractEmailCallable = httpsCallable(functionsApp, 'sendStorageContractEmail');
 const sendStorageReceiptEmailCallable = httpsCallable(functionsApp, 'sendStorageReceiptEmail');
+const sendClientEmailCallable = httpsCallable(functionsApp, 'sendClientEmail');
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 const usingEmulators = Boolean(emulatorConfig.useEmulators);
@@ -297,8 +298,20 @@ const clientCityInput = document.getElementById('client-city');
 const clientProvinceSelect = document.getElementById('client-province');
 const clientPostalInput = document.getElementById('client-postal');
 const clientActiveInput = document.getElementById('client-active');
+const clientNonStorageInput = document.getElementById('client-non-storage');
 const clientNotesInput = document.getElementById('client-notes');
 const clientFormError = document.getElementById('client-form-error');
+const clientEmailModal = document.getElementById('client-email-modal');
+const closeClientEmailModalButton = document.getElementById('close-client-email-modal');
+const clientEmailForm = document.getElementById('client-email-form');
+const clientEmailTitle = document.getElementById('client-email-title');
+const clientEmailTo = document.getElementById('client-email-to');
+const clientEmailSubjectInput = document.getElementById('client-email-subject');
+const clientEmailBodyInput = document.getElementById('client-email-body');
+const clientEmailPreview = document.getElementById('client-email-preview');
+const clientEmailError = document.getElementById('client-email-error');
+const clientEmailCancelButton = document.getElementById('client-email-cancel');
+const clientEmailSendButton = document.getElementById('client-email-send');
 const storageModal = document.getElementById('storage-modal');
 const closeStorageModalButton = document.getElementById('close-storage-modal');
 const storageForm = document.getElementById('storage-form');
@@ -721,6 +734,8 @@ let entityAdjustments = new Map();
 let editingAccountId = null;
 let currentView = 'dashboard';
 let lastNonSettingsView = 'dashboard';
+let activeClientEmailClientId = null;
+let clientEmailBusy = false;
 let activeSettingsSection = null;
 let ledgerAccountSelection = [];
 let ledgerFilterCustom = false;
@@ -1026,10 +1041,20 @@ const STORAGE_RECEIPT_EMAIL_WORKFLOWS = {
     },
     createsReceipt: true,
     requiresSignedContract: false
+  },
+  missing: {
+    title: 'Missing Required Items',
+    buttonLabel: 'Follow up',
+    templateIds: ['receipt-missing'],
+    expectedStatuses: ['waiting_contract_deposit', 'waiting_contract', 'waiting_deposit'],
+    createsReceipt: false,
+    requiresSignedContract: false,
+    changesStatus: false
   }
 };
 
 function resolveStorageReceiptTargetStatus(workflow, currentStatus) {
+  if (workflow?.changesStatus === false) return currentStatus || '';
   return workflow?.targetStatusByCurrent?.[currentStatus] || workflow?.targetStatus || '';
 }
 
@@ -2056,7 +2081,7 @@ function renderClientTable() {
   if (!clients.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 9;
+    cell.colSpan = 10;
     cell.className = 'empty';
     cell.textContent = 'No clients yet. Add one to get started.';
     row.appendChild(cell);
@@ -2099,7 +2124,20 @@ function renderClientTable() {
     postalCell.textContent = client.postalCode || '—';
     row.appendChild(postalCell);
 
+    const nonStorageCell = document.createElement('td');
+    nonStorageCell.textContent = client.nonStorageClient ? 'Yes' : 'No';
+    row.appendChild(nonStorageCell);
+
     const actionCell = document.createElement('td');
+    const emailButton = document.createElement('button');
+    emailButton.type = 'button';
+    emailButton.className = 'icon-button';
+    emailButton.dataset.action = 'email-client';
+    emailButton.dataset.id = client.id;
+    emailButton.setAttribute('aria-label', `Email ${client.name || 'client'}`);
+    emailButton.innerHTML = `<img src="icons/mail.svg" alt="Email ${client.name || 'client'}" />`;
+    actionCell.appendChild(emailButton);
+
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'icon-button';
@@ -2202,76 +2240,98 @@ function renderStorageTable() {
     const allReserved = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'reserved');
     const allScheduled = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'scheduled');
     const allStored = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'stored');
-    const addCaseStatusButton = (targetStatus, label, title = '') => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'secondary';
-      button.dataset.action = 'update-storage-case-status';
-      button.dataset.caseId = caseId;
-      button.dataset.targetStatus = targetStatus;
-      button.textContent = label;
-      if (title) button.title = title;
-      caseActionCell.appendChild(button);
+    const addCaseActionSelect = (actions) => {
+      if (!actions.length) return;
+      const select = document.createElement('select');
+      select.className = 'storage-case-action-select';
+      select.dataset.action = 'storage-case-action';
+      select.dataset.caseId = caseId;
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '--';
+      select.appendChild(placeholder);
+      actions.forEach((action) => {
+        const option = document.createElement('option');
+        option.value = action.value;
+        option.textContent = action.label;
+        if (action.title) option.title = action.title;
+        select.appendChild(option);
+      });
+      caseActionCell.appendChild(select);
     };
     if (hasNew || allContractReady) {
-      const confirmationButton = document.createElement('button');
-      confirmationButton.type = 'button';
-      confirmationButton.className = 'secondary';
-      confirmationButton.dataset.caseId = caseId;
       if (allContractReady) {
-        confirmationButton.dataset.action = 'send-storage-contract';
-        confirmationButton.textContent = 'Send Contract Email';
+        addCaseActionSelect([
+          {
+            value: 'contract-email',
+            label: 'Send contract email',
+            title: 'Send the contract email and move this case to Waiting for Contract and Deposit'
+          }
+        ]);
       } else {
-        confirmationButton.dataset.action = 'send-storage-confirmation';
-        confirmationButton.textContent = 'Send Confirmation e-mail';
+        addCaseActionSelect([
+          {
+            value: 'confirmation-email',
+            label: 'Send confirmation email',
+            title: 'Send the initial confirmation email'
+          }
+        ]);
       }
-      caseActionCell.appendChild(confirmationButton);
     } else if (allWaitingContractDeposit) {
-      ['contract', 'deposit', 'contract_deposit'].forEach((receiptType) => {
-        const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS[receiptType];
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'secondary';
-        button.dataset.action = 'send-storage-receipt';
-        button.dataset.caseId = caseId;
-        button.dataset.receiptType = receiptType;
-        button.textContent = workflow.buttonLabel;
-        button.title =
-          receiptType === 'contract'
-            ? 'Confirm signed contract received and move to Waiting for Deposit'
-            : receiptType === 'deposit'
-              ? 'Confirm deposit received and move to Waiting for Contract'
-              : 'Confirm signed contract and deposit received and move to Waiting for Scheduling';
-        caseActionCell.appendChild(button);
-      });
+      addCaseActionSelect([
+        {
+          value: 'receipt:contract',
+          label: 'Received Contract',
+          title: 'Confirm signed contract received and move to Waiting for Deposit'
+        },
+        {
+          value: 'receipt:deposit',
+          label: 'Received Deposit',
+          title: 'Confirm deposit received and move to Waiting for Contract'
+        },
+        {
+          value: 'receipt:contract_deposit',
+          label: 'Received Deposit and Contract',
+          title: 'Confirm signed contract and deposit received and move to Waiting for Scheduling'
+        },
+        {
+          value: 'receipt:missing',
+          label: STORAGE_RECEIPT_EMAIL_WORKFLOWS.missing.buttonLabel,
+          title: 'Send a follow-up email for missing required items'
+        }
+      ]);
     } else if (allWaitingContract) {
-      const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS.contract;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'secondary';
-      button.dataset.action = 'send-storage-receipt';
-      button.dataset.caseId = caseId;
-      button.dataset.receiptType = 'contract';
-      button.textContent = workflow.buttonLabel;
-      button.title = 'Confirm signed contract received and move to Waiting for Scheduling';
-      caseActionCell.appendChild(button);
+      addCaseActionSelect([
+        {
+          value: 'receipt:contract',
+          label: 'Received Contract',
+          title: 'Confirm signed contract received and move to Waiting for Scheduling'
+        },
+        {
+          value: 'receipt:missing',
+          label: STORAGE_RECEIPT_EMAIL_WORKFLOWS.missing.buttonLabel,
+          title: 'Send a follow-up email for the missing contract'
+        }
+      ]);
     } else if (allWaitingDeposit) {
-      const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS.deposit;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'secondary';
-      button.dataset.action = 'send-storage-receipt';
-      button.dataset.caseId = caseId;
-      button.dataset.receiptType = 'deposit';
-      button.textContent = workflow.buttonLabel;
-      button.title = 'Confirm deposit received and move to Waiting for Scheduling';
-      caseActionCell.appendChild(button);
+      addCaseActionSelect([
+        {
+          value: 'receipt:deposit',
+          label: 'Received Deposit',
+          title: 'Confirm deposit received and move to Waiting for Scheduling'
+        },
+        {
+          value: 'receipt:missing',
+          label: STORAGE_RECEIPT_EMAIL_WORKFLOWS.missing.buttonLabel,
+          title: 'Send a follow-up email for the missing deposit'
+        }
+      ]);
     } else if (allReserved) {
-      addCaseStatusButton('scheduled', 'Schedule', 'Move this case to Scheduled');
+      addCaseActionSelect([{ value: 'status:scheduled', label: 'Schedule', title: 'Move this case to Scheduled' }]);
     } else if (allScheduled) {
-      addCaseStatusButton('stored', 'Mark Stored', 'Move this case to Stored');
+      addCaseActionSelect([{ value: 'status:stored', label: 'Mark stored', title: 'Move this case to Stored' }]);
     } else if (allStored) {
-      addCaseStatusButton('picked_up', 'Mark Picked Up', 'Move this case to Picked-Up');
+      addCaseActionSelect([{ value: 'status:picked_up', label: 'Mark picked up', title: 'Move this case to Picked-Up' }]);
     }
     caseRow.appendChild(caseActionCell);
     storageTableBody.appendChild(caseRow);
@@ -4076,6 +4136,42 @@ function buildStorageEmailHtml({ lang, subject, bodyHtml, attachments = [] }) {
       </div>` : ''}
     </div>
     <div class="footer">${footerContact}</div>
+  </div>
+</body>
+</html>`;
+}
+
+function buildClientEmailHtml({ client, subject, body }) {
+  const lang = normalizeLanguageCode(client?.preferredLanguage, getDefaultClientLanguage());
+  const isStorageClient = client?.nonStorageClient !== true;
+  const bodyHtml = escapeEmailTemplateHtml(body).replace(/\n/g, '<br>');
+  if (isStorageClient) {
+    return buildStorageEmailHtml({ lang, subject, bodyHtml });
+  }
+  return `<!doctype html>
+<html lang="${lang}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; background:#f1f5f9; font-family: Inter, Arial, sans-serif; color:#0f172a; }
+    .shell { max-width:1040px; margin:24px auto; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; }
+    .banner { background:#0f172a; color:#fff; padding:20px 24px; }
+    .brand { font-size:20px; font-weight:700; }
+    .content { padding:24px; }
+    .subject { font-size:22px; font-weight:700; margin:0 0 16px; color:#111827; }
+    .body { font-size:15px; line-height:1.6; color:#1f2937; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="banner">
+      <div class="brand">Ferme Colle</div>
+    </div>
+    <div class="content">
+      <h1 class="subject">${escapeEmailTemplateHtml(subject)}</h1>
+      <div class="body">${bodyHtml}</div>
+    </div>
   </div>
 </body>
 </html>`;
@@ -7813,7 +7909,7 @@ function updateStorageClientOptions() {
   if (!storageClientSelect) return;
   const previousValue = storageClientSelect.value;
   storageClientSelect.innerHTML = '<option value="">Select client</option>';
-  clients.forEach((client) => {
+  clients.filter((client) => client.nonStorageClient !== true).forEach((client) => {
     const option = document.createElement('option');
     option.value = client.id;
     option.textContent = client.name || client.email || 'Unnamed client';
@@ -8692,6 +8788,9 @@ function openClientModal(mode, client = null) {
     if (clientActiveInput) {
       clientActiveInput.checked = client.active !== false;
     }
+    if (clientNonStorageInput) {
+      clientNonStorageInput.checked = Boolean(client.nonStorageClient);
+    }
     if (clientNotesInput) {
       clientNotesInput.value = client.notes || '';
     }
@@ -8705,6 +8804,9 @@ function openClientModal(mode, client = null) {
     clientProvinceSelect.value = '';
     if (clientActiveInput) {
       clientActiveInput.checked = true;
+    }
+    if (clientNonStorageInput) {
+      clientNonStorageInput.checked = false;
     }
     if (clientNotesInput) {
       clientNotesInput.value = '';
@@ -8725,11 +8827,56 @@ function closeClientModal() {
   if (clientActiveInput) {
     clientActiveInput.checked = true;
   }
+  if (clientNonStorageInput) {
+    clientNonStorageInput.checked = false;
+  }
   if (clientNotesInput) {
     clientNotesInput.value = '';
   }
   clientFormError.textContent = '';
   editingClientId = null;
+}
+
+function setClientEmailBusy(isBusy) {
+  clientEmailBusy = Boolean(isBusy);
+  if (clientEmailSendButton) {
+    clientEmailSendButton.disabled = clientEmailBusy;
+    clientEmailSendButton.textContent = clientEmailBusy ? 'Sending...' : 'Send';
+  }
+  if (clientEmailCancelButton) clientEmailCancelButton.disabled = clientEmailBusy;
+  if (closeClientEmailModalButton) closeClientEmailModalButton.disabled = clientEmailBusy;
+}
+
+function renderClientEmailPreview() {
+  if (!clientEmailPreview || !activeClientEmailClientId) return;
+  const client = clientLookup.get(activeClientEmailClientId);
+  const subject = clientEmailSubjectInput?.value?.trim() || '';
+  const body = clientEmailBodyInput?.value || '';
+  clientEmailPreview.srcdoc = buildClientEmailHtml({ client, subject, body });
+}
+
+function openClientEmailModal(client) {
+  if (!clientEmailModal || !client) return;
+  activeClientEmailClientId = client.id;
+  if (clientEmailTitle) clientEmailTitle.textContent = `Email ${client.name || 'client'}`;
+  if (clientEmailTo) clientEmailTo.textContent = client.email || '—';
+  if (clientEmailSubjectInput) clientEmailSubjectInput.value = '';
+  if (clientEmailBodyInput) clientEmailBodyInput.value = '';
+  if (clientEmailError) clientEmailError.textContent = '';
+  renderClientEmailPreview();
+  setClientEmailBusy(false);
+  clientEmailModal.classList.remove('hidden');
+  clientEmailSubjectInput?.focus();
+}
+
+function closeClientEmailModal() {
+  if (!clientEmailModal || clientEmailBusy) return;
+  clientEmailModal.classList.add('hidden');
+  activeClientEmailClientId = null;
+  if (clientEmailForm) clientEmailForm.reset();
+  if (clientEmailPreview) clientEmailPreview.srcdoc = '';
+  if (clientEmailError) clientEmailError.textContent = '';
+  setClientEmailBusy(false);
 }
 
 function formatClientPhone(value) {
@@ -10215,6 +10362,12 @@ modal.addEventListener('click', (event) => {
 
 if (clientTableBody) {
   clientTableBody.addEventListener('click', (event) => {
+    const emailButton = event.target.closest('button[data-action="email-client"]');
+    if (emailButton) {
+      const client = clients.find((item) => item.id === emailButton.dataset.id);
+      if (client) openClientEmailModal(client);
+      return;
+    }
     const button = event.target.closest('button[data-action="edit-client"]');
     if (!button) return;
     const client = clients.find((item) => item.id === button.dataset.id);
@@ -10240,6 +10393,68 @@ if (clientModal) {
   clientModal.addEventListener('click', (event) => {
     if (shouldCloseModalFromBackdrop(event)) {
       closeClientModal();
+    }
+  });
+}
+
+if (closeClientEmailModalButton) {
+  closeClientEmailModalButton.addEventListener('click', () => {
+    closeClientEmailModal();
+  });
+}
+
+if (clientEmailCancelButton) {
+  clientEmailCancelButton.addEventListener('click', () => {
+    closeClientEmailModal();
+  });
+}
+
+if (clientEmailModal) {
+  clientEmailModal.addEventListener('click', (event) => {
+    if (shouldCloseModalFromBackdrop(event)) {
+      closeClientEmailModal();
+    }
+  });
+}
+
+if (clientEmailSubjectInput) {
+  clientEmailSubjectInput.addEventListener('input', () => {
+    renderClientEmailPreview();
+  });
+}
+
+if (clientEmailBodyInput) {
+  clientEmailBodyInput.addEventListener('input', () => {
+    renderClientEmailPreview();
+  });
+}
+
+if (clientEmailForm) {
+  clientEmailForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!activeClientEmailClientId) return;
+    const subject = clientEmailSubjectInput?.value?.trim() || '';
+    const body = clientEmailBodyInput?.value?.trim() || '';
+    if (!subject) {
+      if (clientEmailError) clientEmailError.textContent = 'Enter an email title.';
+      return;
+    }
+    if (!body) {
+      if (clientEmailError) clientEmailError.textContent = 'Enter an email body.';
+      return;
+    }
+    setClientEmailBusy(true);
+    if (clientEmailError) clientEmailError.textContent = '';
+    try {
+      await sendClientEmailCallable({
+        clientId: activeClientEmailClientId,
+        subject,
+        body
+      });
+      closeClientEmailModal();
+    } catch (error) {
+      if (clientEmailError) clientEmailError.textContent = error.message || 'Unable to send email.';
+      setClientEmailBusy(false);
     }
   });
 }
@@ -10287,7 +10502,65 @@ if (pricingTabs) {
   showPricingPanel(activePricingPanel);
 }
 
+function getStorageCaseRequests(caseId) {
+  return storageRequests
+    .filter((request) => resolveStorageCaseId(request) === caseId)
+    .sort(compareStorageRequests);
+}
+
+async function updateStorageCaseStatus(caseRequests, targetStatus) {
+  const invalid = caseRequests.find((request) => getStorageStatusTransitionError(request.status || 'new', targetStatus));
+  if (invalid) {
+    throw new Error(getStorageStatusTransitionError(invalid.status || 'new', targetStatus));
+  }
+  await Promise.all(
+    caseRequests.map((request) =>
+      updateDoc(doc(db, 'storageRequests', request.id), {
+        caseId: resolveStorageCaseId(request),
+        status: targetStatus,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.uid || null
+      })
+    )
+  );
+}
+
 if (storageTableBody) {
+  storageTableBody.addEventListener('change', async (event) => {
+    const actionSelect = event.target.closest('select[data-action="storage-case-action"]');
+    if (!actionSelect) return;
+    const caseId = String(actionSelect.dataset.caseId || '');
+    const selectedAction = String(actionSelect.value || '');
+    actionSelect.value = '';
+    if (!caseId || !selectedAction) return;
+    const caseRequests = getStorageCaseRequests(caseId);
+    if (!caseRequests.length) {
+      alert('Storage case not found.');
+      return;
+    }
+    if (selectedAction === 'confirmation-email') {
+      openStorageConfirmationEmailModal(caseRequests, 'confirmation');
+      return;
+    }
+    if (selectedAction === 'contract-email') {
+      openStorageConfirmationEmailModal(caseRequests, 'contract');
+      return;
+    }
+    if (selectedAction.startsWith('receipt:')) {
+      const receiptType = selectedAction.slice('receipt:'.length);
+      openStorageConfirmationEmailModal(caseRequests, 'receipt', { receiptType });
+      return;
+    }
+    if (selectedAction.startsWith('status:')) {
+      const targetStatus = selectedAction.slice('status:'.length);
+      try {
+        await updateStorageCaseStatus(caseRequests, targetStatus);
+      } catch (error) {
+        alert(error.message || 'Unable to update storage status.');
+      }
+    }
+  });
+
   storageTableBody.addEventListener('click', async (event) => {
     const toggleButton = event.target.closest('button[data-action="toggle-storage-case"]');
     if (toggleButton) {
@@ -10302,9 +10575,7 @@ if (storageTableBody) {
     if (confirmationButton) {
       const caseId = String(confirmationButton.dataset.caseId || '');
       if (!caseId) return;
-      const caseRequests = storageRequests
-        .filter((request) => resolveStorageCaseId(request) === caseId)
-        .sort(compareStorageRequests);
+      const caseRequests = getStorageCaseRequests(caseId);
       if (!caseRequests.length) {
         alert('Storage case not found.');
         return;
@@ -10316,9 +10587,7 @@ if (storageTableBody) {
     if (contractEmailButton) {
       const caseId = String(contractEmailButton.dataset.caseId || '');
       if (!caseId) return;
-      const caseRequests = storageRequests
-        .filter((request) => resolveStorageCaseId(request) === caseId)
-        .sort(compareStorageRequests);
+      const caseRequests = getStorageCaseRequests(caseId);
       if (!caseRequests.length) {
         alert('Storage case not found.');
         return;
@@ -10331,29 +10600,13 @@ if (storageTableBody) {
       const caseId = String(caseStatusButton.dataset.caseId || '');
       const targetStatus = String(caseStatusButton.dataset.targetStatus || '');
       if (!caseId || !targetStatus) return;
-      const caseRequests = storageRequests
-        .filter((request) => resolveStorageCaseId(request) === caseId)
-        .sort(compareStorageRequests);
+      const caseRequests = getStorageCaseRequests(caseId);
       if (!caseRequests.length) {
         alert('Storage case not found.');
         return;
       }
-      const invalid = caseRequests.find((request) => getStorageStatusTransitionError(request.status || 'new', targetStatus));
-      if (invalid) {
-        alert(getStorageStatusTransitionError(invalid.status || 'new', targetStatus));
-        return;
-      }
       try {
-        await Promise.all(
-          caseRequests.map((request) =>
-            updateDoc(doc(db, 'storageRequests', request.id), {
-              caseId: resolveStorageCaseId(request),
-              status: targetStatus,
-              updatedAt: serverTimestamp(),
-              updatedBy: auth.currentUser?.uid || null
-            })
-          )
-        );
+        await updateStorageCaseStatus(caseRequests, targetStatus);
       } catch (error) {
         alert(error.message || 'Unable to update storage status.');
       }
@@ -10364,9 +10617,7 @@ if (storageTableBody) {
       const caseId = String(receiptEmailButton.dataset.caseId || '');
       const receiptType = String(receiptEmailButton.dataset.receiptType || '');
       if (!caseId || !receiptType) return;
-      const caseRequests = storageRequests
-        .filter((request) => resolveStorageCaseId(request) === caseId)
-        .sort(compareStorageRequests);
+      const caseRequests = getStorageCaseRequests(caseId);
       if (!caseRequests.length) {
         alert('Storage case not found.');
         return;
@@ -11206,6 +11457,7 @@ clientForm.addEventListener('submit', async (event) => {
   const province = clientProvinceSelect.value;
   const postalCode = clientPostalInput.value.trim();
   const active = clientActiveInput ? clientActiveInput.checked : true;
+  const nonStorageClient = clientNonStorageInput ? clientNonStorageInput.checked : false;
   const notes = clientNotesInput?.value?.trim() || '';
 
   if (!name) {
@@ -11243,6 +11495,7 @@ clientForm.addEventListener('submit', async (event) => {
     province,
     postalCode,
     active,
+    nonStorageClient,
     notes,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null

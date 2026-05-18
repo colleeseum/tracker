@@ -81,6 +81,13 @@ const STORAGE_RECEIPT_EMAIL_WORKFLOWS = {
     },
     createsReceipt: true,
     requiresSignedContract: false
+  },
+  missing: {
+    templateIds: ['receipt-missing'],
+    expectedStatuses: ['waiting_contract_deposit', 'waiting_contract', 'waiting_deposit'],
+    createsReceipt: false,
+    requiresSignedContract: false,
+    changesStatus: false
   }
 };
 
@@ -623,6 +630,7 @@ async function upsertWebsiteClient({
     province: tenantProvince,
     postalCode: tenantPostal,
     active: true,
+    nonStorageClient: false,
     notes: `Submitted via Entrepot website${formLanguage ? ` (${formLanguage})` : ''}`,
     updatedAt: timestamp,
     updatedBy: null
@@ -1326,6 +1334,31 @@ function wrapTrackerEmailHtml({ locale, subject, body, bodyHtml: renderedBodyHtm
 </html>`;
 }
 
+function wrapClientEmailHtml({ locale, subject, body, isStorageClient }) {
+  if (isStorageClient) {
+    return wrapTrackerEmailHtml({ locale, subject, body });
+  }
+  const bodyHtml = escapeHtml(body).replace(/\n/g, '<br>');
+  return `<!doctype html>
+<html lang="${locale}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+  <div style="max-width:1040px;margin:24px auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+    <div style="background:#0f172a;color:#ffffff;padding:20px 24px;">
+      <div style="font-size:20px;font-weight:700;">Ferme Colle</div>
+    </div>
+    <div style="padding:24px;">
+      <h1 style="font-size:22px;font-weight:700;margin:0 0 16px;color:#111827;">${escapeHtml(subject)}</h1>
+      <div style="font-size:15px;line-height:1.6;color:#1f2937;">${bodyHtml}</div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 async function loadEmailTemplate(templateId) {
   const directSnap = await db.collection('emailTemplates').doc(templateId).get();
   if (directSnap.exists) return directSnap.data();
@@ -1605,7 +1638,10 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
       `All requests must be in one of these statuses: ${expectedStatuses.join(', ')}.`
     );
   }
-  const targetStatus = workflow.targetStatusByCurrent?.[currentStatus] || workflow.targetStatus;
+  const targetStatus =
+    workflow.changesStatus === false
+      ? currentStatus
+      : workflow.targetStatusByCurrent?.[currentStatus] || workflow.targetStatus;
   if (!targetStatus) {
     throw new functions.https.HttpsError('failed-precondition', 'No target status is configured for this workflow.');
   }
@@ -1748,16 +1784,25 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   }
   requests.forEach((request) => {
     const requestUpdate = {
-      status: targetStatus,
-      receiptEmailSentAt: timestamp,
-      receiptEmailSentBy: context.auth.uid,
-      receiptEmailSentTo: to,
-      receiptEmailCc: cc,
-      receiptEmailTemplateId: templateId,
-      receiptEmailType: receiptType,
       updatedAt: timestamp,
       updatedBy: context.auth.uid
     };
+    if (workflow.changesStatus === false) {
+      requestUpdate.followUpEmailSentAt = timestamp;
+      requestUpdate.followUpEmailSentBy = context.auth.uid;
+      requestUpdate.followUpEmailSentTo = to;
+      requestUpdate.followUpEmailCc = cc;
+      requestUpdate.followUpEmailTemplateId = templateId;
+      requestUpdate.followUpEmailType = receiptType;
+    } else {
+      requestUpdate.status = targetStatus;
+      requestUpdate.receiptEmailSentAt = timestamp;
+      requestUpdate.receiptEmailSentBy = context.auth.uid;
+      requestUpdate.receiptEmailSentTo = to;
+      requestUpdate.receiptEmailCc = cc;
+      requestUpdate.receiptEmailTemplateId = templateId;
+      requestUpdate.receiptEmailType = receiptType;
+    }
     if (workflow.createsReceipt) {
       requestUpdate.receiptId = receiptId;
       requestUpdate.lastReceiptId = receiptId;
@@ -1767,6 +1812,73 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   await batch.commit();
 
   return { success: true, to, cc, templateId, targetStatus, receiptId };
+});
+
+export const sendClientEmail = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in to send email.');
+  }
+  if (!defaultFrom) {
+    throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
+  }
+  const clientId = String(data?.clientId || '').trim();
+  const subject = String(data?.subject || '').trim();
+  const body = String(data?.body || '').trim();
+  if (!clientId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Client is required.');
+  }
+  if (!subject) {
+    throw new functions.https.HttpsError('invalid-argument', 'Email title is required.');
+  }
+  if (!body) {
+    throw new functions.https.HttpsError('invalid-argument', 'Email body is required.');
+  }
+
+  const clientSnap = await db.collection('clients').doc(clientId).get();
+  if (!clientSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Client was not found.');
+  }
+  const client = clientSnap.data() || {};
+  const to = String(client.email || '').trim();
+  if (!to) {
+    throw new functions.https.HttpsError('failed-precondition', 'Client email is missing.');
+  }
+
+  const locale = normalizeLanguage(client.preferredLanguage);
+  const isStorageClient = client.nonStorageClient !== true;
+  const html = wrapClientEmailHtml({ locale, subject, body, isStorageClient });
+  await transporter.sendMail({ from: defaultFrom, to, subject, html, text: body });
+
+  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const emailRef = db.collection('clientEmails').doc();
+  await db.runTransaction(async (transaction) => {
+    transaction.set(emailRef, {
+      clientId,
+      to,
+      subject,
+      body,
+      isStorageClient,
+      sentAt: timestamp,
+      sentBy: context.auth.uid,
+      sentByEmail: context.auth.token?.email || null,
+      sentByName: context.auth.token?.name || null,
+      createdAt: timestamp,
+      createdBy: context.auth.uid
+    });
+    transaction.set(
+      clientSnap.ref,
+      {
+        lastClientEmailSentAt: timestamp,
+        lastClientEmailSentBy: context.auth.uid,
+        lastClientEmailSubject: subject,
+        updatedAt: timestamp,
+        updatedBy: context.auth.uid
+      },
+      { merge: true }
+    );
+  });
+
+  return { success: true, to };
 });
 
 function parseAttachmentContent(rawContent) {

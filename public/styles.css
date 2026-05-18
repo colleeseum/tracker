@@ -185,6 +185,18 @@ button.secondary {
   color: #0f172a;
 }
 
+.storage-case-action-select {
+  width: 100%;
+  min-width: 10rem;
+  max-width: 13rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background-color: #e2e8f0;
+  color: #0f172a;
+  border: 0;
+}
+
 button.icon-label {
   display: inline-flex;
   align-items: center;
