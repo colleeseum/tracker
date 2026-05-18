@@ -318,6 +318,7 @@ const storageInsuranceCompanyInput = document.getElementById('storage-insurance-
 const storagePolicyNumberInput = document.getElementById('storage-policy-number');
 const storageInsuranceExpirationInput = document.getElementById('storage-insurance-expiration');
 const storageStatusSelect = document.getElementById('storage-status');
+const storageStatusDisplay = document.getElementById('storage-status-display');
 const storageAmountInput = document.getElementById('storage-amount');
 const storageAddonBatteryInput = document.getElementById('storage-addon-battery');
 const storageAddonPropaneInput = document.getElementById('storage-addon-propane');
@@ -328,6 +329,7 @@ const closeStorageContractModalButton = document.getElementById('close-storage-c
 const storageContractModalSummary = document.getElementById('storage-contract-modal-summary');
 const generateStorageContractButton = document.getElementById('generate-storage-contract');
 const storageSignedContractFileInput = document.getElementById('storage-signed-contract-file');
+const viewStorageSignedContractFileButton = document.getElementById('view-storage-signed-contract-file');
 const uploadStorageSignedContractButton = document.getElementById('upload-storage-signed-contract');
 const storageContractModalLinks = document.getElementById('storage-contract-modal-links');
 const storageContractModalError = document.getElementById('storage-contract-modal-error');
@@ -337,6 +339,11 @@ const storageConfirmationEmailTo = document.getElementById('storage-confirmation
 const storageConfirmationEmailCc = document.getElementById('storage-confirmation-email-cc');
 const storageConfirmationEmailSubject = document.getElementById('storage-confirmation-email-subject');
 const storageConfirmationEmailPreview = document.getElementById('storage-confirmation-email-preview');
+const storageReceiptInteracReferenceRow = document.getElementById('storage-receipt-interac-reference-row');
+const storageReceiptInteracReferenceInput = document.getElementById('storage-receipt-interac-reference');
+const storageReceiptContractUploadSection = document.getElementById('storage-receipt-contract-upload-section');
+const storageReceiptContractUploadList = document.getElementById('storage-receipt-contract-upload-list');
+const uploadStorageReceiptContractsButton = document.getElementById('upload-storage-receipt-contracts');
 const cancelStorageConfirmationEmailButton = document.getElementById('cancel-storage-confirmation-email');
 const sendStorageConfirmationEmailButton = document.getElementById('send-storage-confirmation-email');
 const storageConfirmationEmailError = document.getElementById('storage-confirmation-email-error');
@@ -969,7 +976,8 @@ let storageConfirmationEmailBusy = false;
 const STORAGE_STATUS_OPTIONS = [
   { value: 'new', label: 'New' },
   { value: 'contract_ready', label: 'Contract Ready' },
-  { value: 'waiting_signature', label: 'Waiting for Signature' },
+  { value: 'waiting_contract_deposit', label: 'Waiting for Contract and Deposit' },
+  { value: 'waiting_contract', label: 'Waiting for Contract' },
   { value: 'waiting_deposit', label: 'Waiting for Deposit' },
   { value: 'reserved', label: 'Reserved' },
   { value: 'scheduled', label: 'Scheduled' },
@@ -977,32 +985,58 @@ const STORAGE_STATUS_OPTIONS = [
   { value: 'picked_up', label: 'Picked-Up' }
 ];
 
+const STORAGE_WORKFLOW_LOCKED_STATUSES = new Set([
+  'waiting_contract_deposit',
+  'waiting_contract',
+  'waiting_deposit'
+]);
+
+const STORAGE_STATUS_RANKS = new Map(STORAGE_STATUS_OPTIONS.map((option, index) => [option.value, index]));
+
 const STORAGE_RECEIPT_EMAIL_WORKFLOWS = {
   contract: {
     title: 'Contract Received',
     buttonLabel: 'Contract',
     templateIds: ['receipt-contract'],
-    expectedStatus: 'waiting_signature',
-    targetStatus: 'waiting_deposit',
-    createsReceipt: false
+    expectedStatuses: ['waiting_contract_deposit', 'waiting_contract'],
+    targetStatusByCurrent: {
+      waiting_contract_deposit: 'waiting_deposit',
+      waiting_contract: 'reserved'
+    },
+    createsReceipt: false,
+    requiresSignedContract: true
   },
   contract_deposit: {
     title: 'Contract + Deposit Received',
-    buttonLabel: 'Contract + Deposit',
+    buttonLabel: 'Both',
     templateIds: ['receipt-contract-deposit'],
-    expectedStatus: 'waiting_signature',
+    expectedStatuses: ['waiting_contract_deposit'],
     targetStatus: 'reserved',
-    createsReceipt: true
+    createsReceipt: true,
+    requiresSignedContract: true
   },
   deposit: {
     title: 'Deposit Received',
     buttonLabel: 'Deposit',
     templateIds: ['receipt-deposit', 'receipt-deport'],
-    expectedStatus: 'waiting_deposit',
-    targetStatus: 'reserved',
-    createsReceipt: true
+    expectedStatuses: ['waiting_contract_deposit', 'waiting_deposit'],
+    targetStatusByCurrent: {
+      waiting_contract_deposit: 'waiting_contract',
+      waiting_deposit: 'reserved'
+    },
+    createsReceipt: true,
+    requiresSignedContract: false
   }
 };
+
+function resolveStorageReceiptTargetStatus(workflow, currentStatus) {
+  return workflow?.targetStatusByCurrent?.[currentStatus] || workflow?.targetStatus || '';
+}
+
+function formatStorageStatusLabel(status) {
+  const normalized = String(status || 'new');
+  return STORAGE_STATUS_OPTIONS.find((option) => option.value === normalized)?.label || normalized;
+}
 
 const PRICING_PANEL_ACTIONS = {
   seasons: {
@@ -2161,8 +2195,24 @@ function renderStorageTable() {
     const caseStatuses = caseRequests.map((r) => String(r.status || 'new'));
     const hasNew = caseStatuses.some((s) => s === 'new' || !knownStatuses.has(s));
     const allContractReady = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'contract_ready');
-    const allWaitingSignature = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'waiting_signature');
+    const allWaitingContractDeposit =
+      caseStatuses.length > 0 && caseStatuses.every((s) => s === 'waiting_contract_deposit');
+    const allWaitingContract = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'waiting_contract');
     const allWaitingDeposit = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'waiting_deposit');
+    const allReserved = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'reserved');
+    const allScheduled = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'scheduled');
+    const allStored = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'stored');
+    const addCaseStatusButton = (targetStatus, label, title = '') => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.dataset.action = 'update-storage-case-status';
+      button.dataset.caseId = caseId;
+      button.dataset.targetStatus = targetStatus;
+      button.textContent = label;
+      if (title) button.title = title;
+      caseActionCell.appendChild(button);
+    };
     if (hasNew || allContractReady) {
       const confirmationButton = document.createElement('button');
       confirmationButton.type = 'button';
@@ -2176,8 +2226,8 @@ function renderStorageTable() {
         confirmationButton.textContent = 'Send Confirmation e-mail';
       }
       caseActionCell.appendChild(confirmationButton);
-    } else if (allWaitingSignature) {
-      ['contract', 'contract_deposit'].forEach((receiptType) => {
+    } else if (allWaitingContractDeposit) {
+      ['contract', 'deposit', 'contract_deposit'].forEach((receiptType) => {
         const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS[receiptType];
         const button = document.createElement('button');
         button.type = 'button';
@@ -2189,9 +2239,22 @@ function renderStorageTable() {
         button.title =
           receiptType === 'contract'
             ? 'Confirm signed contract received and move to Waiting for Deposit'
-            : 'Confirm signed contract and deposit received and move to Reserved';
+            : receiptType === 'deposit'
+              ? 'Confirm deposit received and move to Waiting for Contract'
+              : 'Confirm signed contract and deposit received and move to Waiting for Scheduling';
         caseActionCell.appendChild(button);
       });
+    } else if (allWaitingContract) {
+      const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS.contract;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.dataset.action = 'send-storage-receipt';
+      button.dataset.caseId = caseId;
+      button.dataset.receiptType = 'contract';
+      button.textContent = workflow.buttonLabel;
+      button.title = 'Confirm signed contract received and move to Waiting for Scheduling';
+      caseActionCell.appendChild(button);
     } else if (allWaitingDeposit) {
       const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS.deposit;
       const button = document.createElement('button');
@@ -2201,8 +2264,14 @@ function renderStorageTable() {
       button.dataset.caseId = caseId;
       button.dataset.receiptType = 'deposit';
       button.textContent = workflow.buttonLabel;
-      button.title = 'Confirm deposit received and move to Reserved';
+      button.title = 'Confirm deposit received and move to Waiting for Scheduling';
       caseActionCell.appendChild(button);
+    } else if (allReserved) {
+      addCaseStatusButton('scheduled', 'Schedule', 'Move this case to Scheduled');
+    } else if (allScheduled) {
+      addCaseStatusButton('stored', 'Mark Stored', 'Move this case to Stored');
+    } else if (allStored) {
+      addCaseStatusButton('picked_up', 'Mark Picked Up', 'Move this case to Picked-Up');
     }
     caseRow.appendChild(caseActionCell);
     storageTableBody.appendChild(caseRow);
@@ -2227,18 +2296,11 @@ function renderStorageTable() {
       row.appendChild(addonCell);
 
       const statusChildCell = document.createElement('td');
-      const select = document.createElement('select');
-      select.className = 'storage-status-select';
-      select.dataset.id = request.id;
       const normalizedStatus = String(request.status || 'new');
-      STORAGE_STATUS_OPTIONS.forEach((option) => {
-        const opt = document.createElement('option');
-        opt.value = option.value;
-        opt.textContent = option.label;
-        opt.selected = normalizedStatus === option.value;
-        select.appendChild(opt);
-      });
-      statusChildCell.appendChild(select);
+      const statusLabel = document.createElement('span');
+      statusLabel.className = 'status-label';
+      statusLabel.textContent = formatStorageStatusLabel(normalizedStatus);
+      statusChildCell.appendChild(statusLabel);
       row.appendChild(statusChildCell);
 
       const amountChildCell = document.createElement('td');
@@ -2303,8 +2365,15 @@ function deriveStorageCaseStatus(requests) {
   if (statuses.every((status) => status === 'picked_up')) return 'Closed';
   if (statuses.every((status) => status === 'stored' || status === 'picked_up')) return 'Stored';
   if (statuses.some((status) => status === 'stored')) return 'In storage';
-  if (statuses.some((status) => status === 'contract_ready' || status === 'waiting_signature' || status === 'waiting_deposit')) return 'Contracting';
-  if (statuses.some((status) => status === 'reserved' || status === 'scheduled')) return 'Scheduled';
+  if (
+    statuses.some((status) =>
+      ['contract_ready', 'waiting_contract_deposit', 'waiting_contract', 'waiting_deposit'].includes(status)
+    )
+  ) {
+    return 'Contracting';
+  }
+  if (statuses.some((status) => status === 'scheduled')) return 'Scheduled';
+  if (statuses.some((status) => status === 'reserved')) return 'Waiting for Scheduling';
   return 'Active';
 }
 
@@ -3565,6 +3634,23 @@ async function deleteStorageContractAtPath(path) {
   }
 }
 
+function getExpectedStorageContractId(request) {
+  return String(request?.contractId || resolveStorageContractId(request) || '').trim();
+}
+
+function openSelectedContractFile(file) {
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  window.open(url, '_blank', 'noopener');
+  window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function openUploadedContractUrl(url) {
+  if (!url) return;
+  const separator = String(url).includes('?') ? '&' : '?';
+  window.open(`${url}${separator}viewTs=${Date.now()}`, '_blank', 'noopener');
+}
+
 function getStorageRequestById(requestId) {
   return storageRequests.find((entry) => entry.id === requestId) || null;
 }
@@ -3842,32 +3928,81 @@ function buildStorageConfirmationTemplateContext(caseRequests) {
   return { lang, client, context };
 }
 
-function fillEmailTemplateText(templateText, context) {
+function normalizeEmailTemplateSections(templateText, context) {
   return String(templateText || '').replace(
-    /{{\s*([\w.]+)\s*}}|{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
-    (match, mustacheKey, braceKey, bracketKey, percentKey) => {
-      const key = mustacheKey || braceKey || bracketKey || percentKey;
+    /{{\s*([#^/])\s*([\w.]+)\s*}}/g,
+    (match, mode, key) => {
+      if (!Object.prototype.hasOwnProperty.call(context?.__sections || {}, key)) return match;
+      return `{{${mode}__sections.${key}}}`;
+    }
+  );
+}
+
+function fillLegacyEmailTemplateTokens(templateText, context) {
+  return String(templateText || '').replace(
+    /{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
+    (match, braceKey, bracketKey, percentKey) => {
+      const key = braceKey || bracketKey || percentKey;
       const value = context[key];
       return value === null || value === undefined ? '' : String(value);
     }
   );
 }
 
+function renderFallbackMustacheEmailTemplate(templateText, context) {
+  let rendered = normalizeEmailTemplateSections(templateText, context);
+  let previous = '';
+  while (rendered !== previous) {
+    previous = rendered;
+    rendered = rendered.replace(/{{\s*([#^])\s*([\w.]+)\s*}}([\s\S]*?){{\s*\/\s*\2\s*}}/g, (match, mode, key, body) => {
+      const parts = key.split('.');
+      const value = parts.reduce((current, part) => (current == null ? undefined : current[part]), context);
+      const isTruthy = Array.isArray(value) ? value.length > 0 : Boolean(value);
+      return mode === '^' ? (isTruthy ? '' : body) : (isTruthy ? body : '');
+    });
+  }
+  return rendered.replace(/{{\s*([\w.]+)\s*}}/g, (match, key) => {
+    const parts = key.split('.');
+    const value = parts.reduce((current, part) => (current == null ? undefined : current[part]), context);
+    return value === null || value === undefined ? '' : String(value);
+  });
+}
+
+function renderMustacheEmailTemplate(templateText, context, options = {}) {
+  const escapeValues = options.escapeValues !== false;
+  if (window.Mustache?.render) {
+    const previousEscape = window.Mustache.escape;
+    if (!escapeValues) {
+      window.Mustache.escape = (value) => String(value ?? '');
+    }
+    try {
+      return window.Mustache.render(normalizeEmailTemplateSections(templateText, context), context);
+    } finally {
+      window.Mustache.escape = previousEscape;
+    }
+  }
+  return renderFallbackMustacheEmailTemplate(templateText, context);
+}
+
+function fillEmailTemplateText(templateText, context) {
+  return fillLegacyEmailTemplateTokens(renderMustacheEmailTemplate(templateText, context, { escapeValues: false }), context);
+}
+
 function fillEmailTemplateHtml(templateText, context, htmlContext = {}) {
   const htmlTokens = [];
-  const withPlaceholders = String(templateText || '').replace(
-    /{{\s*([\w.]+)\s*}}|{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
-    (match, mustacheKey, braceKey, bracketKey, percentKey) => {
-      const key = mustacheKey || braceKey || bracketKey || percentKey;
+  const tokenizedTemplate = normalizeEmailTemplateSections(templateText, context).replace(
+    /{{\s*([\w.]+)\s*}}/g,
+    (match, key) => {
       if (Object.prototype.hasOwnProperty.call(htmlContext, key)) {
         const token = `__HTML_TOKEN_${htmlTokens.length}__`;
         htmlTokens.push(htmlContext[key] || '');
         return token;
       }
-      const value = context[key];
-      return escapeEmailTemplateHtml(value === null || value === undefined ? '' : String(value)).replace(/\n/g, '<br>');
+      return match;
     }
-  ).replace(/\n/g, '<br>');
+  );
+  const rendered = fillLegacyEmailTemplateTokens(renderMustacheEmailTemplate(tokenizedTemplate, context), context);
+  const withPlaceholders = rendered.replace(/\n/g, '<br>');
   return htmlTokens.reduce((html, value, index) => html.replace(`__HTML_TOKEN_${index}__`, value), withPlaceholders);
 }
 
@@ -4029,8 +4164,16 @@ function buildStorageReceiptEmailPreview(caseRequests, receiptType) {
   }
   const detailsHtml = buildStorageContractDetailsHtml(caseRequests, lang);
   const receiptId = workflow.createsReceipt ? buildStorageReceiptId(caseRequests[0]) : '';
+  const currentStatus = String(caseRequests[0]?.status || '');
+  const targetStatus = resolveStorageReceiptTargetStatus(workflow, currentStatus);
+  const contractReceived = receiptType === 'contract' || receiptType === 'contract_deposit' || currentStatus === 'waiting_deposit';
+  const depositReceived = Boolean(workflow.createsReceipt) || currentStatus === 'waiting_contract';
   const receiptContext = {
     ...context,
+    __sections: {
+      contract: contractReceived,
+      deposit: depositReceived
+    },
     saison: context.season,
     details: detailsHtml,
     total_cost: context.leaseCost,
@@ -4038,7 +4181,7 @@ function buildStorageReceiptEmailPreview(caseRequests, receiptType) {
     receiptId,
     receipt_id: receiptId,
     receipt_type: receiptType,
-    next_status: workflow.targetStatus
+    next_status: targetStatus
   };
   const subject = fillEmailTemplateText(getLocalizedTemplateField(template, 'subject', lang), receiptContext);
   const rawBody = getLocalizedTemplateField(template, 'body', lang);
@@ -4048,6 +4191,8 @@ function buildStorageReceiptEmailPreview(caseRequests, receiptType) {
     emailType: 'receipt',
     receiptType,
     requestIds: caseRequests.map((r) => r.id),
+    contractUploadRequestIds: workflow.requiresSignedContract ? caseRequests.map((r) => r.id) : [],
+    requiresInteracReference: Boolean(workflow.createsReceipt),
     lang,
     to,
     cc: getStorageConfirmationCc(lang),
@@ -4058,15 +4203,170 @@ function buildStorageReceiptEmailPreview(caseRequests, receiptType) {
   };
 }
 
-function setStorageConfirmationEmailBusy(isBusy) {
-  storageConfirmationEmailBusy = Boolean(isBusy);
+function getStorageRequestContractUploadLabel(request) {
+  const clientName = clientLookup.get(request?.clientId)?.name || 'Client';
+  const vehicle = request?.vehicle || {};
+  const vehicleLabel = [vehicle.typeLabel || vehicle.type, vehicle.brand, vehicle.model].filter(Boolean).join(' ');
+  return [clientName, vehicleLabel].filter(Boolean).join(' - ') || request?.id || 'Storage request';
+}
+
+function renderReceiptContractUploadSection() {
+  if (!storageReceiptContractUploadSection || !storageReceiptContractUploadList) return;
+  storageReceiptContractUploadList.innerHTML = '';
+  const requestIds = pendingStorageConfirmationEmail?.contractUploadRequestIds || [];
+  if (!requestIds.length) {
+    storageReceiptContractUploadSection.classList.add('hidden');
+    return;
+  }
+  requestIds.forEach((requestId) => {
+    const request = getStorageRequestById(requestId);
+    const row = document.createElement('div');
+    row.className = 'storage-receipt-contract-upload-row';
+    const title = document.createElement('strong');
+    title.textContent = getStorageRequestContractUploadLabel(request);
+    row.appendChild(title);
+    if (request?.signedContractPath) {
+      const existing = document.createElement('span');
+      existing.className = 'hint';
+      existing.textContent = 'A signed contract is already stored. Select the received file to confirm this step.';
+      row.appendChild(existing);
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/pdf,image/*';
+    input.dataset.requestId = requestId;
+    const controls = document.createElement('div');
+    controls.className = 'storage-contract-file-controls';
+    const viewButton = document.createElement('button');
+    viewButton.type = 'button';
+    viewButton.className = 'icon-button';
+    viewButton.dataset.action = 'view-uploaded-contract';
+    viewButton.disabled = true;
+    viewButton.setAttribute('aria-label', 'View uploaded signed contract');
+    viewButton.innerHTML = '<img src="icons/eye.svg" alt="View uploaded signed contract" />';
+    const status = document.createElement('span');
+    status.className = 'hint';
+    status.dataset.contractUploadStatus = 'true';
+    input.addEventListener('change', () => {
+      input.dataset.uploaded = '';
+      input.dataset.uploadedUrl = '';
+      viewButton.disabled = true;
+      status.textContent = '';
+      updateStorageConfirmationEmailButtons();
+    });
+    viewButton.addEventListener('click', () => {
+      const url = input.dataset.uploadedUrl;
+      openUploadedContractUrl(url);
+    });
+    controls.appendChild(input);
+    controls.appendChild(viewButton);
+    row.appendChild(controls);
+    row.appendChild(status);
+    storageReceiptContractUploadList.appendChild(row);
+  });
+  storageReceiptContractUploadSection.classList.remove('hidden');
+}
+
+function arePendingReceiptContractFilesSelected() {
+  const requestIds = pendingStorageConfirmationEmail?.contractUploadRequestIds || [];
+  if (!requestIds.length) return true;
+  const inputs = Array.from(storageReceiptContractUploadList?.querySelectorAll('input[type="file"][data-request-id]') || []);
+  return requestIds.every((requestId) => {
+    const input = inputs.find((item) => item.dataset.requestId === requestId);
+    return Boolean(input?.files?.[0]);
+  });
+}
+
+function arePendingReceiptContractsUploaded() {
+  const requestIds = pendingStorageConfirmationEmail?.contractUploadRequestIds || [];
+  if (!requestIds.length) return true;
+  const inputs = Array.from(storageReceiptContractUploadList?.querySelectorAll('input[type="file"][data-request-id]') || []);
+  return requestIds.every((requestId) => {
+    const input = inputs.find((item) => item.dataset.requestId === requestId);
+    return input?.dataset.uploaded === 'true' && Boolean(input.dataset.uploadedUrl);
+  });
+}
+
+function updateReceiptContractUploadButton() {
+  if (!uploadStorageReceiptContractsButton) return;
+  const hasUploadWorkflow = Boolean(pendingStorageConfirmationEmail?.contractUploadRequestIds?.length);
+  uploadStorageReceiptContractsButton.disabled = storageConfirmationEmailBusy || !hasUploadWorkflow || !arePendingReceiptContractFilesSelected();
+}
+
+function updateReceiptInteracReferenceField() {
+  if (!storageReceiptInteracReferenceRow || !storageReceiptInteracReferenceInput) return;
+  const requiresReference = Boolean(pendingStorageConfirmationEmail?.requiresInteracReference);
+  storageReceiptInteracReferenceRow.classList.toggle('hidden', !requiresReference);
+  storageReceiptInteracReferenceInput.required = requiresReference;
+  if (!requiresReference) {
+    storageReceiptInteracReferenceInput.value = '';
+  }
+}
+
+function hasRequiredReceiptInteracReference() {
+  if (!pendingStorageConfirmationEmail?.requiresInteracReference) return true;
+  return Boolean(storageReceiptInteracReferenceInput?.value?.trim());
+}
+
+async function uploadPendingReceiptContracts() {
+  const requestIds = pendingStorageConfirmationEmail?.contractUploadRequestIds || [];
+  if (!requestIds.length) return;
+  const inputs = Array.from(storageReceiptContractUploadList?.querySelectorAll('input[type="file"][data-request-id]') || []);
+  for (const requestId of requestIds) {
+    const request = getStorageRequestById(requestId);
+    const input = inputs.find((item) => item.dataset.requestId === requestId);
+    const file = input?.files?.[0] || null;
+    const row = input?.closest('.storage-receipt-contract-upload-row') || null;
+    const status = row?.querySelector('[data-contract-upload-status]') || null;
+    const viewButton = row?.querySelector('button[data-action="view-uploaded-contract"]') || null;
+    if (!request) {
+      throw new Error('Storage request not found.');
+    }
+    if (!file) {
+      throw new Error(`Upload the signed contract for ${getStorageRequestContractUploadLabel(request)} before sending.`);
+    }
+    if (status) status.textContent = 'Uploading...';
+    if (viewButton) viewButton.disabled = true;
+    const resolvedContractId = getExpectedStorageContractId(request);
+    const upload = await uploadStorageContractFile(request.id, 'signed', file, { contractId: resolvedContractId });
+    if (request.signedContractPath && request.signedContractPath !== upload?.path) {
+      await deleteStorageContractAtPath(request.signedContractPath);
+    }
+    await updateDoc(doc(db, 'storageRequests', request.id), {
+      caseId: resolveStorageCaseId(request),
+      contractId: resolvedContractId,
+      signedContractUrl: upload?.url || null,
+      signedContractPath: upload?.path || null,
+      signedContractUploadedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    });
+    request.signedContractUrl = upload?.url || null;
+    request.signedContractPath = upload?.path || null;
+    if (input) {
+      input.dataset.uploaded = 'true';
+      input.dataset.uploadedUrl = upload?.url || '';
+    }
+    if (status) status.textContent = 'Uploaded.';
+    if (viewButton) viewButton.disabled = !upload?.url;
+  }
+}
+
+function updateStorageConfirmationEmailButtons() {
   if (sendStorageConfirmationEmailButton) {
-    sendStorageConfirmationEmailButton.disabled = storageConfirmationEmailBusy;
+    sendStorageConfirmationEmailButton.disabled =
+      storageConfirmationEmailBusy || !arePendingReceiptContractsUploaded() || !hasRequiredReceiptInteracReference();
     sendStorageConfirmationEmailButton.textContent = storageConfirmationEmailBusy ? 'Sending...' : 'Send';
   }
   if (cancelStorageConfirmationEmailButton) {
     cancelStorageConfirmationEmailButton.disabled = storageConfirmationEmailBusy;
   }
+  updateReceiptContractUploadButton();
+}
+
+function setStorageConfirmationEmailBusy(isBusy) {
+  storageConfirmationEmailBusy = Boolean(isBusy);
+  updateStorageConfirmationEmailButtons();
 }
 
 function openStorageConfirmationEmailModal(caseRequests, emailType = 'confirmation', options = {}) {
@@ -4089,6 +4389,8 @@ function openStorageConfirmationEmailModal(caseRequests, emailType = 'confirmati
     if (storageConfirmationEmailCc) storageConfirmationEmailCc.textContent = pendingStorageConfirmationEmail.cc;
     if (storageConfirmationEmailSubject) storageConfirmationEmailSubject.textContent = pendingStorageConfirmationEmail.subject || '—';
     if (storageConfirmationEmailPreview) storageConfirmationEmailPreview.srcdoc = pendingStorageConfirmationEmail.html;
+    updateReceiptInteracReferenceField();
+    renderReceiptContractUploadSection();
     if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = '';
     setStorageConfirmationEmailBusy(false);
     storageConfirmationEmailModal.classList.remove('hidden');
@@ -4102,6 +4404,10 @@ function closeStorageConfirmationEmailModal() {
   storageConfirmationEmailModal.classList.add('hidden');
   pendingStorageConfirmationEmail = null;
   if (storageConfirmationEmailPreview) storageConfirmationEmailPreview.srcdoc = '';
+  if (storageReceiptContractUploadList) storageReceiptContractUploadList.innerHTML = '';
+  if (storageReceiptContractUploadSection) storageReceiptContractUploadSection.classList.add('hidden');
+  if (storageReceiptInteracReferenceInput) storageReceiptInteracReferenceInput.value = '';
+  if (storageReceiptInteracReferenceRow) storageReceiptInteracReferenceRow.classList.add('hidden');
   if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = '';
 }
 
@@ -8857,6 +9163,54 @@ function buildStorageRequestDraftFromForm() {
   };
 }
 
+function isStorageStatusLocked(status) {
+  return STORAGE_WORKFLOW_LOCKED_STATUSES.has(String(status || 'new'));
+}
+
+function getStorageStatusRank(status) {
+  const normalized = String(status || 'new');
+  return STORAGE_STATUS_RANKS.has(normalized) ? STORAGE_STATUS_RANKS.get(normalized) : STORAGE_STATUS_RANKS.get('new');
+}
+
+function getStorageStatusTransitionError(currentStatus, nextStatus) {
+  const current = String(currentStatus || 'new');
+  const next = String(nextStatus || 'new');
+  if (next === current) return '';
+  if (isStorageStatusLocked(next)) {
+    return 'This status is controlled by the contract receipt workflow.';
+  }
+  if (getStorageStatusRank(next) < getStorageStatusRank(current)) {
+    return 'Storage status can only move forward.';
+  }
+  return '';
+}
+
+function renderStorageStatusOptions(select, currentStatus = 'new') {
+  if (!select) return;
+  const current = String(currentStatus || 'new');
+  select.innerHTML = '';
+  STORAGE_STATUS_OPTIONS.forEach((option) => {
+    const opt = document.createElement('option');
+    opt.value = option.value;
+    opt.textContent = option.label;
+    opt.selected = current === option.value;
+    opt.disabled = Boolean(getStorageStatusTransitionError(current, option.value));
+    select.appendChild(opt);
+  });
+}
+
+function updateStorageStatusSelectLock(request = null) {
+  if (!storageStatusSelect) return;
+  const status = request?.status || storageStatusSelect.value || 'new';
+  const locked = Boolean(editingStorageRequestId) && isStorageStatusLocked(status);
+  storageStatusSelect.disabled = locked;
+  storageStatusSelect.title = locked ? 'This status is controlled by the contract receipt workflow.' : '';
+  if (storageStatusDisplay) {
+    storageStatusDisplay.textContent = formatStorageStatusLabel(status);
+    storageStatusDisplay.title = storageStatusSelect.title || '';
+  }
+}
+
 function syncStorageAmountFromForm() {
   if (storageAmountManualOverride) return;
   const draft = buildStorageRequestDraftFromForm();
@@ -8883,7 +9237,9 @@ function resetStorageFormFields() {
   storageVehicleTypeSelect.value = '';
   if (storageLocationSelect) storageLocationSelect.value = 'indoor';
   storageVehicleProvinceSelect.value = '';
+  renderStorageStatusOptions(storageStatusSelect, 'new');
   storageStatusSelect.value = 'new';
+  updateStorageStatusSelectLock(null);
   storageAddonBatteryInput.checked = false;
   storageAddonPropaneInput.checked = false;
   storageInsuranceExpirationInput.value = '';
@@ -8918,7 +9274,9 @@ function populateStorageFormFields(request) {
       ? request.insuranceExpiration.toDate().toISOString().slice(0, 10)
       : request.insuranceExpiration
     : '';
+  renderStorageStatusOptions(storageStatusSelect, request.status || 'new');
   storageStatusSelect.value = request.status || 'new';
+  updateStorageStatusSelectLock(request);
   storageAddonBatteryInput.checked = Boolean(request.addons?.battery);
   storageAddonPropaneInput.checked = Boolean(request.addons?.propane);
   syncStorageAmountInput(request);
@@ -8932,6 +9290,9 @@ function updateStorageContractButtons() {
   if (uploadStorageSignedContractButton) {
     uploadStorageSignedContractButton.disabled = storageContractBusy;
   }
+  if (viewStorageSignedContractFileButton) {
+    viewStorageSignedContractFileButton.disabled = storageContractBusy || !storageSignedContractFileInput?.files?.[0];
+  }
 }
 
 function closeStorageContractModal() {
@@ -8944,7 +9305,9 @@ function closeStorageContractModal() {
   storageContractRequiresSignedUpload = false;
   activeStorageContractRequestId = null;
   storageContractBusy = false;
-  if (storageSignedContractFileInput) storageSignedContractFileInput.value = '';
+  if (storageSignedContractFileInput) {
+    storageSignedContractFileInput.value = '';
+  }
   if (storageContractModalSummary) storageContractModalSummary.textContent = '';
   if (storageContractModalLinks) storageContractModalLinks.innerHTML = '';
   if (storageContractModalError) storageContractModalError.textContent = '';
@@ -9044,10 +9407,12 @@ function openStorageModal(mode, request = null) {
     storageFormTitle.textContent = `${isView ? 'View' : 'Edit'} ${clientName}`;
     populateStorageFormFields(request);
     setStorageFormReadOnly(isView);
+    updateStorageStatusSelectLock(request);
   } else {
     editingStorageRequestId = null;
     storageFormTitle.textContent = 'New storage request';
     setStorageFormReadOnly(false);
+    updateStorageStatusSelectLock(null);
   }
 
   storageFormError.textContent = '';
@@ -9923,7 +10288,7 @@ if (pricingTabs) {
 }
 
 if (storageTableBody) {
-  storageTableBody.addEventListener('click', (event) => {
+  storageTableBody.addEventListener('click', async (event) => {
     const toggleButton = event.target.closest('button[data-action="toggle-storage-case"]');
     if (toggleButton) {
       const caseId = String(toggleButton.dataset.caseId || '');
@@ -9959,6 +10324,39 @@ if (storageTableBody) {
         return;
       }
       openStorageConfirmationEmailModal(caseRequests, 'contract');
+      return;
+    }
+    const caseStatusButton = event.target.closest('button[data-action="update-storage-case-status"]');
+    if (caseStatusButton) {
+      const caseId = String(caseStatusButton.dataset.caseId || '');
+      const targetStatus = String(caseStatusButton.dataset.targetStatus || '');
+      if (!caseId || !targetStatus) return;
+      const caseRequests = storageRequests
+        .filter((request) => resolveStorageCaseId(request) === caseId)
+        .sort(compareStorageRequests);
+      if (!caseRequests.length) {
+        alert('Storage case not found.');
+        return;
+      }
+      const invalid = caseRequests.find((request) => getStorageStatusTransitionError(request.status || 'new', targetStatus));
+      if (invalid) {
+        alert(getStorageStatusTransitionError(invalid.status || 'new', targetStatus));
+        return;
+      }
+      try {
+        await Promise.all(
+          caseRequests.map((request) =>
+            updateDoc(doc(db, 'storageRequests', request.id), {
+              caseId: resolveStorageCaseId(request),
+              status: targetStatus,
+              updatedAt: serverTimestamp(),
+              updatedBy: auth.currentUser?.uid || null
+            })
+          )
+        );
+      } catch (error) {
+        alert(error.message || 'Unable to update storage status.');
+      }
       return;
     }
     const receiptEmailButton = event.target.closest('button[data-action="send-storage-receipt"]');
@@ -10011,32 +10409,6 @@ if (storageTableBody) {
     }
   });
 
-  storageTableBody.addEventListener('change', async (event) => {
-    const select = event.target.closest('select.storage-status-select');
-    if (!select) return;
-    const requestId = select.dataset.id;
-    const newStatus = select.value;
-    const existing = storageRequests.find((item) => item.id === requestId) || null;
-    const previousStatus = existing?.status || 'new';
-    if (newStatus === 'contract_ready' && previousStatus !== 'contract_ready') {
-      select.value = previousStatus;
-      if (existing) {
-        openStorageContractModal(existing, { requireSignedUpload: true });
-      }
-      return;
-    }
-    try {
-      await updateDoc(doc(db, 'storageRequests', requestId), {
-        caseId: resolveStorageCaseId(existing),
-        status: newStatus,
-        updatedAt: serverTimestamp(),
-        updatedBy: auth.currentUser?.uid || null
-      });
-    } catch (error) {
-      select.value = storageRequests.find((item) => item.id === requestId)?.status || 'new';
-      alert(error.message);
-    }
-  });
 }
 
 if (newStorageRequestButton) {
@@ -10107,6 +10479,22 @@ if (storageConfirmationEmailModal) {
   });
 }
 
+if (uploadStorageReceiptContractsButton) {
+  uploadStorageReceiptContractsButton.addEventListener('click', async () => {
+    setStorageConfirmationEmailBusy(true);
+    if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = '';
+    try {
+      await uploadPendingReceiptContracts();
+    } catch (error) {
+      if (storageConfirmationEmailError) {
+        storageConfirmationEmailError.textContent = error.message || 'Unable to upload signed contract.';
+      }
+    } finally {
+      setStorageConfirmationEmailBusy(false);
+    }
+  });
+}
+
 if (sendStorageConfirmationEmailButton) {
   sendStorageConfirmationEmailButton.addEventListener('click', async () => {
     if (!pendingStorageConfirmationEmail?.requestIds?.length) {
@@ -10116,6 +10504,10 @@ if (sendStorageConfirmationEmailButton) {
     setStorageConfirmationEmailBusy(true);
     if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = '';
     try {
+      const interacReference = storageReceiptInteracReferenceInput?.value?.trim() || '';
+      if (pendingStorageConfirmationEmail.requiresInteracReference && !interacReference) {
+        throw new Error('Enter the Interac reference number.');
+      }
       const callable =
         pendingStorageConfirmationEmail.emailType === 'contract'
           ? sendStorageContractEmailCallable
@@ -10126,7 +10518,8 @@ if (sendStorageConfirmationEmailButton) {
         pendingStorageConfirmationEmail.emailType === 'receipt'
           ? {
               requestIds: pendingStorageConfirmationEmail.requestIds,
-              receiptType: pendingStorageConfirmationEmail.receiptType
+              receiptType: pendingStorageConfirmationEmail.receiptType,
+              interacReference
             }
           : { requestIds: pendingStorageConfirmationEmail.requestIds };
       await callable(payload);
@@ -10141,9 +10534,27 @@ if (sendStorageConfirmationEmailButton) {
   });
 }
 
+if (storageReceiptInteracReferenceInput) {
+  storageReceiptInteracReferenceInput.addEventListener('input', () => {
+    updateStorageConfirmationEmailButtons();
+  });
+}
+
 if (generateStorageContractButton) {
   generateStorageContractButton.addEventListener('click', async () => {
     await generateAndDownloadStorageDraftContract({ autoDownload: true });
+  });
+}
+
+if (storageSignedContractFileInput) {
+  storageSignedContractFileInput.addEventListener('change', () => {
+    updateStorageContractButtons();
+  });
+}
+
+if (viewStorageSignedContractFileButton) {
+  viewStorageSignedContractFileButton.addEventListener('click', () => {
+    openSelectedContractFile(storageSignedContractFileInput?.files?.[0]);
   });
 }
 
@@ -10163,7 +10574,7 @@ if (uploadStorageSignedContractButton) {
     if (storageContractModalError) storageContractModalError.textContent = '';
     updateStorageContractButtons();
     try {
-      const resolvedContractId = String(resolveStorageContractId(request));
+      const resolvedContractId = getExpectedStorageContractId(request);
       if (request.contractId !== resolvedContractId) {
         await updateDoc(doc(db, 'storageRequests', request.id), {
           caseId: resolveStorageCaseId(request),
@@ -10904,6 +11315,13 @@ storageForm.addEventListener('submit', async (event) => {
     let previousStatus = null;
     if (editingStorageRequestId) {
       previousStatus = storageRequests.find((entry) => entry.id === editingStorageRequestId)?.status || null;
+    }
+    const transitionError = editingStorageRequestId
+      ? getStorageStatusTransitionError(previousStatus || 'new', payload.status)
+      : getStorageStatusTransitionError('new', payload.status);
+    if (transitionError) {
+      storageFormError.textContent = transitionError;
+      return;
     }
     const requestedContractReady = payload.status === 'contract_ready' && previousStatus !== 'contract_ready';
     const payloadToSave = requestedContractReady

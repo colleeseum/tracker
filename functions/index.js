@@ -2,6 +2,7 @@ import functions from 'firebase-functions';
 import admin from 'firebase-admin';
 import nodemailer from 'nodemailer';
 import crypto from 'node:crypto';
+import Mustache from 'mustache';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
@@ -56,21 +57,30 @@ const DEFAULT_VEHICLE_TYPE_LABELS = {
 const STORAGE_RECEIPT_EMAIL_WORKFLOWS = {
   contract: {
     templateIds: ['receipt-contract'],
-    expectedStatus: 'waiting_signature',
-    targetStatus: 'waiting_deposit',
-    createsReceipt: false
+    expectedStatuses: ['waiting_contract_deposit', 'waiting_contract'],
+    targetStatusByCurrent: {
+      waiting_contract_deposit: 'waiting_deposit',
+      waiting_contract: 'reserved'
+    },
+    createsReceipt: false,
+    requiresSignedContract: true
   },
   contract_deposit: {
     templateIds: ['receipt-contract-deposit'],
-    expectedStatus: 'waiting_signature',
+    expectedStatuses: ['waiting_contract_deposit'],
     targetStatus: 'reserved',
-    createsReceipt: true
+    createsReceipt: true,
+    requiresSignedContract: true
   },
   deposit: {
     templateIds: ['receipt-deposit', 'receipt-deport'],
-    expectedStatus: 'waiting_deposit',
-    targetStatus: 'reserved',
-    createsReceipt: true
+    expectedStatuses: ['waiting_contract_deposit', 'waiting_deposit'],
+    targetStatusByCurrent: {
+      waiting_contract_deposit: 'waiting_contract',
+      waiting_deposit: 'reserved'
+    },
+    createsReceipt: true,
+    requiresSignedContract: false
   }
 };
 
@@ -767,32 +777,60 @@ function getLocalizedTemplateField(template, fieldName, locale) {
   return value[locale] || value.en || value.fr || '';
 }
 
-function fillTemplateText(templateText, context) {
+function normalizeTemplateSections(templateText, context) {
   return String(templateText || '').replace(
-    /{{\s*([\w.]+)\s*}}|{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
-    (match, mustacheKey, braceKey, bracketKey, percentKey) => {
-      const key = mustacheKey || braceKey || bracketKey || percentKey;
+    /{{\s*([#^/])\s*([\w.]+)\s*}}/g,
+    (match, mode, key) => {
+      if (!Object.prototype.hasOwnProperty.call(context?.__sections || {}, key)) return match;
+      return `{{${mode}__sections.${key}}}`;
+    }
+  );
+}
+
+function fillLegacyTemplateTokens(templateText, context) {
+  return String(templateText || '').replace(
+    /{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
+    (match, braceKey, bracketKey, percentKey) => {
+      const key = braceKey || bracketKey || percentKey;
       const value = context[key];
       return value === null || value === undefined ? '' : String(value);
     }
   );
 }
 
+function renderMustacheTemplate(templateText, context, options = {}) {
+  const escapeValues = options.escapeValues !== false;
+  const normalized = normalizeTemplateSections(templateText, context);
+  if (escapeValues) return Mustache.render(normalized, context);
+  const previousEscape = Mustache.escape;
+  Mustache.escape = (value) => String(value ?? '');
+  try {
+    return Mustache.render(normalized, context);
+  } finally {
+    Mustache.escape = previousEscape;
+  }
+}
+
+function fillTemplateText(templateText, context) {
+  const rendered = renderMustacheTemplate(templateText, context, { escapeValues: false });
+  return fillLegacyTemplateTokens(rendered, context);
+}
+
 function fillTemplateHtml(templateText, context, htmlContext = {}) {
   const htmlTokens = [];
-  const withPlaceholders = String(templateText || '').replace(
-    /{{\s*([\w.]+)\s*}}|{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
-    (match, mustacheKey, braceKey, bracketKey, percentKey) => {
-      const key = mustacheKey || braceKey || bracketKey || percentKey;
+  const tokenizedTemplate = normalizeTemplateSections(templateText, context).replace(
+    /{{\s*([\w.]+)\s*}}/g,
+    (match, key) => {
       if (Object.prototype.hasOwnProperty.call(htmlContext, key)) {
         const token = `__HTML_TOKEN_${htmlTokens.length}__`;
         htmlTokens.push(htmlContext[key] || '');
         return token;
       }
-      const value = context[key];
-      return escapeHtml(value === null || value === undefined ? '' : String(value)).replace(/\n/g, '<br>');
+      return match;
     }
-  ).replace(/\n/g, '<br>');
+  );
+  const rendered = fillLegacyTemplateTokens(renderMustacheTemplate(tokenizedTemplate, context), context);
+  const withPlaceholders = rendered.replace(/\n/g, '<br>');
   return htmlTokens.reduce((html, value, index) => html.replace(`__HTML_TOKEN_${index}__`, value), withPlaceholders);
 }
 
@@ -858,7 +896,7 @@ async function resolveFermeColleLedgerAccounts() {
   return { entityAccount: fermeColleEntity, cashAccount: defaultCash };
 }
 
-function buildDepositVehicleDescription(requests, locale, pricingData) {
+function buildDepositVehicleDescription(requests, locale, pricingData, options = {}) {
   const vehicleLines = requests
     .map((request) => {
       const vehicle = request.vehicle || {};
@@ -869,7 +907,14 @@ function buildDepositVehicleDescription(requests, locale, pricingData) {
     })
     .filter(Boolean)
     .join('\n');
-  return ['List of vehicle', vehicleLines].filter(Boolean).join('\n');
+  const reference = String(options.interacReference || '').trim();
+  return [
+    reference ? `Interac reference: ${reference}` : '',
+    'List of vehicle',
+    vehicleLines
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function requestAmountValue(request) {
@@ -1505,7 +1550,7 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
     batch.set(
       db.collection('storageRequests').doc(request.id),
       {
-        status: 'waiting_signature',
+        status: 'waiting_contract_deposit',
         contractEmailSentAt: timestamp,
         contractEmailSentBy: context.auth.uid,
         contractEmailSentTo: to,
@@ -1533,6 +1578,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   const requestIds = Array.isArray(data?.requestIds)
     ? data.requestIds.map((id) => String(id || '').trim()).filter(Boolean)
     : [];
+  const interacReference = String(data?.interacReference || '').trim();
   if (!requestIds.length) {
     throw new functions.https.HttpsError('invalid-argument', 'At least one storage request is required.');
   }
@@ -1551,11 +1597,29 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   if (!clientId || requests.some((request) => request.clientId !== clientId)) {
     throw new functions.https.HttpsError('invalid-argument', 'All selected requests must belong to the same tenant.');
   }
-  if (!requests.every((request) => request.status === workflow.expectedStatus)) {
+  const currentStatus = String(requests[0]?.status || '');
+  const expectedStatuses = workflow.expectedStatuses || (workflow.expectedStatus ? [workflow.expectedStatus] : []);
+  if (!expectedStatuses.includes(currentStatus) || !requests.every((request) => request.status === currentStatus)) {
     throw new functions.https.HttpsError(
       'failed-precondition',
-      `All requests must be in ${workflow.expectedStatus} status.`
+      `All requests must be in one of these statuses: ${expectedStatuses.join(', ')}.`
     );
+  }
+  const targetStatus = workflow.targetStatusByCurrent?.[currentStatus] || workflow.targetStatus;
+  if (!targetStatus) {
+    throw new functions.https.HttpsError('failed-precondition', 'No target status is configured for this workflow.');
+  }
+  if (workflow.requiresSignedContract) {
+    const missingSignedContract = requests.find((request) => !request.signedContractPath);
+    if (missingSignedContract) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Upload the signed contract before sending this confirmation email.'
+      );
+    }
+  }
+  if (workflow.createsReceipt && !interacReference) {
+    throw new functions.https.HttpsError('invalid-argument', 'Interac reference number is required.');
   }
 
   const clientSnap = await db.collection('clients').doc(clientId).get();
@@ -1586,8 +1650,14 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   );
   const receiptId = workflow.createsReceipt ? await allocateStorageReceiptId(requests[0], pricingData) : '';
   const ledgerAccounts = workflow.createsReceipt ? await resolveFermeColleLedgerAccounts() : null;
+  const contractReceived = receiptType === 'contract' || receiptType === 'contract_deposit' || currentStatus === 'waiting_deposit';
+  const depositReceived = Boolean(workflow.createsReceipt) || currentStatus === 'waiting_contract';
   const contextValues = {
     ...baseContext,
+    __sections: {
+      contract: contractReceived,
+      deposit: depositReceived
+    },
     saison: baseContext.season,
     details: detailsHtml,
     total_cost: baseContext.leaseCost,
@@ -1595,7 +1665,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
     receiptId,
     receipt_id: receiptId,
     receipt_type: receiptType,
-    next_status: workflow.targetStatus
+    next_status: targetStatus
   };
 
   const subject = fillTemplateText(getLocalizedTemplateField(template, 'subject', locale), contextValues);
@@ -1615,7 +1685,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   if (workflow.createsReceipt) {
     const ledgerEntryId = `storage-deposit-${receiptId}`;
     const ledgerEntryTitle = `Deposit ${baseContext.season} ${client.name || ''} ${receiptId}`.replace(/\s+/g, ' ').trim();
-    const ledgerEntryDescription = buildDepositVehicleDescription(requests, locale, pricingData);
+    const ledgerEntryDescription = buildDepositVehicleDescription(requests, locale, pricingData, { interacReference });
     const ledgerEntryRef = db.collection('expenses').doc(ledgerEntryId);
     batch.set(db.collection('storageReceipts').doc(receiptId), {
       receiptId,
@@ -1627,14 +1697,15 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
       sourceWorkflow: receiptType,
       amount: depositAmount,
       amountFormatted: formatMoney(depositAmount),
+      interacReference,
       ledgerEntryId,
       templateId,
       sentAt: timestamp,
       sentBy: context.auth.uid,
       sentTo: to,
       sentCc: cc,
-      statusFrom: workflow.expectedStatus,
-      statusTo: workflow.targetStatus,
+      statusFrom: currentStatus,
+      statusTo: targetStatus,
       createdAt: timestamp,
       createdBy: context.auth.uid,
       updatedAt: timestamp,
@@ -1655,6 +1726,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
       transactionId: ledgerEntryId,
       clientId,
       storageReceiptId: receiptId,
+      interacReference,
       storageRequestIds: requestIds,
       storageCaseId: resolveEmailCaseId(requests[0]),
       paymentStatus: null,
@@ -1676,7 +1748,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   }
   requests.forEach((request) => {
     const requestUpdate = {
-      status: workflow.targetStatus,
+      status: targetStatus,
       receiptEmailSentAt: timestamp,
       receiptEmailSentBy: context.auth.uid,
       receiptEmailSentTo: to,
@@ -1694,7 +1766,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   });
   await batch.commit();
 
-  return { success: true, to, cc, templateId, targetStatus: workflow.targetStatus, receiptId };
+  return { success: true, to, cc, templateId, targetStatus, receiptId };
 });
 
 function parseAttachmentContent(rawContent) {
