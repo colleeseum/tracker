@@ -820,6 +820,58 @@ function estimateDepositForAmount(amount) {
   return Number.isFinite(amount) && amount > 400 ? 100 : 50;
 }
 
+function accountSupportsCash(account) {
+  return account?.type === 'cash' || account?.type === 'cash_entity';
+}
+
+function accountSupportsEntity(account) {
+  return account?.type === 'entity' || account?.type === 'cash_entity';
+}
+
+function normalizeAccountName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+async function resolveFermeColleLedgerAccounts() {
+  const snapshot = await db.collection('accounts').get();
+  const accounts = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+  const cashAccounts = accounts.filter(accountSupportsCash);
+  const entityAccounts = accounts.filter(accountSupportsEntity);
+  const fermeColleEntity =
+    entityAccounts.find((account) => normalizeAccountName(account.name) === 'ferme colle') ||
+    entityAccounts.find((account) => normalizeAccountName(account.name).includes('ferme colle')) ||
+    entityAccounts.find((account) => account.defaultEntity);
+  const defaultCash =
+    cashAccounts.find((account) => account.defaultCash) ||
+    (cashAccounts.length === 1 ? cashAccounts[0] : null);
+  if (!fermeColleEntity) {
+    throw new functions.https.HttpsError('failed-precondition', 'Ferme Colle entity account was not found.');
+  }
+  if (!defaultCash) {
+    throw new functions.https.HttpsError('failed-precondition', 'Default cash account was not found.');
+  }
+  return { entityAccount: fermeColleEntity, cashAccount: defaultCash };
+}
+
+function buildDepositVehicleDescription(requests, locale, pricingData) {
+  const vehicleLines = requests
+    .map((request) => {
+      const vehicle = request.vehicle || {};
+      const type = getVehicleTypeLabelForEmail(vehicle, locale, pricingData);
+      const model = [vehicle.brand, vehicle.model].filter(Boolean).join(' ');
+      if (type && model) return `${type}: ${model}`;
+      return type || model || '';
+    })
+    .filter(Boolean)
+    .join('\n');
+  return ['List of vehicle', vehicleLines].filter(Boolean).join('\n');
+}
+
 function requestAmountValue(request) {
   if (request?.contractAmount !== null && request?.contractAmount !== undefined && request?.contractAmount !== '') {
     const amount = Number(request.contractAmount);
@@ -1533,6 +1585,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
     0
   );
   const receiptId = workflow.createsReceipt ? await allocateStorageReceiptId(requests[0], pricingData) : '';
+  const ledgerAccounts = workflow.createsReceipt ? await resolveFermeColleLedgerAccounts() : null;
   const contextValues = {
     ...baseContext,
     saison: baseContext.season,
@@ -1560,6 +1613,10 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
   const batch = db.batch();
   if (workflow.createsReceipt) {
+    const ledgerEntryId = `storage-deposit-${receiptId}`;
+    const ledgerEntryTitle = `Deposit ${baseContext.season} ${client.name || ''} ${receiptId}`.replace(/\s+/g, ' ').trim();
+    const ledgerEntryDescription = buildDepositVehicleDescription(requests, locale, pricingData);
+    const ledgerEntryRef = db.collection('expenses').doc(ledgerEntryId);
     batch.set(db.collection('storageReceipts').doc(receiptId), {
       receiptId,
       caseId: resolveEmailCaseId(requests[0]),
@@ -1570,6 +1627,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
       sourceWorkflow: receiptType,
       amount: depositAmount,
       amountFormatted: formatMoney(depositAmount),
+      ledgerEntryId,
       templateId,
       sentAt: timestamp,
       sentBy: context.auth.uid,
@@ -1579,6 +1637,39 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
       statusTo: workflow.targetStatus,
       createdAt: timestamp,
       createdBy: context.auth.uid,
+      updatedAt: timestamp,
+      updatedBy: context.auth.uid
+    });
+    batch.set(ledgerEntryRef, {
+      title: ledgerEntryTitle,
+      description: ledgerEntryDescription,
+      accountId: ledgerAccounts.cashAccount.id,
+      entityId: ledgerAccounts.entityAccount.id,
+      date: admin.firestore.Timestamp.now(),
+      entryType: 'income',
+      category: 'Deposit',
+      categoryId: null,
+      categoryCode: null,
+      categoryType: 'income',
+      amount: Number(depositAmount.toFixed(2)),
+      transactionId: ledgerEntryId,
+      clientId,
+      storageReceiptId: receiptId,
+      storageRequestIds: requestIds,
+      storageCaseId: resolveEmailCaseId(requests[0]),
+      paymentStatus: null,
+      paidAt: null,
+      paidAccountId: null,
+      tags: ['storage-deposit'],
+      interestTags: [],
+      vendorTag: null,
+      isReturn: false,
+      receiptUrl: null,
+      receiptStoragePath: null,
+      createdAt: timestamp,
+      createdBy: context.auth.uid,
+      createdByEmail: context.auth.token?.email || null,
+      createdByName: context.auth.token?.name || null,
       updatedAt: timestamp,
       updatedBy: context.auth.uid
     });

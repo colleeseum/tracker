@@ -4107,7 +4107,7 @@ function closeStorageConfirmationEmailModal() {
 
 function getContractTemplateUrl(lang = 'en') {
   const normalized = String(lang || 'en').toLowerCase();
-  const basePath = normalized === 'fr' ? './resources/contract-fr.pdf' : './resources/contract-en.pdf';
+  const basePath = normalized === 'fr' ? '/resources/contract-fr.pdf' : '/resources/contract-en.pdf';
   if (typeof window === 'undefined') return basePath;
   const host = window.location.hostname || '';
   const isLocalHost =
@@ -4119,7 +4119,7 @@ function getContractTemplateUrl(lang = 'en') {
     host.startsWith('192.168.') ||
     host.startsWith('10.') ||
     host.startsWith('172.16.');
-  if (!isLocalHost) return basePath;
+  if (!isLocalHost) return `${basePath}?v=20260518-contract-template`;
   const separator = basePath.includes('?') ? '&' : '?';
   return `${basePath}${separator}ts=${Date.now()}`;
 }
@@ -4447,6 +4447,11 @@ async function generateStorageContractPdf(request, contractId) {
     throw new Error('Unable to load the contract template PDF.');
   }
   const templateBytes = await response.arrayBuffer();
+  const templateHeader = new TextDecoder('latin1').decode(templateBytes.slice(0, 8));
+  if (!templateHeader.startsWith('%PDF-')) {
+    const contentType = response.headers.get('content-type') || 'unknown content type';
+    throw new Error(`Contract template is not a PDF (${templateUrl}, ${contentType}, header: ${templateHeader || 'empty'}).`);
+  }
   const pdfDoc = await PDFDocument.load(templateBytes);
   const form = pdfDoc.getForm();
   const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -13001,10 +13006,20 @@ function formatDate(raw) {
 
 function renderLedgerDescription(entry) {
   const sections = [];
-  const baseDescription = entry.description || (entry.isVirtualOpening ? 'Opening balance' : '');
-  if (baseDescription) {
-    const descriptionBody = baseDescription || '—';
-    sections.push(`<div class="ledger-description-text">${descriptionBody}</div>`);
+  const title = entry.title || entry.description || (entry.isVirtualOpening ? 'Opening balance' : '');
+  if (title) {
+    sections.push(`<div class="ledger-description-text">${title}</div>`);
+  }
+  if (entry.title && entry.description) {
+    const detail = String(entry.description || '')
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => `<div>${line}</div>`)
+      .join('');
+    if (detail) {
+      sections.push(`<div class="ledger-description-detail">${detail}</div>`);
+    }
   }
   const metaChips = [];
   if (entry.category) {

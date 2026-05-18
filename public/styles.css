@@ -2324,6 +2324,13 @@ th {
   color: #0f172a;
 }
 
+.ledger-description-detail {
+  margin-top: 0.2rem;
+  color: #475569;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
 .ledger-description-meta {
   margin-top: 0.15rem;
   display: inline-flex;
