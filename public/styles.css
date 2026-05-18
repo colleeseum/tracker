@@ -276,6 +276,149 @@ form {
   grid-column: 1 / -1;
 }
 
+.storage-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.storage-fieldset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1rem;
+}
+
+.storage-fieldset-grid > legend {
+  grid-column: 1 / -1;
+}
+
+.storage-fieldset-grid > label {
+  width: 100%;
+}
+
+.storage-fieldset-grid > .wide {
+  grid-column: 1 / -1;
+}
+
+.storage-contract-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.storage-contract-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.storage-contract-links a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.storage-contract-links a:hover {
+  text-decoration: underline;
+}
+
+.storage-contract-modal-content {
+  max-width: 680px;
+}
+
+#storage-confirmation-email-modal {
+  padding: 2vh 0.5rem;
+}
+
+#storage-confirmation-email-modal .storage-email-modal-content {
+  width: min(760px, calc(100vw - 1rem));
+  max-width: 760px;
+  flex: 0 0 auto;
+}
+
+#storage-confirmation-email-modal .email-template-preview-frame {
+  min-height: min(68vh, 760px);
+}
+
+.storage-email-meta {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.5rem 0 1rem;
+  padding: 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.storage-email-meta > div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+#email-template-modal .modal-content {
+  max-width: 1100px;
+}
+
+.email-template-preview-controls {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.email-template-form {
+  grid-template-columns: minmax(340px, 1fr) minmax(360px, 1fr);
+  align-items: start;
+}
+
+.email-template-editor {
+  display: grid;
+  gap: 1rem;
+}
+
+.email-template-preview-pane {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.email-template-preview-controls > label {
+  margin: 0;
+}
+
+.email-template-preview-frame {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.storage-contract-actions {
+  justify-content: flex-start;
+}
+
+@media (max-width: 820px) {
+  .storage-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .storage-fieldset-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .email-template-preview-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .email-template-form {
+    grid-template-columns: 1fr;
+  }
+
+  .email-template-preview-pane {
+    position: static;
+  }
+}
+
 .checkbox {
   flex-direction: row;
   align-items: center;
@@ -2199,6 +2342,28 @@ th {
 .ledger-balance {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.ledger-balance-split {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  line-height: 1.15;
+}
+
+.ledger-balance-split > span {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.ledger-balance-label {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .transfer-amount {

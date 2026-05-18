@@ -43,6 +43,36 @@ const PUBLISH_COLLECTIONS = [
   'i18nEntries'
 ];
 const AUDIT_FIELDS = new Set(['createdAt', 'createdBy', 'updatedAt', 'updatedBy']);
+const DEFAULT_VEHICLE_TYPE_LABELS = {
+  rv: { en: 'RV / Motorhome', fr: 'VR / motorisé' },
+  boat: { en: 'Boat', fr: 'Bateau' },
+  trailer: { en: 'Trailer', fr: 'Remorque' },
+  car: { en: 'Car', fr: 'Voiture' },
+  truck: { en: 'Truck', fr: 'Camion' },
+  motorcycle: { en: 'Motorcycle', fr: 'Moto' },
+  spyder: { en: 'Can-Am Spyder', fr: 'Can-Am Spyder' },
+  other: { en: 'Other', fr: 'Autre' }
+};
+const STORAGE_RECEIPT_EMAIL_WORKFLOWS = {
+  contract: {
+    templateIds: ['receipt-contract'],
+    expectedStatus: 'waiting_signature',
+    targetStatus: 'waiting_deposit',
+    createsReceipt: false
+  },
+  contract_deposit: {
+    templateIds: ['receipt-contract-deposit'],
+    expectedStatus: 'waiting_signature',
+    targetStatus: 'reserved',
+    createsReceipt: true
+  },
+  deposit: {
+    templateIds: ['receipt-deposit', 'receipt-deport'],
+    expectedStatus: 'waiting_deposit',
+    targetStatus: 'reserved',
+    createsReceipt: true
+  }
+};
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -577,6 +607,7 @@ async function upsertWebsiteClient({
     phone: tenantPhone,
     email: tenantEmail,
     emailLower: tenantEmailLower,
+    preferredLanguage: normalizeLanguage(formLanguage),
     address: tenantAddress,
     city: tenantCity,
     province: tenantProvince,
@@ -687,6 +718,893 @@ async function sendStorageRequestConfirmationEmail({ to, locale, confirmationCod
     text: message.text
   });
 }
+
+function normalizeLanguage(value) {
+  return String(value || '').toLowerCase() === 'fr' ? 'fr' : 'en';
+}
+
+function getTorontoDateToken(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const parts = formatter.formatToParts(date);
+  const lookup = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return `${lookup.year}${lookup.month}${lookup.day}`;
+}
+
+function sanitizeIdToken(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+function shortIdToken(value, length = 6, fallback = 'XXXXXX') {
+  const normalized = sanitizeIdToken(value);
+  if (!normalized) return fallback.slice(0, length);
+  return normalized.slice(0, length).padEnd(length, 'X');
+}
+
+function getStorageConfirmationCc(locale) {
+  return locale === 'fr' ? 'entrepot@as-colle.com' : 'warehouse@as-colle.com';
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function getLocalizedTemplateField(template, fieldName, locale) {
+  const value = template?.[fieldName];
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value[locale] || value.en || value.fr || '';
+}
+
+function fillTemplateText(templateText, context) {
+  return String(templateText || '').replace(
+    /{{\s*([\w.]+)\s*}}|{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
+    (match, mustacheKey, braceKey, bracketKey, percentKey) => {
+      const key = mustacheKey || braceKey || bracketKey || percentKey;
+      const value = context[key];
+      return value === null || value === undefined ? '' : String(value);
+    }
+  );
+}
+
+function fillTemplateHtml(templateText, context, htmlContext = {}) {
+  const htmlTokens = [];
+  const withPlaceholders = String(templateText || '').replace(
+    /{{\s*([\w.]+)\s*}}|{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
+    (match, mustacheKey, braceKey, bracketKey, percentKey) => {
+      const key = mustacheKey || braceKey || bracketKey || percentKey;
+      if (Object.prototype.hasOwnProperty.call(htmlContext, key)) {
+        const token = `__HTML_TOKEN_${htmlTokens.length}__`;
+        htmlTokens.push(htmlContext[key] || '');
+        return token;
+      }
+      const value = context[key];
+      return escapeHtml(value === null || value === undefined ? '' : String(value)).replace(/\n/g, '<br>');
+    }
+  ).replace(/\n/g, '<br>');
+  return htmlTokens.reduce((html, value, index) => html.replace(`__HTML_TOKEN_${index}__`, value), withPlaceholders);
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD'
+  }).format(Number(value) || 0);
+}
+
+function formatDateValue(value, locale = 'en') {
+  if (!value) return '';
+  const date = typeof value.toDate === 'function' ? value.toDate() : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(locale === 'fr' ? 'fr-CA' : 'en-CA');
+}
+
+function getRequestStorageLocation(request, locale = 'en') {
+  const isOutdoor = request?.storageLocation === 'outdoor';
+  if (locale === 'fr') return isOutdoor ? 'Extérieur' : 'Intérieur';
+  return isOutdoor ? 'Outdoor' : 'Indoor';
+}
+
+function estimateDepositForAmount(amount) {
+  return Number.isFinite(amount) && amount > 400 ? 100 : 50;
+}
+
+function requestAmountValue(request) {
+  if (request?.contractAmount !== null && request?.contractAmount !== undefined && request?.contractAmount !== '') {
+    const amount = Number(request.contractAmount);
+    if (Number.isFinite(amount)) return amount;
+  }
+  if (request?.estimate?.amount !== null && request?.estimate?.amount !== undefined && request?.estimate?.amount !== '') {
+    const amount = Number(request.estimate.amount);
+    if (Number.isFinite(amount)) return amount;
+  }
+  return 0;
+}
+
+function getOfferVehicleTypesForEmail(offer, templateLookup) {
+  if (Array.isArray(offer?.vehicleTypes) && offer.vehicleTypes.length) return offer.vehicleTypes;
+  const template = offer?.templateId ? templateLookup.get(offer.templateId) : null;
+  if (Array.isArray(template?.vehicleTypes) && template.vehicleTypes.length) return template.vehicleTypes;
+  return [];
+}
+
+function computeOfferPriceForEmail(offer, lengthFeet) {
+  if (!offer?.price) return null;
+  if (offer.price.mode === 'flat') {
+    const amount = Number(offer.price.amount);
+    return Number.isFinite(amount) ? amount : null;
+  }
+  if (offer.price.mode === 'perFoot') {
+    const length = Number(lengthFeet);
+    if (!Number.isFinite(length)) return null;
+    const rate = Number(offer.price.rate || 0);
+    const minimum = Number(offer.price.minimum || 0);
+    return Math.max(length * rate, minimum);
+  }
+  return null;
+}
+
+function lengthMatchesRangeForEmail(lengthFeet, range) {
+  if (!range) return true;
+  const length = Number(lengthFeet);
+  if (!Number.isFinite(length)) return false;
+  if (typeof range.min === 'number' && length < range.min) return false;
+  if (typeof range.max === 'number' && length > range.max) return false;
+  return true;
+}
+
+async function loadStoragePricingData() {
+  const [offerSnap, templateSnap, addOnSnap, seasonSnap, vehicleTypeSnap] = await Promise.all([
+    db.collection('storageOffers').get(),
+    db.collection('offerTemplates').get(),
+    db.collection('storageSeasonAddOns').get(),
+    db.collection('storageSeasons').get(),
+    db.collection('vehicleTypes').get()
+  ]);
+  return {
+    offers: offerSnap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })),
+    templateLookup: new Map(templateSnap.docs.map((docSnap) => [docSnap.id, docSnap.data()])),
+    addOnPrices: addOnSnap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })),
+    seasonLookup: new Map(seasonSnap.docs.map((docSnap) => [docSnap.id, { id: docSnap.id, ...docSnap.data() }])),
+    vehicleTypeLookup: new Map(vehicleTypeSnap.docs.map((docSnap) => [docSnap.id, { id: docSnap.id, ...docSnap.data() }]))
+  };
+}
+
+function formatSeasonLabelForEmail(seasonId, locale = 'en', pricingData = {}) {
+  const normalizedLocale = normalizeLanguage(locale);
+  const season = pricingData?.seasonLookup?.get?.(seasonId);
+  return (
+    season?.label?.[normalizedLocale] ||
+    season?.name?.[normalizedLocale] ||
+    season?.label?.en ||
+    season?.name?.en ||
+    season?.label?.fr ||
+    season?.name?.fr ||
+    seasonId ||
+    ''
+  );
+}
+
+function deriveSeasonCodeForEmail(seasonId, pricingData = {}) {
+  const season = pricingData?.seasonLookup?.get?.(seasonId);
+  const seasonLabel =
+    season?.label?.en ||
+    season?.label?.fr ||
+    season?.name?.en ||
+    season?.name?.fr ||
+    seasonId;
+  const normalizedLabel = String(seasonLabel || '').toLowerCase();
+  const yearMatches = String(seasonLabel || '').match(/20\d{2}/g) || [];
+  if (normalizedLabel.includes('winter') || normalizedLabel.includes('hiver')) {
+    if (yearMatches.length >= 2) return `W${yearMatches[0].slice(2)}${yearMatches[1].slice(2)}`;
+    if (yearMatches.length === 1) {
+      const start = Number(yearMatches[0]);
+      if (Number.isFinite(start)) return `W${String(start).slice(2)}${String(start + 1).slice(2)}`;
+    }
+  }
+  if (normalizedLabel.includes('summer') || normalizedLabel.includes('ete') || normalizedLabel.includes('été')) {
+    if (yearMatches.length >= 1) return `S${yearMatches[0]}`;
+  }
+  if (yearMatches.length >= 2) return `W${yearMatches[0].slice(2)}${yearMatches[1].slice(2)}`;
+  if (yearMatches.length === 1) return `S${yearMatches[0]}`;
+  return 'S0000';
+}
+
+function buildStorageReceiptIdBase(request, pricingData = {}) {
+  const seasonCode = deriveSeasonCodeForEmail(request?.season || '', pricingData);
+  const rawCaseId = resolveEmailCaseId(request);
+  const caseClientPart = rawCaseId.includes('__') ? rawCaseId.split('__')[1] : '';
+  const caseIdSource = caseClientPart || request?.clientId || rawCaseId || 'CASEXX';
+  const caseIdShort = shortIdToken(caseIdSource, 6, 'CASEXX');
+  return `R-${seasonCode}-${caseIdShort}-${getTorontoDateToken(new Date())}`;
+}
+
+async function allocateStorageReceiptId(request, pricingData = {}) {
+  const baseId = buildStorageReceiptIdBase(request, pricingData);
+  for (let index = 0; index < 100; index += 1) {
+    const candidate = index === 0 ? baseId : `${baseId}-${String(index + 1).padStart(2, '0')}`;
+    const snap = await db.collection('storageReceipts').doc(candidate).get();
+    if (!snap.exists) return candidate;
+  }
+  throw new functions.https.HttpsError('resource-exhausted', `Unable to allocate receipt id for ${baseId}.`);
+}
+
+function findVehicleTypeForEmail(identifier, pricingData = {}) {
+  if (!identifier) return null;
+  const direct = pricingData?.vehicleTypeLookup?.get?.(identifier);
+  if (direct) return direct;
+  const values = pricingData?.vehicleTypeLookup?.values?.() || [];
+  for (const entry of values) {
+    if (
+      entry?.id === identifier ||
+      entry?.value === identifier ||
+      entry?.slug === identifier ||
+      (Array.isArray(entry?.legacyValues) && entry.legacyValues.includes(identifier))
+    ) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function getVehicleTypeLabelForEmail(vehicle = {}, locale = 'en', pricingData = {}) {
+  const normalizedLocale = normalizeLanguage(locale);
+  const identifier = vehicle.type || vehicle.typeLabel || '';
+  const entry = findVehicleTypeForEmail(identifier, pricingData);
+  const defaultLabels =
+    DEFAULT_VEHICLE_TYPE_LABELS[entry?.id] ||
+    DEFAULT_VEHICLE_TYPE_LABELS[vehicle.type] ||
+    DEFAULT_VEHICLE_TYPE_LABELS[vehicle.typeLabel] ||
+    null;
+  return (
+    entry?.labels?.[normalizedLocale] ||
+    defaultLabels?.[normalizedLocale] ||
+    entry?.labels?.en ||
+    defaultLabels?.en ||
+    entry?.value ||
+    vehicle.typeLabel ||
+    vehicle.type ||
+    ''
+  );
+}
+
+function resolveRequestAmountForEmail(request, pricingData) {
+  if (request?.contractAmount !== null && request?.contractAmount !== undefined && request?.contractAmount !== '') {
+    const amount = Number(request.contractAmount);
+    if (Number.isFinite(amount)) return amount;
+  }
+  const seasonId = request?.season || '';
+  const vehicleType = request?.vehicle?.type || '';
+  const storageLocation = request?.storageLocation === 'outdoor' ? 'outdoor' : 'indoor';
+  const offers = (pricingData?.offers || [])
+    .filter((offer) => offer.seasonId === seasonId)
+    .filter((offer) => {
+      const types = getOfferVehicleTypesForEmail(offer, pricingData.templateLookup);
+      if (storageLocation === 'outdoor') return !types.length && offer?.price?.mode === 'flat';
+      return types.includes(vehicleType);
+    });
+  const selectedOffer =
+    offers.find((offer) => lengthMatchesRangeForEmail(request?.vehicle?.lengthFeet, offer.lengthRange)) ||
+    offers[offers.length - 1] ||
+    null;
+  const pricedAmount = computeOfferPriceForEmail(selectedOffer, request?.vehicle?.lengthFeet);
+  if (Number.isFinite(pricedAmount)) {
+    let total = pricedAmount;
+    if (request?.addons?.battery) total += getAddOnPriceForEmail('battery', seasonId, pricingData);
+    if (request?.addons?.propane) total += getAddOnPriceForEmail('propane', seasonId, pricingData);
+    return total;
+  }
+  return requestAmountValue(request);
+}
+
+function getAddOnPriceForEmail(code, seasonId, pricingData) {
+  const match = (pricingData?.addOnPrices || []).find(
+    (entry) => (entry.code === code || entry.addonId === code || entry.id === code) && entry.seasonId === seasonId
+  );
+  if (match) {
+    const amount = Number(match.price);
+    return Number.isFinite(amount) ? amount : 0;
+  }
+  const global = (pricingData?.addOnPrices || []).find(
+    (entry) => (entry.code === code || entry.addonId === code || entry.id === code) && !entry.seasonId
+  );
+  const amount = Number(global?.price);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function buildEmailRequestLine(request, locale = 'en', pricingData = {}) {
+  const vehicle = request?.vehicle || {};
+  const parts = [
+    getVehicleTypeLabelForEmail(vehicle, locale, pricingData),
+    vehicle.brand || '',
+    vehicle.model || '',
+    vehicle.lengthFeet ? (locale === 'fr' ? `${vehicle.lengthFeet} pi` : `${vehicle.lengthFeet} ft`) : '',
+    vehicle.plate || ''
+  ].filter(Boolean);
+  return parts.join(' - ');
+}
+
+function buildVehicleDetailRows(request, locale = 'en', pricingData = {}) {
+  const vehicle = request?.vehicle || {};
+  const labels = locale === 'fr'
+    ? {
+        vehicle: 'Vehicule',
+        storageLocation: 'Lieu',
+        brand: 'Marque',
+        model: 'Modele',
+        colour: 'Couleur',
+        length: 'Longueur',
+        year: 'Annee',
+        plate: 'Plaque',
+        insuranceCompany: 'Assureur',
+        insurancePolicy: 'Police',
+        insuranceExpiration: 'Expiration'
+      }
+    : {
+        vehicle: 'Vehicle',
+        storageLocation: 'Location',
+        brand: 'Brand',
+        model: 'Model',
+        colour: 'Colour',
+        length: 'Length',
+        year: 'Year',
+        plate: 'Plate',
+        insuranceCompany: 'Insurance company',
+        insurancePolicy: 'Policy number',
+        insuranceExpiration: 'Expiration'
+      };
+  return [
+    [labels.vehicle, getVehicleTypeLabelForEmail(vehicle, locale, pricingData)],
+    [labels.storageLocation, getRequestStorageLocation(request, locale)],
+    [labels.brand, vehicle.brand || ''],
+    [labels.model, vehicle.model || ''],
+    [labels.colour, vehicle.colour || ''],
+    [labels.length, vehicle.lengthFeet ? `${vehicle.lengthFeet} ${locale === 'fr' ? 'pi' : 'ft'}` : ''],
+    [labels.year, vehicle.year || ''],
+    [labels.plate, [vehicle.plate, vehicle.province].filter(Boolean).join(' ')],
+    [labels.insuranceCompany, request?.insuranceCompany || ''],
+    [labels.insurancePolicy, request?.policyNumber || ''],
+    [labels.insuranceExpiration, formatDateValue(request?.insuranceExpiration, locale)]
+  ];
+}
+
+function buildTenantInfoText(client, locale = 'en') {
+  const address = [client.address, client.city, client.province, client.postalCode].filter(Boolean).join(', ');
+  if (locale === 'fr') {
+    return [
+      `Nom : ${client.name || ''}`,
+      `Courriel : ${client.email || ''}`,
+      `Telephone : ${client.phone || ''}`,
+      `Adresse : ${address}`
+    ].join('\n');
+  }
+  return [
+    `Name: ${client.name || ''}`,
+    `Email: ${client.email || ''}`,
+    `Phone: ${client.phone || ''}`,
+    `Address: ${address}`
+  ].join('\n');
+}
+
+function buildVehicleInfoText(requests, locale = 'en', pricingData = {}) {
+  return (requests || [])
+    .map((request, index) => {
+      const prefix = requests.length > 1 ? `${index + 1}. ` : '';
+      return buildVehicleDetailRows(request, locale, pricingData)
+        .map(([label, value], rowIndex) => `${rowIndex === 0 ? prefix : ''}${label}: ${value || ''}`)
+        .join('\n');
+    })
+    .join('\n\n');
+}
+
+function buildVehicleInfoHtml(requests, locale = 'en', pricingData = {}) {
+  const chunkPairs = (rows) => {
+    const chunks = [];
+    for (let index = 0; index < rows.length; index += 2) {
+      chunks.push([rows[index], rows[index + 1] || null]);
+    }
+    return chunks;
+  };
+  return (requests || [])
+    .map((request, index) => {
+      const heading = requests.length > 1
+        ? `<p style="margin:16px 0 8px;font-weight:700;">${escapeHtml(locale === 'fr' ? `Vehicule ${index + 1}` : `Vehicle ${index + 1}`)}</p>`
+        : '';
+      const rows = chunkPairs(buildVehicleDetailRows(request, locale, pricingData))
+        .map(([left, right]) => `
+          <tr>
+            <th style="width:18%;text-align:left;vertical-align:top;padding:7px 10px;border:1px solid #dbe3ef;background:#f8fafc;color:#334155;font-weight:700;">${escapeHtml(left[0])}</th>
+            <td style="width:32%;vertical-align:top;padding:7px 10px;border:1px solid #dbe3ef;color:#0f172a;">${escapeHtml(left[1] || '') || '&nbsp;'}</td>
+            <th style="width:18%;text-align:left;vertical-align:top;padding:7px 10px;border:1px solid #dbe3ef;background:#f8fafc;color:#334155;font-weight:700;">${right ? escapeHtml(right[0]) : '&nbsp;'}</th>
+            <td style="width:32%;vertical-align:top;padding:7px 10px;border:1px solid #dbe3ef;color:#0f172a;">${right ? escapeHtml(right[1] || '') || '&nbsp;' : '&nbsp;'}</td>
+          </tr>
+        `)
+        .join('');
+      return `${heading}<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 18px;font-size:14px;">${rows}</table>`;
+    })
+    .join('');
+}
+
+function resolveEmailCaseId(request) {
+  const existing = String(request?.caseId || '').trim();
+  if (existing) return existing;
+  const season = String(request?.season || 'no-season');
+  const clientId = String(request?.clientId || 'no-client');
+  return `${season}__${clientId}`;
+}
+
+function buildTrackerConfirmationContext({ client, requests, locale, pricingData }) {
+  const first = requests[0] || {};
+  const firstVehicle = first.vehicle || {};
+  const total = requests.reduce((sum, request) => sum + resolveRequestAmountForEmail(request, pricingData), 0);
+  const requestLines = requests.map((request, index) => `${index + 1}. ${buildEmailRequestLine(request, locale, pricingData)}`);
+  const tenantInfo = buildTenantInfoText(client, locale);
+  const vehicleInfo = buildVehicleInfoText(requests, locale, pricingData);
+  const vehicleInfoHtml = buildVehicleInfoHtml(requests, locale, pricingData);
+  const context = {
+    tenant: client.name || '',
+    tenantInfo,
+    tenant_info: tenantInfo,
+    vehicleInfo,
+    vehicle_info: vehicleInfo,
+    vehicleInfoHtml,
+    vehicle_info_html: vehicleInfoHtml,
+    tenantName: client.name || '',
+    tenantEmail: client.email || '',
+    tenantPhone: client.phone || '',
+    tenantAddress: client.address || '',
+    tenantCity: client.city || '',
+    tenantProvince: client.province || '',
+    tenantPostal: client.postalCode || '',
+    clientName: client.name || '',
+    clientEmail: client.email || '',
+    season: formatSeasonLabelForEmail(first.season || '', locale, pricingData),
+    seasonId: first.season || '',
+    caseId: resolveEmailCaseId(first),
+    confirmationCode: first.confirmationCode || '',
+    storageLocation: getRequestStorageLocation(first, locale),
+    vehicleType: getVehicleTypeLabelForEmail(firstVehicle, locale, pricingData),
+    vehicleBrand: firstVehicle.brand || '',
+    vehicleModel: firstVehicle.model || '',
+    vehicleColour: firstVehicle.colour || '',
+    vehicleLength: firstVehicle.lengthFeet || '',
+    vehicleYear: firstVehicle.year || '',
+    vehiclePlate: firstVehicle.plate || '',
+    vehicleProvince: firstVehicle.province || '',
+    insuranceCompany: first.insuranceCompany || '',
+    insurancePolicy: first.policyNumber || '',
+    insuranceExpiration: formatDateValue(first.insuranceExpiration, locale),
+    leaseCost: formatMoney(total),
+    estimatedCost: formatMoney(total),
+    deposit: formatMoney(requests.reduce((sum, r) => sum + estimateDepositForAmount(resolveRequestAmountForEmail(r, pricingData)), 0)),
+    requestCount: String(requests.length),
+    requestLines: requestLines.join('\n'),
+    requests: requestLines.join('\n'),
+    submittedDate: formatDateValue(first.submittedAt || first.createdAt, locale),
+    today: new Date().toLocaleDateString(locale === 'fr' ? 'fr-CA' : 'en-CA')
+  };
+
+  Object.keys(context).forEach((key) => {
+    const snakeKey = key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+    context[snakeKey] = context[key];
+  });
+  return context;
+}
+
+function wrapTrackerEmailHtml({ locale, subject, body, bodyHtml: renderedBodyHtml = null }) {
+  const footerContact = locale === 'fr'
+    ? '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | entrepot@as-colle.com'
+    : '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | warehouse@as-colle.com';
+  const bodyHtml = renderedBodyHtml || escapeHtml(body).replace(/\n/g, '<br>');
+  return `<!doctype html>
+<html lang="${locale}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+  <div style="max-width:1040px;margin:24px auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+    <div style="background:#0f172a;color:#ffffff;padding:20px 24px;">
+      <div style="font-size:20px;font-weight:700;">Entrepot Ferme Colle</div>
+      <div style="margin-top:4px;font-size:12px;color:#cbd5e1;text-transform:uppercase;letter-spacing:0.08em;">${locale === 'fr' ? 'ENTREPOSAGE SAISONNIER DE VEHICULES' : 'SEASONAL VEHICLE STORAGE'}</div>
+    </div>
+    <div style="padding:24px;">
+      <h1 style="font-size:22px;font-weight:700;margin:0 0 16px;color:#111827;">${escapeHtml(subject)}</h1>
+      <div style="font-size:15px;line-height:1.6;color:#1f2937;">${bodyHtml}</div>
+    </div>
+    <div style="background:#0f172a;color:#94a3b8;padding:16px 24px;font-size:12px;">${footerContact}</div>
+  </div>
+</body>
+</html>`;
+}
+
+async function loadEmailTemplate(templateId) {
+  const directSnap = await db.collection('emailTemplates').doc(templateId).get();
+  if (directSnap.exists) return directSnap.data();
+  const querySnap = await db
+    .collection('emailTemplates')
+    .where('templateId', '==', templateId)
+    .limit(1)
+    .get();
+  if (querySnap.empty) return null;
+  return querySnap.docs[0].data();
+}
+
+async function loadEmailTemplateByIds(templateIds) {
+  const candidates = Array.isArray(templateIds) ? templateIds : [templateIds];
+  for (const templateId of candidates) {
+    const template = await loadEmailTemplate(templateId);
+    if (template) return { template, templateId };
+  }
+  return { template: null, templateId: candidates[0] || '' };
+}
+
+export const sendStorageConfirmationEmail = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in to send email.');
+  }
+  const requestIds = Array.isArray(data?.requestIds)
+    ? data.requestIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (!requestIds.length) {
+    throw new functions.https.HttpsError('invalid-argument', 'At least one storage request is required.');
+  }
+  if (!defaultFrom) {
+    throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
+  }
+
+  const requestSnaps = await Promise.all(
+    requestIds.map((requestId) => db.collection('storageRequests').doc(requestId).get())
+  );
+  const requests = requestSnaps.map((snap) => (snap.exists ? { id: snap.id, ...snap.data() } : null)).filter(Boolean);
+  if (requests.length !== requestIds.length) {
+    throw new functions.https.HttpsError('not-found', 'One or more storage requests were not found.');
+  }
+  const clientId = requests[0]?.clientId || '';
+  if (!clientId || requests.some((request) => request.clientId !== clientId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'All selected requests must belong to the same tenant.');
+  }
+
+  const clientSnap = await db.collection('clients').doc(clientId).get();
+  if (!clientSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Tenant was not found.');
+  }
+  const client = clientSnap.data() || {};
+  const to = String(client.email || '').trim();
+  if (!to) {
+    throw new functions.https.HttpsError('failed-precondition', 'Tenant email is missing.');
+  }
+
+  const template = await loadEmailTemplate('request-info-confirmation');
+  if (!template) {
+    throw new functions.https.HttpsError('failed-precondition', 'Email template request-info-confirmation was not found.');
+  }
+
+  const locale = normalizeLanguage(client.preferredLanguage || requests[0]?.sourceLanguage);
+  const pricingData = await loadStoragePricingData();
+  const contextValues = buildTrackerConfirmationContext({ client, requests, locale, pricingData });
+  const subject = fillTemplateText(getLocalizedTemplateField(template, 'subject', locale), contextValues);
+  const rawBody = getLocalizedTemplateField(template, 'body', locale);
+  const text = fillTemplateText(rawBody, contextValues);
+  if (!subject || !text) {
+    throw new functions.https.HttpsError('failed-precondition', 'Email template subject or body is empty.');
+  }
+  const cc = getStorageConfirmationCc(locale);
+  const bodyHtml = fillTemplateHtml(rawBody, contextValues, {
+    vehicleInfo: contextValues.vehicleInfoHtml,
+    vehicle_info: contextValues.vehicle_info_html
+  });
+  const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
+
+  await transporter.sendMail({
+    from: defaultFrom,
+    to,
+    cc,
+    subject,
+    html,
+    text
+  });
+
+  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const batch = db.batch();
+  requests.forEach((request) => {
+    batch.set(
+      db.collection('storageRequests').doc(request.id),
+      {
+        confirmationEmailSentAt: timestamp,
+        confirmationEmailSentBy: context.auth.uid,
+        confirmationEmailSentTo: to,
+        confirmationEmailCc: cc,
+        updatedAt: timestamp,
+        updatedBy: context.auth.uid
+      },
+      { merge: true }
+    );
+  });
+  await batch.commit();
+
+  return { success: true, to, cc };
+});
+
+function buildContractDetailsHtml(requests, locale, pricingData) {
+  const headers = locale === 'fr'
+    ? ['# Demande', 'Véhicule', 'Montant']
+    : ['Request #', 'Vehicle', 'Amount'];
+  const rows = requests.map((request) => {
+    const v = request.vehicle || {};
+    const vehicleType = getVehicleTypeLabelForEmail(v, locale, pricingData);
+    const vehicleModel = [v.brand, v.model].filter(Boolean).join(' ');
+    const desc = [vehicleType, vehicleModel].filter(Boolean).join(': ');
+    const amount = resolveRequestAmountForEmail(request, pricingData);
+    return `<tr>
+      <td style="padding:8px 12px;border:1px solid #e2e8f0;">${escapeHtml(request.id || '')}</td>
+      <td style="padding:8px 12px;border:1px solid #e2e8f0;">${escapeHtml(desc || '—')}</td>
+      <td style="padding:8px 12px;text-align:right;border:1px solid #e2e8f0;">${Number.isFinite(amount) ? formatMoney(amount) : '—'}</td>
+    </tr>`;
+  });
+  return `<table style="width:100%;border-collapse:collapse;margin:1rem 0;font-size:14px;">
+  <thead>
+    <tr style="background:#f1f5f9;">
+      <th style="padding:8px 12px;text-align:left;border:1px solid #e2e8f0;">${headers[0]}</th>
+      <th style="padding:8px 12px;text-align:left;border:1px solid #e2e8f0;">${headers[1]}</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #e2e8f0;">${headers[2]}</th>
+    </tr>
+  </thead>
+  <tbody>${rows.join('')}</tbody>
+</table>`;
+}
+
+export const sendStorageContractEmail = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in to send email.');
+  }
+  const requestIds = Array.isArray(data?.requestIds)
+    ? data.requestIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (!requestIds.length) {
+    throw new functions.https.HttpsError('invalid-argument', 'At least one storage request is required.');
+  }
+  if (!defaultFrom) {
+    throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
+  }
+
+  const requestSnaps = await Promise.all(
+    requestIds.map((requestId) => db.collection('storageRequests').doc(requestId).get())
+  );
+  const requests = requestSnaps.map((snap) => (snap.exists ? { id: snap.id, ...snap.data() } : null)).filter(Boolean);
+  if (requests.length !== requestIds.length) {
+    throw new functions.https.HttpsError('not-found', 'One or more storage requests were not found.');
+  }
+  const clientId = requests[0]?.clientId || '';
+  if (!clientId || requests.some((request) => request.clientId !== clientId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'All selected requests must belong to the same tenant.');
+  }
+  if (!requests.every((request) => request.status === 'contract_ready')) {
+    throw new functions.https.HttpsError('failed-precondition', 'All requests must be in Contract Ready status.');
+  }
+
+  const clientSnap = await db.collection('clients').doc(clientId).get();
+  if (!clientSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Tenant was not found.');
+  }
+  const client = clientSnap.data() || {};
+  const to = String(client.email || '').trim();
+  if (!to) {
+    throw new functions.https.HttpsError('failed-precondition', 'Tenant email is missing.');
+  }
+
+  const template = await loadEmailTemplate('send-contracts');
+  if (!template) {
+    throw new functions.https.HttpsError('failed-precondition', 'Email template send-contracts was not found.');
+  }
+
+  const locale = normalizeLanguage(client.preferredLanguage || requests[0]?.sourceLanguage);
+  const pricingData = await loadStoragePricingData();
+  const baseContext = buildTrackerConfirmationContext({ client, requests, locale, pricingData });
+  const detailsHtml = buildContractDetailsHtml(requests, locale, pricingData);
+  const contextValues = {
+    ...baseContext,
+    saison: baseContext.season,
+    details: detailsHtml,
+    total_cost: baseContext.leaseCost,
+    total_deposit: baseContext.deposit
+  };
+
+  const subject = fillTemplateText(getLocalizedTemplateField(template, 'subject', locale), contextValues);
+  const rawBody = getLocalizedTemplateField(template, 'body', locale);
+  const text = fillTemplateText(rawBody, contextValues);
+  if (!subject || !text) {
+    throw new functions.https.HttpsError('failed-precondition', 'Email template subject or body is empty.');
+  }
+  const cc = getStorageConfirmationCc(locale);
+  const bodyHtml = fillTemplateHtml(rawBody, contextValues, { details: detailsHtml });
+  const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
+
+  const attachments = [];
+  for (const request of requests) {
+    if (request.signedContractPath) {
+      try {
+        const [content] = await admin.storage().bucket().file(request.signedContractPath).download();
+        const v = request.vehicle || {};
+        const desc = [v.typeLabel || v.type, v.brand, v.model].filter(Boolean).join('-') || 'contract';
+        attachments.push({ filename: `contract-${desc}.pdf`, content, contentType: 'application/pdf' });
+      } catch (err) {
+        console.warn(`Could not fetch signed contract for request ${request.id}`, err);
+      }
+    }
+  }
+
+  await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text, attachments });
+
+  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const batch = db.batch();
+  requests.forEach((request) => {
+    batch.set(
+      db.collection('storageRequests').doc(request.id),
+      {
+        status: 'waiting_signature',
+        contractEmailSentAt: timestamp,
+        contractEmailSentBy: context.auth.uid,
+        contractEmailSentTo: to,
+        contractEmailCc: cc,
+        updatedAt: timestamp,
+        updatedBy: context.auth.uid
+      },
+      { merge: true }
+    );
+  });
+  await batch.commit();
+
+  return { success: true, to, cc };
+});
+
+export const sendStorageReceiptEmail = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in to send email.');
+  }
+  const receiptType = String(data?.receiptType || '').trim();
+  const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS[receiptType];
+  if (!workflow) {
+    throw new functions.https.HttpsError('invalid-argument', 'Unknown receipt workflow.');
+  }
+  const requestIds = Array.isArray(data?.requestIds)
+    ? data.requestIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (!requestIds.length) {
+    throw new functions.https.HttpsError('invalid-argument', 'At least one storage request is required.');
+  }
+  if (!defaultFrom) {
+    throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
+  }
+
+  const requestSnaps = await Promise.all(
+    requestIds.map((requestId) => db.collection('storageRequests').doc(requestId).get())
+  );
+  const requests = requestSnaps.map((snap) => (snap.exists ? { id: snap.id, ...snap.data() } : null)).filter(Boolean);
+  if (requests.length !== requestIds.length) {
+    throw new functions.https.HttpsError('not-found', 'One or more storage requests were not found.');
+  }
+  const clientId = requests[0]?.clientId || '';
+  if (!clientId || requests.some((request) => request.clientId !== clientId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'All selected requests must belong to the same tenant.');
+  }
+  if (!requests.every((request) => request.status === workflow.expectedStatus)) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      `All requests must be in ${workflow.expectedStatus} status.`
+    );
+  }
+
+  const clientSnap = await db.collection('clients').doc(clientId).get();
+  if (!clientSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Tenant was not found.');
+  }
+  const client = clientSnap.data() || {};
+  const to = String(client.email || '').trim();
+  if (!to) {
+    throw new functions.https.HttpsError('failed-precondition', 'Tenant email is missing.');
+  }
+
+  const { template, templateId } = await loadEmailTemplateByIds(workflow.templateIds);
+  if (!template) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      `Email template ${workflow.templateIds.join(' or ')} was not found.`
+    );
+  }
+
+  const locale = normalizeLanguage(client.preferredLanguage || requests[0]?.sourceLanguage);
+  const pricingData = await loadStoragePricingData();
+  const baseContext = buildTrackerConfirmationContext({ client, requests, locale, pricingData });
+  const detailsHtml = buildContractDetailsHtml(requests, locale, pricingData);
+  const depositAmount = requests.reduce(
+    (sum, request) => sum + estimateDepositForAmount(resolveRequestAmountForEmail(request, pricingData)),
+    0
+  );
+  const receiptId = workflow.createsReceipt ? await allocateStorageReceiptId(requests[0], pricingData) : '';
+  const contextValues = {
+    ...baseContext,
+    saison: baseContext.season,
+    details: detailsHtml,
+    total_cost: baseContext.leaseCost,
+    total_deposit: baseContext.deposit,
+    receiptId,
+    receipt_id: receiptId,
+    receipt_type: receiptType,
+    next_status: workflow.targetStatus
+  };
+
+  const subject = fillTemplateText(getLocalizedTemplateField(template, 'subject', locale), contextValues);
+  const rawBody = getLocalizedTemplateField(template, 'body', locale);
+  const text = fillTemplateText(rawBody, contextValues);
+  if (!subject || !text) {
+    throw new functions.https.HttpsError('failed-precondition', 'Email template subject or body is empty.');
+  }
+  const cc = getStorageConfirmationCc(locale);
+  const bodyHtml = fillTemplateHtml(rawBody, contextValues, { details: detailsHtml });
+  const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
+
+  await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text });
+
+  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const batch = db.batch();
+  if (workflow.createsReceipt) {
+    batch.set(db.collection('storageReceipts').doc(receiptId), {
+      receiptId,
+      caseId: resolveEmailCaseId(requests[0]),
+      seasonId: requests[0]?.season || '',
+      clientId,
+      requestIds,
+      receiptType: 'deposit',
+      sourceWorkflow: receiptType,
+      amount: depositAmount,
+      amountFormatted: formatMoney(depositAmount),
+      templateId,
+      sentAt: timestamp,
+      sentBy: context.auth.uid,
+      sentTo: to,
+      sentCc: cc,
+      statusFrom: workflow.expectedStatus,
+      statusTo: workflow.targetStatus,
+      createdAt: timestamp,
+      createdBy: context.auth.uid,
+      updatedAt: timestamp,
+      updatedBy: context.auth.uid
+    });
+  }
+  requests.forEach((request) => {
+    const requestUpdate = {
+      status: workflow.targetStatus,
+      receiptEmailSentAt: timestamp,
+      receiptEmailSentBy: context.auth.uid,
+      receiptEmailSentTo: to,
+      receiptEmailCc: cc,
+      receiptEmailTemplateId: templateId,
+      receiptEmailType: receiptType,
+      updatedAt: timestamp,
+      updatedBy: context.auth.uid
+    };
+    if (workflow.createsReceipt) {
+      requestUpdate.receiptId = receiptId;
+      requestUpdate.lastReceiptId = receiptId;
+    }
+    batch.set(db.collection('storageRequests').doc(request.id), requestUpdate, { merge: true });
+  });
+  await batch.commit();
+
+  return { success: true, to, cc, templateId, targetStatus: workflow.targetStatus, receiptId };
+});
 
 function parseAttachmentContent(rawContent) {
   let contentType;
@@ -1236,6 +2154,7 @@ export const createStorageRequest = functions.https.onCall(async (data, context)
   const requestPayload = {
     season,
     clientId,
+    storageLocation: normalize(payload.storageLocation) === 'outdoor' ? 'outdoor' : 'indoor',
     vehicle: {
       type: vehicleType,
       typeLabel: normalize(payload.vehicleTypeLabel) || vehicleType || '—',
@@ -1385,6 +2304,7 @@ export const createStorageRequests = functions.https.onCall(async (data, context
     batch.set(ref, {
       season: normalize(request.season) || season,
       clientId,
+      storageLocation: normalize(request.storageLocation) === 'outdoor' ? 'outdoor' : 'indoor',
       vehicle: {
         type: vehicleType,
         typeLabel: normalize(request.vehicleTypeLabel) || vehicleType || '—',

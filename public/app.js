@@ -48,6 +48,9 @@ const functionsApp = getFunctions(app);
 const storage = getStorage(app);
 const getSitePublishPreviewCallable = httpsCallable(functionsApp, 'getSitePublishPreview');
 const requestSitePublishCallable = httpsCallable(functionsApp, 'requestSitePublish');
+const sendStorageConfirmationEmailCallable = httpsCallable(functionsApp, 'sendStorageConfirmationEmail');
+const sendStorageContractEmailCallable = httpsCallable(functionsApp, 'sendStorageContractEmail');
+const sendStorageReceiptEmailCallable = httpsCallable(functionsApp, 'sendStorageReceiptEmail');
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 const usingEmulators = Boolean(emulatorConfig.useEmulators);
@@ -130,8 +133,6 @@ const addEntryButton = document.getElementById('add-entry');
 const transferButton = document.getElementById('transfer-funds');
 const openLedgerExportButton = document.getElementById('open-ledger-export');
 const newCategoryButton = document.getElementById('new-category');
-const copyViewLinkButton = document.getElementById('copy-view-link');
-const copyViewLinkStatus = document.getElementById('copy-view-link-status');
 const appVersionLabel = document.getElementById('app-version');
 const mileageView = document.getElementById('mileage-view');
 const mileageTableBody = document.getElementById('mileage-table-body');
@@ -215,6 +216,9 @@ const storageView = document.getElementById('storage-view');
 const storageTableBody = document.getElementById('storage-table-body');
 const pricingView = document.getElementById('pricing-view');
 const settingsView = document.getElementById('settings-view');
+const generalSettingsView = document.getElementById('general-settings-view');
+const defaultClientLanguageSelect = document.getElementById('default-client-language');
+const generalSettingsStatus = document.getElementById('general-settings-status');
 const seasonTableBody = document.getElementById('season-table-body');
 const seasonOffersPanel = document.getElementById('season-offers-panel');
 const seasonOffersTitle = document.getElementById('season-offers-title');
@@ -229,6 +233,7 @@ const offerTemplateTableBody = document.getElementById('offer-template-table-bod
 const offerTableBody = document.getElementById('offer-table-body');
 const addonTableBody = document.getElementById('addon-table-body');
 const copyTableBody = document.getElementById('copy-table-body');
+const emailTemplateTableBody = document.getElementById('email-template-table-body');
 const conditionTableBody = document.getElementById('condition-table-body');
 const etiquetteTableBody = document.getElementById('etiquette-table-body');
 const categoryTableBody = document.getElementById('category-table-body');
@@ -284,6 +289,7 @@ const closeClientModalButton = document.getElementById('close-client-modal');
 const clientForm = document.getElementById('client-form');
 const clientFormTitle = document.getElementById('client-form-title');
 const clientNameInput = document.getElementById('client-name');
+const clientLanguageSelect = document.getElementById('client-language');
 const clientPhoneInput = document.getElementById('client-phone');
 const clientEmailInput = document.getElementById('client-email');
 const clientAddressInput = document.getElementById('client-address');
@@ -300,6 +306,7 @@ const storageFormTitle = document.getElementById('storage-form-title');
 const storageSeasonSelect = document.getElementById('storage-season');
 const storageClientSelect = document.getElementById('storage-client');
 const storageVehicleTypeSelect = document.getElementById('storage-vehicle-type');
+const storageLocationSelect = document.getElementById('storage-location');
 const storageVehicleBrandInput = document.getElementById('storage-vehicle-brand');
 const storageVehicleModelInput = document.getElementById('storage-vehicle-model');
 const storageVehicleColourInput = document.getElementById('storage-vehicle-colour');
@@ -315,6 +322,24 @@ const storageAmountInput = document.getElementById('storage-amount');
 const storageAddonBatteryInput = document.getElementById('storage-addon-battery');
 const storageAddonPropaneInput = document.getElementById('storage-addon-propane');
 const storageFormError = document.getElementById('storage-form-error');
+const storageContractLinks = document.getElementById('storage-contract-links');
+const storageContractModal = document.getElementById('storage-contract-modal');
+const closeStorageContractModalButton = document.getElementById('close-storage-contract-modal');
+const storageContractModalSummary = document.getElementById('storage-contract-modal-summary');
+const generateStorageContractButton = document.getElementById('generate-storage-contract');
+const storageSignedContractFileInput = document.getElementById('storage-signed-contract-file');
+const uploadStorageSignedContractButton = document.getElementById('upload-storage-signed-contract');
+const storageContractModalLinks = document.getElementById('storage-contract-modal-links');
+const storageContractModalError = document.getElementById('storage-contract-modal-error');
+const storageConfirmationEmailModal = document.getElementById('storage-confirmation-email-modal');
+const closeStorageConfirmationEmailModalButton = document.getElementById('close-storage-confirmation-email-modal');
+const storageConfirmationEmailTo = document.getElementById('storage-confirmation-email-to');
+const storageConfirmationEmailCc = document.getElementById('storage-confirmation-email-cc');
+const storageConfirmationEmailSubject = document.getElementById('storage-confirmation-email-subject');
+const storageConfirmationEmailPreview = document.getElementById('storage-confirmation-email-preview');
+const cancelStorageConfirmationEmailButton = document.getElementById('cancel-storage-confirmation-email');
+const sendStorageConfirmationEmailButton = document.getElementById('send-storage-confirmation-email');
+const storageConfirmationEmailError = document.getElementById('storage-confirmation-email-error');
 const seasonModal = document.getElementById('season-modal');
 const closeSeasonModalButton = document.getElementById('close-season-modal');
 const seasonForm = document.getElementById('season-form');
@@ -413,6 +438,20 @@ const copyTextEnInput = document.getElementById('copy-text-en');
 const copyTextFrInput = document.getElementById('copy-text-fr');
 const copyHintInput = document.getElementById('copy-hint');
 const copyFormError = document.getElementById('copy-form-error');
+const emailTemplateModal = document.getElementById('email-template-modal');
+const closeEmailTemplateModalButton = document.getElementById('close-email-template-modal');
+const emailTemplateForm = document.getElementById('email-template-form');
+const emailTemplateFormTitle = document.getElementById('email-template-form-title');
+const emailTemplateIdInput = document.getElementById('email-template-id');
+const emailTemplateCategoryInput = document.getElementById('email-template-category');
+const emailTemplateSubjectEnInput = document.getElementById('email-template-subject-en');
+const emailTemplateSubjectFrInput = document.getElementById('email-template-subject-fr');
+const emailTemplateBodyEnInput = document.getElementById('email-template-body-en');
+const emailTemplateBodyFrInput = document.getElementById('email-template-body-fr');
+const emailTemplatePreviewLanguageSelect = document.getElementById('email-template-preview-language');
+const emailTemplatePreviewButton = document.getElementById('email-template-preview-button');
+const emailTemplatePreviewFrame = document.getElementById('email-template-preview-frame');
+const emailTemplateFormError = document.getElementById('email-template-form-error');
 const categoryModal = document.getElementById('category-modal');
 const closeCategoryModalButton = document.getElementById('close-category-modal');
 const categoryForm = document.getElementById('category-form');
@@ -706,6 +745,9 @@ let editingClientId = null;
 let storageRequests = [];
 let unsubscribeStorageRequests = null;
 let editingStorageRequestId = null;
+let storageAmountManualOverride = false;
+let storageCasesExpanded = new Set();
+let storageCaseBackfillInFlight = false;
 let activePricingPanel = 'seasons';
 let seasons = [];
 let seasonLookup = new Map();
@@ -735,6 +777,8 @@ let mileageLogs = [];
 let mileageRates = [];
 let unsubscribeMileageLogs = null;
 let unsubscribeMileageRates = null;
+let appSettings = { defaultClientLanguage: 'fr' };
+let unsubscribeAppSettings = null;
 let mileageSettings = { defaultEntityId: '', startingPoints: [] };
 let unsubscribeMileageSettings = null;
 let mileageYearToDate = 0;
@@ -791,6 +835,10 @@ function parseInitialSettingsSectionParam() {
   return settingsNavButtons.some((button) => button.dataset.settingsTarget === section) ? section : null;
 }
 
+function normalizeLanguageCode(value, fallback = 'fr') {
+  return String(value || fallback).toLowerCase() === 'en' ? 'en' : 'fr';
+}
+
 function parseInitialReportLinkParams() {
   if (typeof window === 'undefined') return null;
   const params = new URLSearchParams(window.location.search);
@@ -806,7 +854,10 @@ function parseInitialReportLinkParams() {
 function parseInitialPricingPanelParam() {
   if (typeof window === 'undefined') return null;
   const params = new URLSearchParams(window.location.search);
-  if (params.get('view') !== 'pricing') return null;
+  const view = (params.get('view') || '').trim();
+  const section = (params.get('section') || '').trim();
+  const isPricingContext = view === 'pricing' || (view === 'settings' && section === 'pricing');
+  if (!isPricingContext) return null;
   const panel = (params.get('panel') || '').trim();
   if (!panel) return null;
   const allowed = new Set([
@@ -817,6 +868,7 @@ function parseInitialPricingPanelParam() {
     'policies',
     'etiquette',
     'i18n',
+    'emailTemplates',
     'publishHistory'
   ]);
   return allowed.has(panel) ? panel : null;
@@ -881,6 +933,9 @@ let editingEtiquetteId = null;
 let marketingCopyEntries = [];
 let unsubscribeMarketingCopy = null;
 let editingCopyId = null;
+let emailTemplates = [];
+let unsubscribeEmailTemplates = null;
+let editingEmailTemplateId = null;
 let categories = [];
 let categoryLookup = new Map();
 let unsubscribeCategories = null;
@@ -903,9 +958,17 @@ let publishJobStatus = null;
 let unsubscribePublishJob = null;
 let unsubscribePublishJobs = null;
 let publishJobTimer = null;
+let activeStorageContractRequestId = null;
+let generatedStorageContractBlob = null;
+let generatedStorageContractUrl = null;
+let storageContractBusy = false;
+let storageContractRequiresSignedUpload = false;
+let pendingStorageConfirmationEmail = null;
+let storageConfirmationEmailBusy = false;
 
 const STORAGE_STATUS_OPTIONS = [
   { value: 'new', label: 'New' },
+  { value: 'contract_ready', label: 'Contract Ready' },
   { value: 'waiting_signature', label: 'Waiting for Signature' },
   { value: 'waiting_deposit', label: 'Waiting for Deposit' },
   { value: 'reserved', label: 'Reserved' },
@@ -913,6 +976,33 @@ const STORAGE_STATUS_OPTIONS = [
   { value: 'stored', label: 'Stored' },
   { value: 'picked_up', label: 'Picked-Up' }
 ];
+
+const STORAGE_RECEIPT_EMAIL_WORKFLOWS = {
+  contract: {
+    title: 'Contract Received',
+    buttonLabel: 'Contract',
+    templateIds: ['receipt-contract'],
+    expectedStatus: 'waiting_signature',
+    targetStatus: 'waiting_deposit',
+    createsReceipt: false
+  },
+  contract_deposit: {
+    title: 'Contract + Deposit Received',
+    buttonLabel: 'Contract + Deposit',
+    templateIds: ['receipt-contract-deposit'],
+    expectedStatus: 'waiting_signature',
+    targetStatus: 'reserved',
+    createsReceipt: true
+  },
+  deposit: {
+    title: 'Deposit Received',
+    buttonLabel: 'Deposit',
+    templateIds: ['receipt-deposit', 'receipt-deport'],
+    expectedStatus: 'waiting_deposit',
+    targetStatus: 'reserved',
+    createsReceipt: true
+  }
+};
 
 const PRICING_PANEL_ACTIONS = {
   seasons: {
@@ -936,6 +1026,9 @@ const PRICING_PANEL_ACTIONS = {
   i18n: {
     primary: { label: 'Add copy entry', handler: () => openCopyModal('create') }
   },
+  emailTemplates: {
+    primary: { label: 'Add email template', handler: () => openEmailTemplateModal('create') }
+  },
   publishHistory: {
   }
 };
@@ -947,6 +1040,17 @@ const VEHICLE_TYPE_OPTIONS = [
   { value: 'car', label: 'Car' },
   { value: 'other', label: 'Other' }
 ];
+
+const DEFAULT_VEHICLE_TYPE_LABELS = {
+  rv: { en: 'RV / Motorhome', fr: 'VR / motorisé' },
+  boat: { en: 'Boat', fr: 'Bateau' },
+  trailer: { en: 'Trailer', fr: 'Remorque' },
+  car: { en: 'Car', fr: 'Voiture' },
+  truck: { en: 'Truck', fr: 'Camion' },
+  motorcycle: { en: 'Motorcycle', fr: 'Moto' },
+  spyder: { en: 'Can-Am Spyder', fr: 'Can-Am Spyder' },
+  other: { en: 'Other', fr: 'Autre' }
+};
 
 const slugify = (value = '') =>
   value
@@ -963,12 +1067,6 @@ function showAppUI(isAuthenticated) {
   appSection.classList.toggle('hidden', !isAuthenticated);
   activeUser.classList.toggle('hidden', !isAuthenticated);
   signOutButton.classList.toggle('hidden', !isAuthenticated);
-  if (copyViewLinkButton) {
-    copyViewLinkButton.classList.toggle('hidden', !isAuthenticated);
-  }
-  if (copyViewLinkStatus) {
-    copyViewLinkStatus.classList.add('hidden');
-  }
   if (headerSettingsButton) {
     headerSettingsButton.classList.toggle('hidden', !isAuthenticated);
   }
@@ -1008,6 +1106,7 @@ function cleanClients() {
 
 function cleanStorageRequests() {
   storageRequests = [];
+  storageCasesExpanded = new Set();
   editingStorageRequestId = null;
   renderStorageTable();
   closeStorageModal();
@@ -1081,6 +1180,13 @@ function cleanMarketingCopyData() {
   editingCopyId = null;
   renderCopyTable();
   closeCopyModal();
+}
+
+function cleanEmailTemplateData() {
+  emailTemplates = [];
+  editingEmailTemplateId = null;
+  renderEmailTemplateTable();
+  closeEmailTemplateModal();
 }
 
 function cleanPublishHistoryData() {
@@ -1165,6 +1271,7 @@ function getEntryIncurredMillis(entry) {
 
 function getEntryPaidMillis(entry) {
   if (!isEntryPaid(entry)) return 0;
+  if (entry?.entryType === 'income') return getEntryIncurredMillis(entry);
   const paidDate = toDateObject(entry?.paidAt);
   if (paidDate) return paidDate.getTime();
   return getEntryIncurredMillis(entry);
@@ -1277,6 +1384,7 @@ function subscribeToStorageRequests() {
       storageRequests = snapshot.docs
         .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
         .sort(compareStorageRequests);
+      backfillStorageRequestCaseIds(storageRequests);
       renderStorageTable();
     },
     (error) => {
@@ -1284,6 +1392,40 @@ function subscribeToStorageRequests() {
       renderStorageTableMessage(`Unable to load storage requests: ${error.message}`);
     }
   );
+}
+
+async function backfillStorageRequestCaseIds(requests) {
+  if (storageCaseBackfillInFlight) return;
+  const missing = (requests || [])
+    .filter((request) => !String(request?.caseId || '').trim() || !String(request?.storageLocation || '').trim())
+    .slice(0, 400);
+  if (!missing.length) return;
+  storageCaseBackfillInFlight = true;
+  try {
+    const batch = writeBatch(db);
+    missing.forEach((request) => {
+      const patch = {
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.uid || null
+      };
+      if (!String(request?.caseId || '').trim()) {
+        patch.caseId = resolveStorageCaseId(request);
+      }
+      if (!String(request?.storageLocation || '').trim()) {
+        patch.storageLocation = 'indoor';
+      }
+      batch.set(
+        doc(db, 'storageRequests', request.id),
+        patch,
+        { merge: true }
+      );
+    });
+    await batch.commit();
+  } catch (error) {
+    console.warn('Failed to backfill storage caseId values', error);
+  } finally {
+    storageCaseBackfillInFlight = false;
+  }
 }
 
 function subscribeToSeasons() {
@@ -1365,6 +1507,7 @@ function subscribeToOffers() {
       renderOfferTable();
       renderSeasonOffersPanel();
       renderStorageTable();
+      syncStorageAmountFromForm();
       updateLatestContentTimestamp();
     },
     (error) => {
@@ -1449,6 +1592,23 @@ function subscribeToMarketingCopy() {
     },
     (error) => {
       copyFormError.textContent = error.message;
+    }
+  );
+}
+
+function subscribeToEmailTemplates() {
+  cleanEmailTemplateSubscription();
+  const ref = collection(db, 'emailTemplates');
+  const q = query(ref, orderBy('templateId'));
+  unsubscribeEmailTemplates = onSnapshot(
+    q,
+    (snapshot) => {
+      emailTemplates = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      renderEmailTemplateTable();
+      updateLatestContentTimestamp();
+    },
+    (error) => {
+      if (emailTemplateFormError) emailTemplateFormError.textContent = error.message;
     }
   );
 }
@@ -1764,6 +1924,13 @@ function cleanMarketingCopySubscription() {
   unsubscribeMarketingCopy = null;
 }
 
+function cleanEmailTemplateSubscription() {
+  if (unsubscribeEmailTemplates) {
+    unsubscribeEmailTemplates();
+  }
+  unsubscribeEmailTemplates = null;
+}
+
 function cleanCategorySubscription() {
   if (unsubscribeCategories) {
     unsubscribeCategories();
@@ -1855,7 +2022,7 @@ function renderClientTable() {
   if (!clients.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 7;
+    cell.colSpan = 9;
     cell.className = 'empty';
     cell.textContent = 'No clients yet. Add one to get started.';
     row.appendChild(cell);
@@ -1869,6 +2036,10 @@ function renderClientTable() {
     const nameCell = document.createElement('td');
     nameCell.textContent = client.name || '—';
     row.appendChild(nameCell);
+
+    const languageCell = document.createElement('td');
+    languageCell.textContent = client.preferredLanguage === 'fr' ? 'French' : 'English';
+    row.appendChild(languageCell);
 
     const phoneCell = document.createElement('td');
     phoneCell.textContent = client.phone || '—';
@@ -1929,83 +2100,212 @@ function renderStorageTable() {
     return;
   }
 
+  const groupedCases = new Map();
   storageRequests.forEach((request) => {
-    const row = document.createElement('tr');
-    const tenantDisplay = clientLookup.get(request.clientId)?.name || '—';
-    const addonList = [];
-    if (request.addons?.battery) addonList.push('Battery charging');
-    if (request.addons?.propane) addonList.push('Propane tank storage');
-
-    const vehicle = request.vehicle || {};
-
-    const cells = [
-      formatSeasonDisplayLabel(request.season),
-      tenantDisplay,
-      vehicle.typeLabel || vehicle.type || '—'
-    ];
-
-    cells.forEach((value) => {
-      const cell = document.createElement('td');
-      cell.textContent = value;
-      row.appendChild(cell);
-    });
-
-    const addonCell = document.createElement('td');
-    addonCell.textContent = addonList.length ? addonList.join(', ') : 'None';
-    row.appendChild(addonCell);
-
-    const statusCell = document.createElement('td');
-    const select = document.createElement('select');
-    select.className = 'storage-status-select';
-    select.dataset.id = request.id;
-    STORAGE_STATUS_OPTIONS.forEach((option) => {
-      const opt = document.createElement('option');
-      opt.value = option.value;
-      opt.textContent = option.label;
-      opt.selected = request.status === option.value;
-      select.appendChild(opt);
-    });
-    statusCell.appendChild(select);
-    row.appendChild(statusCell);
-
-    const amountCell = document.createElement('td');
-    const resolvedAmount = resolveStorageAmount(request);
-    amountCell.textContent = Number.isFinite(resolvedAmount) ? formatCurrency(resolvedAmount) : '—';
-    row.appendChild(amountCell);
-
-    const actionCell = document.createElement('td');
-    const viewButton = document.createElement('button');
-    viewButton.type = 'button';
-    viewButton.className = 'icon-button';
-    viewButton.dataset.action = 'view-storage';
-    viewButton.dataset.id = request.id;
-    viewButton.setAttribute('aria-label', `View storage request for ${tenantDisplay}`);
-    viewButton.innerHTML = '<img src="icons/eye.svg" alt="View storage request" />';
-    actionCell.appendChild(viewButton);
-
-    const editButton = document.createElement('button');
-    editButton.type = 'button';
-    editButton.className = 'icon-button';
-    editButton.dataset.action = 'edit-storage';
-    editButton.dataset.id = request.id;
-    editButton.setAttribute('aria-label', `Edit storage request for ${tenantDisplay}`);
-    editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit storage request for ${tenantDisplay}" />`;
-    actionCell.appendChild(editButton);
-
-    if (request.status === 'new') {
-      const deleteButton = document.createElement('button');
-      deleteButton.type = 'button';
-      deleteButton.className = 'icon-button';
-      deleteButton.dataset.action = 'delete-storage';
-      deleteButton.dataset.id = request.id;
-      deleteButton.setAttribute('aria-label', `Delete storage request for ${tenantDisplay}`);
-      deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete storage request" data-icon="trash" />';
-      actionCell.appendChild(deleteButton);
-    }
-    row.appendChild(actionCell);
-
-    storageTableBody.appendChild(row);
+    const caseId = resolveStorageCaseId(request);
+    if (!groupedCases.has(caseId)) groupedCases.set(caseId, []);
+    groupedCases.get(caseId).push(request);
   });
+
+  const sortedCaseIds = Array.from(groupedCases.keys()).sort((left, right) => {
+    const leftFirst = groupedCases.get(left)?.[0] || {};
+    const rightFirst = groupedCases.get(right)?.[0] || {};
+    const seasonOrder = String(leftFirst?.season || '').localeCompare(String(rightFirst?.season || ''));
+    if (seasonOrder !== 0) return seasonOrder;
+    const leftClient = clientLookup.get(leftFirst?.clientId)?.name || '';
+    const rightClient = clientLookup.get(rightFirst?.clientId)?.name || '';
+    return leftClient.localeCompare(rightClient);
+  });
+
+  sortedCaseIds.forEach((caseId) => {
+    const caseRequests = (groupedCases.get(caseId) || []).slice().sort(compareStorageRequests);
+    if (!caseRequests.length) return;
+    if (!storageCasesExpanded.has(caseId)) {
+      storageCasesExpanded.add(caseId);
+    }
+    const firstRequest = caseRequests[0];
+    const tenantDisplay = clientLookup.get(firstRequest.clientId)?.name || '—';
+    const caseAmount = caseRequests.reduce((sum, request) => {
+      const amount = resolveStorageAmount(request);
+      return sum + (Number.isFinite(amount) ? amount : 0);
+    }, 0);
+    const caseRow = document.createElement('tr');
+    caseRow.className = 'storage-case-row';
+
+    const seasonCell = document.createElement('td');
+    seasonCell.textContent = formatSeasonDisplayLabel(firstRequest.season);
+    caseRow.appendChild(seasonCell);
+    const clientCell = document.createElement('td');
+    clientCell.textContent = tenantDisplay;
+    caseRow.appendChild(clientCell);
+    const vehicleCell = document.createElement('td');
+    const toggleButton = document.createElement('button');
+    toggleButton.type = 'button';
+    toggleButton.className = 'link';
+    toggleButton.dataset.action = 'toggle-storage-case';
+    toggleButton.dataset.caseId = caseId;
+    toggleButton.textContent = `${storageCasesExpanded.has(caseId) ? '−' : '+'} ${caseRequests.length} vehicle${caseRequests.length > 1 ? 's' : ''}`;
+    vehicleCell.appendChild(toggleButton);
+    caseRow.appendChild(vehicleCell);
+    const addonsCell = document.createElement('td');
+    addonsCell.textContent = '—';
+    caseRow.appendChild(addonsCell);
+    const statusCell = document.createElement('td');
+    statusCell.textContent = deriveStorageCaseStatus(caseRequests);
+    caseRow.appendChild(statusCell);
+    const amountCell = document.createElement('td');
+    amountCell.textContent = formatCurrency(caseAmount);
+    caseRow.appendChild(amountCell);
+    const caseActionCell = document.createElement('td');
+    const knownStatuses = new Set(STORAGE_STATUS_OPTIONS.map((o) => o.value));
+    const caseStatuses = caseRequests.map((r) => String(r.status || 'new'));
+    const hasNew = caseStatuses.some((s) => s === 'new' || !knownStatuses.has(s));
+    const allContractReady = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'contract_ready');
+    const allWaitingSignature = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'waiting_signature');
+    const allWaitingDeposit = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'waiting_deposit');
+    if (hasNew || allContractReady) {
+      const confirmationButton = document.createElement('button');
+      confirmationButton.type = 'button';
+      confirmationButton.className = 'secondary';
+      confirmationButton.dataset.caseId = caseId;
+      if (allContractReady) {
+        confirmationButton.dataset.action = 'send-storage-contract';
+        confirmationButton.textContent = 'Send Contract Email';
+      } else {
+        confirmationButton.dataset.action = 'send-storage-confirmation';
+        confirmationButton.textContent = 'Send Confirmation e-mail';
+      }
+      caseActionCell.appendChild(confirmationButton);
+    } else if (allWaitingSignature) {
+      ['contract', 'contract_deposit'].forEach((receiptType) => {
+        const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS[receiptType];
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary';
+        button.dataset.action = 'send-storage-receipt';
+        button.dataset.caseId = caseId;
+        button.dataset.receiptType = receiptType;
+        button.textContent = workflow.buttonLabel;
+        button.title =
+          receiptType === 'contract'
+            ? 'Confirm signed contract received and move to Waiting for Deposit'
+            : 'Confirm signed contract and deposit received and move to Reserved';
+        caseActionCell.appendChild(button);
+      });
+    } else if (allWaitingDeposit) {
+      const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS.deposit;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.dataset.action = 'send-storage-receipt';
+      button.dataset.caseId = caseId;
+      button.dataset.receiptType = 'deposit';
+      button.textContent = workflow.buttonLabel;
+      button.title = 'Confirm deposit received and move to Reserved';
+      caseActionCell.appendChild(button);
+    }
+    caseRow.appendChild(caseActionCell);
+    storageTableBody.appendChild(caseRow);
+
+    if (!storageCasesExpanded.has(caseId)) return;
+    caseRequests.forEach((request) => {
+      const row = document.createElement('tr');
+      row.className = 'storage-request-row';
+      row.appendChild(document.createElement('td'));
+      row.appendChild(document.createElement('td'));
+
+      const vehicle = request.vehicle || {};
+      const vehicleTypeCell = document.createElement('td');
+      const locationLabel = getStorageLocation(request) === 'indoor' ? 'Indoor' : 'Outdoor';
+      vehicleTypeCell.textContent = [vehicle.typeLabel || vehicle.type || '—', locationLabel]
+        .filter(Boolean)
+        .join(' / ');
+      row.appendChild(vehicleTypeCell);
+
+      const addonCell = document.createElement('td');
+      addonCell.textContent = formatStorageRequestAddons(request);
+      row.appendChild(addonCell);
+
+      const statusChildCell = document.createElement('td');
+      const select = document.createElement('select');
+      select.className = 'storage-status-select';
+      select.dataset.id = request.id;
+      const normalizedStatus = String(request.status || 'new');
+      STORAGE_STATUS_OPTIONS.forEach((option) => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label;
+        opt.selected = normalizedStatus === option.value;
+        select.appendChild(opt);
+      });
+      statusChildCell.appendChild(select);
+      row.appendChild(statusChildCell);
+
+      const amountChildCell = document.createElement('td');
+      const resolvedAmount = resolveStorageAmount(request);
+      amountChildCell.textContent = Number.isFinite(resolvedAmount) ? formatCurrency(resolvedAmount) : '—';
+      row.appendChild(amountChildCell);
+
+      const actionCell = document.createElement('td');
+      const viewButton = document.createElement('button');
+      viewButton.type = 'button';
+      viewButton.className = 'icon-button';
+      viewButton.dataset.action = 'view-storage';
+      viewButton.dataset.id = request.id;
+      viewButton.setAttribute('aria-label', `View storage request for ${tenantDisplay}`);
+      viewButton.innerHTML = '<img src="icons/eye.svg" alt="View storage request" />';
+      actionCell.appendChild(viewButton);
+
+      const editButton = document.createElement('button');
+      editButton.type = 'button';
+      editButton.className = 'icon-button';
+      editButton.dataset.action = 'edit-storage';
+      editButton.dataset.id = request.id;
+      editButton.setAttribute('aria-label', `Edit storage request for ${tenantDisplay}`);
+      editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit storage request for ${tenantDisplay}" />`;
+      actionCell.appendChild(editButton);
+
+      if (request.status === 'new') {
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'icon-button';
+        deleteButton.dataset.action = 'delete-storage';
+        deleteButton.dataset.id = request.id;
+        deleteButton.setAttribute('aria-label', `Delete storage request for ${tenantDisplay}`);
+        deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete storage request" data-icon="trash" />';
+        actionCell.appendChild(deleteButton);
+      }
+      row.appendChild(actionCell);
+      storageTableBody.appendChild(row);
+    });
+  });
+}
+
+function formatStorageRequestAddons(request) {
+  const addonList = [];
+  if (request?.addons?.battery) addonList.push('Battery charging');
+  if (request?.addons?.propane) addonList.push('Propane tank storage');
+  return addonList.length ? addonList.join(', ') : 'None';
+}
+
+function resolveStorageCaseId(request) {
+  const existing = String(request?.caseId || '').trim();
+  if (existing) return existing;
+  const seasonId = String(resolveSeasonId(request?.season) || request?.season || 'no-season');
+  const clientId = String(request?.clientId || 'no-client');
+  return `${seasonId}__${clientId}`;
+}
+
+function deriveStorageCaseStatus(requests) {
+  const statuses = requests.map((request) => String(request?.status || 'new'));
+  if (!statuses.length) return 'Draft';
+  if (statuses.every((status) => status === 'new')) return 'Draft';
+  if (statuses.every((status) => status === 'picked_up')) return 'Closed';
+  if (statuses.every((status) => status === 'stored' || status === 'picked_up')) return 'Stored';
+  if (statuses.some((status) => status === 'stored')) return 'In storage';
+  if (statuses.some((status) => status === 'contract_ready' || status === 'waiting_signature' || status === 'waiting_deposit')) return 'Contracting';
+  if (statuses.some((status) => status === 'reserved' || status === 'scheduled')) return 'Scheduled';
+  return 'Active';
 }
 
 function compareStorageRequests(left, right) {
@@ -2033,7 +2333,8 @@ function updateLatestContentTimestamp() {
     ...seasonAddOns,
     ...conditions,
     ...etiquetteEntries,
-    ...marketingCopyEntries
+    ...marketingCopyEntries,
+    ...emailTemplates
   ];
   const newest = candidates.reduce(
     (acc, item) => {
@@ -2069,6 +2370,7 @@ function showPricingPanel(panelId = 'seasons') {
     button.setAttribute('aria-selected', String(isActive));
   });
   updatePricingToolbarActions();
+  updateCurrentShareUrl();
 }
 
 function updatePricingToolbarActions() {
@@ -3049,6 +3351,16 @@ function normalizeMileageSettings(data = {}) {
   };
 }
 
+function normalizeAppSettings(data = {}) {
+  return {
+    defaultClientLanguage: normalizeLanguageCode(data.defaultClientLanguage, 'fr')
+  };
+}
+
+function getDefaultClientLanguage() {
+  return normalizeLanguageCode(appSettings.defaultClientLanguage, 'fr');
+}
+
 function getMileageStartingPoints() {
   if (!Array.isArray(mileageSettings?.startingPoints)) {
     return [];
@@ -3157,8 +3469,30 @@ function syncMileageSettingsUI() {
   renderMileageStartingPointTable();
 }
 
+function syncGeneralSettingsUI() {
+  if (defaultClientLanguageSelect) {
+    defaultClientLanguageSelect.value = getDefaultClientLanguage();
+  }
+}
+
+function getAppSettingsDocRef() {
+  return doc(db, 'admin', 'appSettings');
+}
+
 function getMileageSettingsDocRef() {
   return doc(db, 'admin', 'mileageSettings');
+}
+
+async function patchAppSettings(update) {
+  await setDoc(
+    getAppSettingsDocRef(),
+    {
+      ...update,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    },
+    { merge: true }
+  );
 }
 
 async function patchMileageSettings(update) {
@@ -3202,6 +3536,1353 @@ async function deleteReceiptAtPath(path) {
       console.warn('Failed to delete receipt', error);
     }
   }
+}
+
+function buildStorageContractPath(requestId, kind, fileName, contractId = '') {
+  const safeName = sanitizeFileName(fileName || `${kind}.pdf`);
+  const contractToken = sanitizeFileName(contractId || 'contract');
+  return `storage-contracts/${requestId}/${kind}/${contractToken}/${Date.now()}_${safeName}`;
+}
+
+async function uploadStorageContractFile(requestId, kind, file, options = {}) {
+  if (!requestId || !kind || !file) return null;
+  const path = buildStorageContractPath(requestId, kind, file.name, options.contractId || '');
+  const contentType = file.type || 'application/octet-stream';
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, file, { contentType });
+  const url = await getDownloadURL(ref);
+  return { url, path, contentType };
+}
+
+async function deleteStorageContractAtPath(path) {
+  if (!path) return;
+  try {
+    await deleteObject(storageRef(storage, path));
+  } catch (error) {
+    if (error?.code !== 'storage/object-not-found') {
+      console.warn('Failed to delete contract file', error);
+    }
+  }
+}
+
+function getStorageRequestById(requestId) {
+  return storageRequests.find((entry) => entry.id === requestId) || null;
+}
+
+function renderStorageContractLinks(targetElement, request) {
+  if (!targetElement) return;
+  targetElement.innerHTML = '';
+  const hasSigned = Boolean(request?.signedContractUrl);
+  const fieldset = targetElement.closest('fieldset');
+  if (fieldset) fieldset.hidden = !hasSigned;
+  if (!hasSigned) return;
+  const signedLink = document.createElement('a');
+  signedLink.href = request.signedContractUrl;
+  signedLink.target = '_blank';
+  signedLink.rel = 'noopener';
+  signedLink.textContent = 'View/download signed contract';
+  targetElement.appendChild(signedLink);
+}
+
+function formatStorageContractDateInput(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (value?.toDate) {
+    return value.toDate().toISOString().slice(0, 10);
+  }
+  return '';
+}
+
+function toContractFormValue(value) {
+  if (value === null || value === undefined) return '';
+  return String(value);
+}
+
+function buildContractDataFromStorageRequest(request) {
+  const client = clientLookup.get(request?.clientId) || {};
+  const seasonId = resolveSeasonId(request?.season) || request?.season || '';
+  const formLanguage = client.preferredLanguage || request?.sourceLanguage || getDefaultClientLanguage();
+  const estimatedAmount = resolveStorageAmount(request);
+  const deposit = Number.isFinite(estimatedAmount) && estimatedAmount > 400 ? 100 : 50;
+  const vehicleType = request?.vehicle?.type || '';
+  const vehicleTypeFallback = request?.vehicle?.typeLabel || vehicleType;
+  return {
+    season: seasonId,
+    formLanguage,
+    tenantName: client.name || '',
+    tenantPhone: client.phone || '',
+    email: client.email || '',
+    tenantAddress: client.address || '',
+    tenantCity: client.city || '',
+    tenantProvince: client.province || '',
+    tenantPostal: client.postalCode || '',
+    vehicleType,
+    vehicleTypeLabel: getVehicleTypeDisplayLabel(vehicleType, formLanguage, vehicleTypeFallback),
+    vehicleTypeOther: request?.vehicle?.otherType || '',
+    vehicleBrand: request?.vehicle?.brand || '',
+    vehicleModel: request?.vehicle?.model || '',
+    vehicleColour: request?.vehicle?.colour || request?.vehicle?.color || request?.vehicleColour || request?.vehicleColor || '',
+    vehicleLength: toContractFormValue(request?.vehicle?.lengthFeet),
+    vehicleYear: toContractFormValue(request?.vehicle?.year),
+    vehiclePlate: request?.vehicle?.plate || '',
+    vehicleProv: request?.vehicle?.province || '',
+    insuranceCompany: request?.insuranceCompany || '',
+    insurancePolicy: request?.policyNumber || '',
+    insuranceExpiration: formatStorageContractDateInput(request?.insuranceExpiration || request?.insuranceExpiry || request?.insuranceExpirationDate),
+    leaseDuration: formatSeasonLeaseDuration(seasonId, formLanguage),
+    leaseCost: Number.isFinite(estimatedAmount) ? formatCurrency(estimatedAmount) : '',
+    estimatedCost: Number.isFinite(estimatedAmount) ? estimatedAmount : null,
+    deposit,
+    battery: request?.addons?.battery ? 'yes' : 'no',
+    propane: request?.addons?.propane ? 'yes' : 'no'
+  };
+}
+
+function getClientLanguage(client, request) {
+  return normalizeLanguageCode(client?.preferredLanguage || request?.sourceLanguage || getDefaultClientLanguage(), 'fr');
+}
+
+function getStorageConfirmationCc(lang) {
+  return lang === 'fr' ? 'entrepot@as-colle.com' : 'warehouse@as-colle.com';
+}
+
+function getEmailTemplateByTemplateId(templateId) {
+  return emailTemplates.find((template) => template.id === templateId || template.templateId === templateId) || null;
+}
+
+function getEmailTemplateByTemplateIds(templateIds) {
+  const candidates = Array.isArray(templateIds) ? templateIds : [templateIds];
+  for (const templateId of candidates) {
+    const template = getEmailTemplateByTemplateId(templateId);
+    if (template) return template;
+  }
+  return null;
+}
+
+function getLocalizedTemplateField(template, fieldName, lang) {
+  const value = template?.[fieldName];
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value[lang] || value.en || value.fr || '';
+}
+
+function formatStorageRequestLineForEmail(request, lang = 'en') {
+  const data = buildContractDataFromStorageRequest(request);
+  const parts = [
+    data.vehicleTypeLabel || data.vehicleType,
+    data.vehicleBrand,
+    data.vehicleModel,
+    data.vehicleLength ? (lang === 'fr' ? `${data.vehicleLength} pi` : `${data.vehicleLength} ft`) : '',
+    data.vehiclePlate
+  ].filter(Boolean);
+  return parts.join(' - ');
+}
+
+function buildStorageEmailDetailRows(request, lang = 'en') {
+  const data = buildContractDataFromStorageRequest(request);
+  const labels = lang === 'fr'
+    ? {
+        vehicle: 'Vehicule',
+        storageLocation: 'Lieu',
+        brand: 'Marque',
+        model: 'Modele',
+        colour: 'Couleur',
+        length: 'Longueur',
+        year: 'Annee',
+        plate: 'Plaque',
+        insuranceCompany: 'Assureur',
+        insurancePolicy: 'Police',
+        insuranceExpiration: 'Expiration'
+      }
+    : {
+        vehicle: 'Vehicle',
+        storageLocation: 'Location',
+        brand: 'Brand',
+        model: 'Model',
+        colour: 'Colour',
+        length: 'Length',
+        year: 'Year',
+        plate: 'Plate',
+        insuranceCompany: 'Insurance company',
+        insurancePolicy: 'Policy number',
+        insuranceExpiration: 'Expiration'
+      };
+  return [
+    [labels.vehicle, data.vehicleTypeLabel || data.vehicleType],
+    [labels.storageLocation, getStorageLocation(request) === 'indoor' ? (lang === 'fr' ? 'Intérieur' : 'Indoor') : (lang === 'fr' ? 'Extérieur' : 'Outdoor')],
+    [labels.brand, data.vehicleBrand],
+    [labels.model, data.vehicleModel],
+    [labels.colour, data.vehicleColour],
+    [labels.length, data.vehicleLength ? `${data.vehicleLength} ${lang === 'fr' ? 'pi' : 'ft'}` : ''],
+    [labels.year, data.vehicleYear],
+    [labels.plate, [data.vehiclePlate, data.vehicleProv].filter(Boolean).join(' ')],
+    [labels.insuranceCompany, data.insuranceCompany],
+    [labels.insurancePolicy, data.insurancePolicy],
+    [labels.insuranceExpiration, data.insuranceExpiration]
+  ];
+}
+
+function buildStorageEmailVehicleInfoText(requests, lang = 'en') {
+  return (requests || [])
+    .map((request, index) => {
+      const prefix = requests.length > 1 ? `${index + 1}. ` : '';
+      return buildStorageEmailDetailRows(request, lang)
+        .map(([label, value], rowIndex) => `${rowIndex === 0 ? prefix : ''}${label}: ${value || ''}`)
+        .join('\n');
+    })
+    .join('\n\n');
+}
+
+function buildStorageEmailVehicleInfoHtml(requests, lang = 'en') {
+  const chunkPairs = (rows) => {
+    const chunks = [];
+    for (let index = 0; index < rows.length; index += 2) {
+      chunks.push([rows[index], rows[index + 1] || null]);
+    }
+    return chunks;
+  };
+  return (requests || [])
+    .map((request, index) => {
+      const heading = requests.length > 1
+        ? `<p style="margin:16px 0 8px;font-weight:700;">${escapeEmailTemplateHtml(lang === 'fr' ? `Vehicule ${index + 1}` : `Vehicle ${index + 1}`)}</p>`
+        : '';
+      const rows = chunkPairs(buildStorageEmailDetailRows(request, lang))
+        .map(([left, right]) => `
+          <tr>
+            <th style="width:18%;text-align:left;vertical-align:top;padding:7px 10px;border:1px solid #dbe3ef;background:#f8fafc;color:#334155;font-weight:700;">${escapeEmailTemplateHtml(left[0])}</th>
+            <td style="width:32%;vertical-align:top;padding:7px 10px;border:1px solid #dbe3ef;color:#0f172a;">${escapeEmailTemplateHtml(left[1] || '') || '&nbsp;'}</td>
+            <th style="width:18%;text-align:left;vertical-align:top;padding:7px 10px;border:1px solid #dbe3ef;background:#f8fafc;color:#334155;font-weight:700;">${right ? escapeEmailTemplateHtml(right[0]) : '&nbsp;'}</th>
+            <td style="width:32%;vertical-align:top;padding:7px 10px;border:1px solid #dbe3ef;color:#0f172a;">${right ? escapeEmailTemplateHtml(right[1] || '') || '&nbsp;' : '&nbsp;'}</td>
+          </tr>
+        `)
+        .join('');
+      return `${heading}<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 18px;font-size:14px;">${rows}</table>`;
+    })
+    .join('');
+}
+
+function buildStorageConfirmationTemplateContext(caseRequests) {
+  const requests = (caseRequests || []).filter(Boolean);
+  const firstRequest = requests[0] || {};
+  const client = clientLookup.get(firstRequest.clientId) || {};
+  const lang = getClientLanguage(client, firstRequest);
+  const firstData = buildContractDataFromStorageRequest(firstRequest);
+  const amount = requests.reduce((sum, request) => {
+    const value = resolveStorageAmount(request);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+  const totalDeposit = requests.reduce((sum, request) => {
+    const value = resolveStorageAmount(request);
+    return sum + (Number.isFinite(value) && value > 400 ? 100 : 50);
+  }, 0);
+  const requestLines = requests.map((request, index) => `${index + 1}. ${formatStorageRequestLineForEmail(request, lang)}`);
+  const tenantInfoLines = lang === 'fr'
+    ? [
+        `Nom : ${client.name || firstData.tenantName || ''}`,
+        `Courriel : ${client.email || firstData.email || ''}`,
+        `Telephone : ${client.phone || firstData.tenantPhone || ''}`,
+        `Adresse : ${[firstData.tenantAddress, firstData.tenantCity, firstData.tenantProvince, firstData.tenantPostal].filter(Boolean).join(', ')}`
+      ]
+    : [
+        `Name: ${client.name || firstData.tenantName || ''}`,
+        `Email: ${client.email || firstData.email || ''}`,
+        `Phone: ${client.phone || firstData.tenantPhone || ''}`,
+        `Address: ${[firstData.tenantAddress, firstData.tenantCity, firstData.tenantProvince, firstData.tenantPostal].filter(Boolean).join(', ')}`
+      ];
+  const vehicleInfoText = buildStorageEmailVehicleInfoText(requests, lang);
+  const vehicleInfoHtml = buildStorageEmailVehicleInfoHtml(requests, lang);
+  const submittedDate = firstRequest.submittedAt || firstRequest.createdAt || null;
+  const context = {
+    tenant: client.name || firstData.tenantName || '',
+    tenantInfo: tenantInfoLines.join('\n'),
+    tenant_info: tenantInfoLines.join('\n'),
+    vehicleInfo: vehicleInfoText,
+    vehicle_info: vehicleInfoText,
+    vehicleInfoHtml,
+    vehicle_info_html: vehicleInfoHtml,
+    tenantName: client.name || firstData.tenantName || '',
+    tenantEmail: client.email || firstData.email || '',
+    tenantPhone: client.phone || firstData.tenantPhone || '',
+    tenantAddress: firstData.tenantAddress,
+    tenantCity: firstData.tenantCity,
+    tenantProvince: firstData.tenantProvince,
+    tenantPostal: firstData.tenantPostal,
+    clientName: client.name || firstData.tenantName || '',
+    clientEmail: client.email || firstData.email || '',
+    season: formatSeasonDisplayLabel(firstData.season, lang),
+    seasonId: firstData.season,
+    caseId: resolveStorageCaseId(firstRequest),
+    confirmationCode: firstRequest.confirmationCode || '',
+    storageLocation: getStorageLocation(firstRequest) === 'indoor' ? (lang === 'fr' ? 'Intérieur' : 'Indoor') : (lang === 'fr' ? 'Extérieur' : 'Outdoor'),
+    vehicleType: firstData.vehicleTypeLabel || firstData.vehicleType,
+    vehicleBrand: firstData.vehicleBrand,
+    vehicleModel: firstData.vehicleModel,
+    vehicleColour: firstData.vehicleColour,
+    vehicleLength: firstData.vehicleLength,
+    vehicleYear: firstData.vehicleYear,
+    vehiclePlate: firstData.vehiclePlate,
+    vehicleProvince: firstData.vehicleProv,
+    insuranceCompany: firstData.insuranceCompany,
+    insurancePolicy: firstData.insurancePolicy,
+    insuranceExpiration: firstData.insuranceExpiration,
+    leaseCost: formatCurrency(amount),
+    estimatedCost: formatCurrency(amount),
+    deposit: formatCurrency(totalDeposit),
+    requestCount: String(requests.length),
+    requestLines: requestLines.join('\n'),
+    requests: requestLines.join('\n'),
+    submittedDate: submittedDate ? formatDate(submittedDate) : '',
+    today: new Date().toLocaleDateString(lang === 'fr' ? 'fr-CA' : 'en-CA')
+  };
+
+  Object.keys(context).forEach((key) => {
+    const snakeKey = key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+    context[snakeKey] = context[key];
+  });
+  return { lang, client, context };
+}
+
+function fillEmailTemplateText(templateText, context) {
+  return String(templateText || '').replace(
+    /{{\s*([\w.]+)\s*}}|{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
+    (match, mustacheKey, braceKey, bracketKey, percentKey) => {
+      const key = mustacheKey || braceKey || bracketKey || percentKey;
+      const value = context[key];
+      return value === null || value === undefined ? '' : String(value);
+    }
+  );
+}
+
+function fillEmailTemplateHtml(templateText, context, htmlContext = {}) {
+  const htmlTokens = [];
+  const withPlaceholders = String(templateText || '').replace(
+    /{{\s*([\w.]+)\s*}}|{\s*([\w.]+)\s*}|\[\[\s*([\w.]+)\s*\]\]|%%\s*([\w.]+)\s*%%/g,
+    (match, mustacheKey, braceKey, bracketKey, percentKey) => {
+      const key = mustacheKey || braceKey || bracketKey || percentKey;
+      if (Object.prototype.hasOwnProperty.call(htmlContext, key)) {
+        const token = `__HTML_TOKEN_${htmlTokens.length}__`;
+        htmlTokens.push(htmlContext[key] || '');
+        return token;
+      }
+      const value = context[key];
+      return escapeEmailTemplateHtml(value === null || value === undefined ? '' : String(value)).replace(/\n/g, '<br>');
+    }
+  ).replace(/\n/g, '<br>');
+  return htmlTokens.reduce((html, value, index) => html.replace(`__HTML_TOKEN_${index}__`, value), withPlaceholders);
+}
+
+function buildStorageConfirmationEmailPreview(caseRequests) {
+  const template = getEmailTemplateByTemplateId('request-info-confirmation');
+  if (!template) {
+    throw new Error('Email template request-info-confirmation was not found.');
+  }
+  const { lang, client, context } = buildStorageConfirmationTemplateContext(caseRequests);
+  const to = client.email || context.tenantEmail;
+  if (!to) {
+    throw new Error('Tenant email is missing.');
+  }
+  const subject = fillEmailTemplateText(getLocalizedTemplateField(template, 'subject', lang), context);
+  const rawBody = getLocalizedTemplateField(template, 'body', lang);
+  const body = fillEmailTemplateText(rawBody, context);
+  const bodyHtml = fillEmailTemplateHtml(rawBody, context, {
+    vehicleInfo: context.vehicleInfoHtml,
+    vehicle_info: context.vehicle_info_html
+  });
+  const html = buildStorageEmailHtml({ lang, subject, bodyHtml });
+  return {
+    requestIds: caseRequests.map((request) => request.id),
+    lang,
+    to,
+    cc: getStorageConfirmationCc(lang),
+    subject,
+    html
+  };
+}
+
+function buildStorageEmailHtml({ lang, subject, bodyHtml, attachments = [] }) {
+  const footerContact = lang === 'fr'
+    ? '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | entrepot@as-colle.com'
+    : '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | warehouse@as-colle.com';
+  return `<!doctype html>
+<html lang="${lang}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; background:#f1f5f9; font-family: Inter, Arial, sans-serif; color:#0f172a; }
+    .shell { max-width:1040px; margin:24px auto; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; }
+    .banner { background:#0f172a; color:#fff; padding:20px 24px; }
+    .brand { font-size:20px; font-weight:700; }
+    .tag { margin-top:4px; font-size:12px; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.08em; }
+    .content { padding:24px; }
+    .subject { font-size:22px; font-weight:700; margin:0 0 16px; color:#111827; }
+    .body { font-size:15px; line-height:1.6; color:#1f2937; white-space:normal; }
+    .footer { background:#0f172a; color:#94a3b8; padding:16px 24px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="banner">
+      <div class="brand">Entrepot Ferme Colle</div>
+      <div class="tag">${lang === 'fr' ? 'ENTREPOSAGE SAISONNIER DE VEHICULES' : 'SEASONAL VEHICLE STORAGE'}</div>
+    </div>
+    <div class="content">
+      <h1 class="subject">${escapeEmailTemplateHtml(subject)}</h1>
+      <div class="body">${bodyHtml}</div>${attachments.length ? `
+      <div style="margin-top:16px;padding:12px 16px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;font-size:12px;color:#64748b;">
+        <div style="font-weight:600;margin-bottom:8px;">${lang === 'fr' ? 'Pièces jointes (aperçu)' : 'Attachments (preview)'}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${attachments.map(({ filename, missing }) => `
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 10px;background:#fff;border:1px solid ${missing ? '#fca5a5' : '#e2e8f0'};border-radius:4px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${missing ? '#ef4444' : '#64748b'}" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span style="color:${missing ? '#ef4444' : '#374151'}">${escapeEmailTemplateHtml(filename)}</span>
+            ${missing ? `<span style="color:#ef4444;font-size:11px;">(${lang === 'fr' ? 'contrat manquant' : 'contract missing'})</span>` : ''}
+          </div>`).join('')}
+        </div>
+      </div>` : ''}
+    </div>
+    <div class="footer">${footerContact}</div>
+  </div>
+</body>
+</html>`;
+}
+
+function buildStorageContractDetailsHtml(requests, lang) {
+  const headers = lang === 'fr'
+    ? ['# Demande', 'Véhicule', 'Montant']
+    : ['Request #', 'Vehicle', 'Amount'];
+  const rows = requests.map((request) => {
+    const v = request.vehicle || {};
+    const vehicleType = getVehicleTypeDisplayLabel(v.type || v.typeLabel, lang, v.typeLabel);
+    const vehicleModel = [v.brand, v.model].filter(Boolean).join(' ');
+    const desc = [vehicleType, vehicleModel].filter(Boolean).join(': ');
+    const amount = resolveStorageAmount(request);
+    return `<tr>
+      <td style="padding:8px 12px;border:1px solid #e2e8f0;">${escapeEmailTemplateHtml(request.id || '')}</td>
+      <td style="padding:8px 12px;border:1px solid #e2e8f0;">${escapeEmailTemplateHtml(desc || '—')}</td>
+      <td style="padding:8px 12px;text-align:right;border:1px solid #e2e8f0;">${Number.isFinite(amount) ? formatCurrency(amount) : '—'}</td>
+    </tr>`;
+  });
+  return `<table style="width:100%;border-collapse:collapse;margin:1rem 0;font-size:14px;">
+  <thead>
+    <tr style="background:#f1f5f9;">
+      <th style="padding:8px 12px;text-align:left;border:1px solid #e2e8f0;">${headers[0]}</th>
+      <th style="padding:8px 12px;text-align:left;border:1px solid #e2e8f0;">${headers[1]}</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #e2e8f0;">${headers[2]}</th>
+    </tr>
+  </thead>
+  <tbody>${rows.join('')}</tbody>
+</table>`;
+}
+
+function buildStorageContractEmailPreview(caseRequests) {
+  const template = getEmailTemplateByTemplateId('send-contracts');
+  if (!template) {
+    throw new Error('Email template send-contracts was not found.');
+  }
+  const { lang, client, context } = buildStorageConfirmationTemplateContext(caseRequests);
+  const to = client.email || context.tenantEmail;
+  if (!to) {
+    throw new Error('Tenant email is missing.');
+  }
+  const detailsHtml = buildStorageContractDetailsHtml(caseRequests, lang);
+  const contractContext = {
+    ...context,
+    saison: context.season,
+    details: detailsHtml,
+    total_cost: context.leaseCost,
+    total_deposit: context.deposit
+  };
+  const subject = fillEmailTemplateText(getLocalizedTemplateField(template, 'subject', lang), contractContext);
+  const rawBody = getLocalizedTemplateField(template, 'body', lang);
+  const body = fillEmailTemplateText(rawBody, contractContext);
+  const bodyHtml = fillEmailTemplateHtml(rawBody, contractContext, { details: detailsHtml });
+  const attachments = caseRequests.map((request) => {
+    const v = request.vehicle || {};
+    const desc = [v.typeLabel || v.type, v.brand, v.model].filter(Boolean).join('-') || 'contract';
+    return { filename: `contract-${desc}.pdf`, missing: !request.signedContractPath };
+  });
+  const html = buildStorageEmailHtml({ lang, subject, bodyHtml, attachments });
+  return {
+    emailType: 'contract',
+    requestIds: caseRequests.map((r) => r.id),
+    lang,
+    to,
+    cc: getStorageConfirmationCc(lang),
+    subject,
+    html
+  };
+}
+
+function buildStorageReceiptEmailPreview(caseRequests, receiptType) {
+  const workflow = STORAGE_RECEIPT_EMAIL_WORKFLOWS[receiptType];
+  if (!workflow) {
+    throw new Error('Unknown receipt workflow.');
+  }
+  const template = getEmailTemplateByTemplateIds(workflow.templateIds);
+  if (!template) {
+    throw new Error(`Email template ${workflow.templateIds.join(' or ')} was not found.`);
+  }
+  const { lang, client, context } = buildStorageConfirmationTemplateContext(caseRequests);
+  const to = client.email || context.tenantEmail;
+  if (!to) {
+    throw new Error('Tenant email is missing.');
+  }
+  const detailsHtml = buildStorageContractDetailsHtml(caseRequests, lang);
+  const receiptId = workflow.createsReceipt ? buildStorageReceiptId(caseRequests[0]) : '';
+  const receiptContext = {
+    ...context,
+    saison: context.season,
+    details: detailsHtml,
+    total_cost: context.leaseCost,
+    total_deposit: context.deposit,
+    receiptId,
+    receipt_id: receiptId,
+    receipt_type: receiptType,
+    next_status: workflow.targetStatus
+  };
+  const subject = fillEmailTemplateText(getLocalizedTemplateField(template, 'subject', lang), receiptContext);
+  const rawBody = getLocalizedTemplateField(template, 'body', lang);
+  const bodyHtml = fillEmailTemplateHtml(rawBody, receiptContext, { details: detailsHtml });
+  const html = buildStorageEmailHtml({ lang, subject, bodyHtml });
+  return {
+    emailType: 'receipt',
+    receiptType,
+    requestIds: caseRequests.map((r) => r.id),
+    lang,
+    to,
+    cc: getStorageConfirmationCc(lang),
+    subject,
+    html,
+    title: workflow.title,
+    receiptId
+  };
+}
+
+function setStorageConfirmationEmailBusy(isBusy) {
+  storageConfirmationEmailBusy = Boolean(isBusy);
+  if (sendStorageConfirmationEmailButton) {
+    sendStorageConfirmationEmailButton.disabled = storageConfirmationEmailBusy;
+    sendStorageConfirmationEmailButton.textContent = storageConfirmationEmailBusy ? 'Sending...' : 'Send';
+  }
+  if (cancelStorageConfirmationEmailButton) {
+    cancelStorageConfirmationEmailButton.disabled = storageConfirmationEmailBusy;
+  }
+}
+
+function openStorageConfirmationEmailModal(caseRequests, emailType = 'confirmation', options = {}) {
+  if (!storageConfirmationEmailModal) return;
+  try {
+    if (emailType === 'contract') {
+      pendingStorageConfirmationEmail = buildStorageContractEmailPreview(caseRequests);
+    } else if (emailType === 'receipt') {
+      pendingStorageConfirmationEmail = buildStorageReceiptEmailPreview(caseRequests, options.receiptType);
+    } else {
+      pendingStorageConfirmationEmail = buildStorageConfirmationEmailPreview(caseRequests);
+    }
+    const modalTitle = storageConfirmationEmailModal.querySelector('h3');
+    if (modalTitle) {
+      modalTitle.textContent =
+        pendingStorageConfirmationEmail.title ||
+        (emailType === 'contract' ? 'Send Contract Email' : 'Send Confirmation e-mail');
+    }
+    if (storageConfirmationEmailTo) storageConfirmationEmailTo.textContent = pendingStorageConfirmationEmail.to;
+    if (storageConfirmationEmailCc) storageConfirmationEmailCc.textContent = pendingStorageConfirmationEmail.cc;
+    if (storageConfirmationEmailSubject) storageConfirmationEmailSubject.textContent = pendingStorageConfirmationEmail.subject || '—';
+    if (storageConfirmationEmailPreview) storageConfirmationEmailPreview.srcdoc = pendingStorageConfirmationEmail.html;
+    if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = '';
+    setStorageConfirmationEmailBusy(false);
+    storageConfirmationEmailModal.classList.remove('hidden');
+  } catch (error) {
+    alert(error.message || 'Unable to prepare confirmation email.');
+  }
+}
+
+function closeStorageConfirmationEmailModal() {
+  if (!storageConfirmationEmailModal || storageConfirmationEmailBusy) return;
+  storageConfirmationEmailModal.classList.add('hidden');
+  pendingStorageConfirmationEmail = null;
+  if (storageConfirmationEmailPreview) storageConfirmationEmailPreview.srcdoc = '';
+  if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = '';
+}
+
+function getContractTemplateUrl(lang = 'en') {
+  const normalized = String(lang || 'en').toLowerCase();
+  const basePath = normalized === 'fr' ? './resources/contract-fr.pdf' : './resources/contract-en.pdf';
+  if (typeof window === 'undefined') return basePath;
+  const host = window.location.hostname || '';
+  const isLocalHost =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    host.startsWith('172.16.');
+  if (!isLocalHost) return basePath;
+  const separator = basePath.includes('?') ? '&' : '?';
+  return `${basePath}${separator}ts=${Date.now()}`;
+}
+
+function formatContractPdfDate(value) {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function getLocalizedTrackerText(value, lang = 'en') {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    const normalizedLang = String(lang || 'en').toLowerCase() === 'fr' ? 'fr' : 'en';
+    return value[normalizedLang] || value.en || value.fr || '';
+  }
+  return '';
+}
+
+function getSharedPolicyTextsForTracker(lang = 'en') {
+  return conditions
+    .map((entry) => getLocalizedTrackerText(entry?.text, lang).trim())
+    .filter(Boolean);
+}
+
+function getDropoffEtiquetteContentForTracker(lang = 'en') {
+  const items = etiquetteEntries
+    .map((entry) => getLocalizedTrackerText(entry?.text, lang).trim())
+    .filter(Boolean);
+  return {
+    heading: lang === 'fr' ? 'Etiquette de depot' : 'Drop-off etiquette',
+    intro: '',
+    items
+  };
+}
+
+function wrapTextIntoLinesForTracker(text, font, fontSize, maxWidth) {
+  if (!text || !font) return [];
+  const normalized = String(text).replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+  const words = normalized.split(' ');
+  const lines = [];
+  let currentLine = '';
+  words.forEach((word) => {
+    if (!word) return;
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, fontSize) <= maxWidth) {
+      currentLine = candidate;
+    } else {
+      if (currentLine) lines.push(currentLine);
+      currentLine = word;
+    }
+  });
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
+
+function appendSharedPoliciesPageForTracker(
+  pdfDoc,
+  {
+    bodyFont,
+    titleFont,
+    lang = 'en',
+    titleFontSize = 11,
+    bodyFontSize = 9.5,
+    lineHeightMultiplier = 1.3,
+    useExistingPage = false,
+    existingPageBottomPadding = 160
+  } = {}
+) {
+  const activeBodyFont = bodyFont || titleFont;
+  const activeTitleFont = titleFont || bodyFont;
+  if (!pdfDoc || !activeBodyFont) return;
+
+  const policies = getSharedPolicyTextsForTracker(lang);
+  const etiquette = getDropoffEtiquetteContentForTracker(lang);
+  const hasEtiquette = Boolean(etiquette.heading || etiquette.intro || etiquette.items.length);
+  if (!policies.length && !hasEtiquette) return;
+
+  const pages = pdfDoc.getPages();
+  const baseSize = pages.length ? pages[0].getSize() : { width: 612, height: 792 };
+  const margin = 50;
+  const bulletIndent = 14;
+  let page = null;
+  let cursorY = 0;
+  let maxWidth = baseSize.width - margin * 2;
+  let currentBottomMargin = margin;
+
+  const setPageContext = (targetPage, bottomMargin = margin) => {
+    page = targetPage;
+    const size = page.getSize();
+    maxWidth = size.width - margin * 2;
+    cursorY = size.height - margin;
+    currentBottomMargin = bottomMargin;
+  };
+
+  if (useExistingPage && pages.length) {
+    setPageContext(pages[pages.length - 1], Math.max(existingPageBottomPadding, margin));
+  } else {
+    setPageContext(pdfDoc.addPage([baseSize.width || 612, baseSize.height || 792]));
+  }
+
+  const createPage = () => {
+    setPageContext(pdfDoc.addPage([baseSize.width || 612, baseSize.height || 792]));
+  };
+
+  const ensureSpace = (needed) => {
+    if (cursorY - needed < currentBottomMargin) {
+      createPage();
+    }
+  };
+
+  const drawSectionHeading = (text) => {
+    if (!text) return;
+    const normalizedTitle = String(text).toUpperCase();
+    const lineHeight = titleFontSize * lineHeightMultiplier;
+    ensureSpace(lineHeight);
+    const baselineY = cursorY;
+    page.drawText(normalizedTitle, {
+      x: margin,
+      y: cursorY,
+      size: titleFontSize,
+      font: activeTitleFont || activeBodyFont,
+      characterSpacing: 0.15
+    });
+    const titleWidth =
+      activeTitleFont?.widthOfTextAtSize(normalizedTitle, titleFontSize) || maxWidth;
+    page.drawRectangle({
+      x: margin,
+      y: baselineY - titleFontSize * 0.3,
+      width: Math.min(titleWidth, maxWidth),
+      height: Math.max(0.8, titleFontSize * 0.12)
+    });
+    cursorY -= titleFontSize * (lineHeightMultiplier + 0.15);
+  };
+
+  const drawParagraph = (text) => {
+    if (!text) return;
+    const paragraphs = String(text).split(/\n+/).filter((entry) => entry.trim());
+    paragraphs.forEach((paragraph, paragraphIndex) => {
+      const lines = wrapTextIntoLinesForTracker(paragraph, activeBodyFont, bodyFontSize, maxWidth);
+      lines.forEach((line) => {
+        const lineHeight = bodyFontSize * lineHeightMultiplier;
+        ensureSpace(lineHeight);
+        page.drawText(line, {
+          x: margin,
+          y: cursorY,
+          size: bodyFontSize,
+          font: activeBodyFont
+        });
+        cursorY -= lineHeight;
+      });
+      if (paragraphIndex < paragraphs.length - 1) {
+        cursorY -= bodyFontSize * 0.25;
+      }
+    });
+    cursorY -= bodyFontSize * 0.35;
+  };
+
+  const drawBulletParagraph = (text) => {
+    if (!text) return;
+    const bulletWidth = Math.max(maxWidth - bulletIndent, 50);
+    const lines = wrapTextIntoLinesForTracker(text, activeBodyFont, bodyFontSize, bulletWidth);
+    lines.forEach((line, index) => {
+      const lineHeight = bodyFontSize * lineHeightMultiplier;
+      ensureSpace(lineHeight);
+      if (index === 0) {
+        page.drawText('•', {
+          x: margin,
+          y: cursorY,
+          size: bodyFontSize,
+          font: activeBodyFont
+        });
+      }
+      page.drawText(line, {
+        x: margin + bulletIndent,
+        y: cursorY,
+        size: bodyFontSize,
+        font: activeBodyFont
+      });
+      cursorY -= lineHeight;
+    });
+    cursorY -= bodyFontSize * lineHeightMultiplier * 0.35;
+  };
+
+  drawSectionHeading(lang === 'fr' ? 'Acces et entretien' : 'Access and maintenance');
+  policies.forEach((policy) => drawBulletParagraph(policy));
+
+  if (hasEtiquette) {
+    cursorY -= bodyFontSize * 0.15;
+    drawSectionHeading(etiquette.heading);
+    drawParagraph(etiquette.intro);
+    etiquette.items.forEach((item) => drawBulletParagraph(item));
+  }
+}
+
+function normalizeContractName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function getTorontoDateToken(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const parts = formatter.formatToParts(date);
+  const lookup = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return `${lookup.year}${lookup.month}${lookup.day}`;
+}
+
+function sanitizeIdToken(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+function shortIdToken(value, length = 6, fallback = 'XXXXXX') {
+  const normalized = sanitizeIdToken(value);
+  if (!normalized) return fallback.slice(0, length);
+  return normalized.slice(0, length).padEnd(length, 'X');
+}
+
+function deriveSeasonCodeForContract(request) {
+  const seasonId = String(resolveSeasonId(request?.season) || request?.season || '');
+  const season = seasonLookup.get(seasonId);
+  const seasonLabel =
+    season?.label?.en ||
+    season?.label?.fr ||
+    season?.name?.en ||
+    season?.name?.fr ||
+    seasonId;
+  const normalizedLabel = String(seasonLabel || '').toLowerCase();
+  const yearMatches = String(seasonLabel || '').match(/20\d{2}/g) || [];
+  if (normalizedLabel.includes('winter') || normalizedLabel.includes('hiver')) {
+    if (yearMatches.length >= 2) {
+      return `W${yearMatches[0].slice(2)}${yearMatches[1].slice(2)}`;
+    }
+    if (yearMatches.length === 1) {
+      const start = Number(yearMatches[0]);
+      if (Number.isFinite(start)) {
+        return `W${String(start).slice(2)}${String(start + 1).slice(2)}`;
+      }
+    }
+  }
+  if (normalizedLabel.includes('summer') || normalizedLabel.includes('ete') || normalizedLabel.includes('été')) {
+    if (yearMatches.length >= 1) {
+      return `S${yearMatches[0]}`;
+    }
+  }
+  if (yearMatches.length >= 2) {
+    return `W${yearMatches[0].slice(2)}${yearMatches[1].slice(2)}`;
+  }
+  if (yearMatches.length === 1) {
+    return `S${yearMatches[0]}`;
+  }
+  return 'S0000';
+}
+
+function buildStorageContractId(request) {
+  const seasonCode = deriveSeasonCodeForContract(request);
+  const rawCaseId = String(request?.caseId || '');
+  const caseClientPart = rawCaseId.includes('__') ? rawCaseId.split('__')[1] : '';
+  const caseIdSource = caseClientPart || request?.clientId || rawCaseId || 'CASEXX';
+  const requestIdSource = request?.id || 'REQXXX';
+  const caseIdShort = shortIdToken(caseIdSource, 6, 'CASEXX');
+  const requestIdShort = shortIdToken(requestIdSource, 6, 'REQXXX');
+  const dateToken = getTorontoDateToken(new Date());
+  return `CT-${seasonCode}-${caseIdShort}-${requestIdShort}-${dateToken}`;
+}
+
+function buildStorageReceiptId(request) {
+  const seasonCode = deriveSeasonCodeForContract(request);
+  const rawCaseId = String(resolveStorageCaseId(request) || request?.caseId || '');
+  const caseClientPart = rawCaseId.includes('__') ? rawCaseId.split('__')[1] : '';
+  const caseIdSource = caseClientPart || request?.clientId || rawCaseId || 'CASEXX';
+  const caseIdShort = shortIdToken(caseIdSource, 6, 'CASEXX');
+  return `R-${seasonCode}-${caseIdShort}-${getTorontoDateToken(new Date())}`;
+}
+
+function resolveContractYear(request, data) {
+  const seasonLabel = formatSeasonDisplayLabel(data?.season || request?.season || '');
+  const match = String(seasonLabel || '').match(/(20\d{2})/);
+  if (match) return match[1];
+  return String(new Date().getFullYear());
+}
+
+async function generateStorageContractPdf(request, contractId) {
+  if (!window.PDFLib) {
+    throw new Error('PDF library unavailable.');
+  }
+  const { PDFDocument, PDFName, PDFBool, StandardFonts } = window.PDFLib;
+  const data = buildContractDataFromStorageRequest(request);
+  const templateUrl = getContractTemplateUrl(data.formLanguage);
+  const host = window.location.hostname || '';
+  const isLocalHost =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    host.startsWith('172.16.');
+  const response = await fetch(templateUrl, isLocalHost ? { cache: 'no-store' } : undefined);
+  if (!response.ok) {
+    throw new Error('Unable to load the contract template PDF.');
+  }
+  const templateBytes = await response.arrayBuffer();
+  const pdfDoc = await PDFDocument.load(templateBytes);
+  const form = pdfDoc.getForm();
+  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const setTextField = (names, value = '', refresh = false) => {
+    const candidates = Array.isArray(names) ? names : [names];
+    for (const name of candidates) {
+      try {
+        const field = form.getTextField(name);
+        field.setText(value ? String(value) : '');
+        if (refresh) {
+          field.updateAppearances(helvetica);
+        }
+        return true;
+      } catch (error) {
+        continue;
+      }
+    }
+    return false;
+  };
+
+  const drawTextFieldAsPlainText = (names, value = '', options = {}) => {
+    const text = String(value || '').trim();
+    if (!text) return false;
+    const candidates = Array.isArray(names) ? names : [names];
+    for (const name of candidates) {
+      try {
+        const field = form.getTextField(name);
+        const widgets = field.acroField?.getWidgets?.() || [];
+        const widget = widgets[0];
+        const rectangle = widget?.getRectangle?.();
+        if (!rectangle) return false;
+        const page = pdfDoc.getPages()[options.pageIndex || 0];
+        if (!page) return false;
+        field.setText('');
+        try {
+          field.updateAppearances(helvetica);
+        } catch (appearanceError) {}
+        try {
+          widget.setRectangle({ x: -1000, y: -1000, width: 0, height: 0 });
+        } catch (widgetError) {}
+        page.drawText(text, {
+          x: rectangle.x + (options.offsetX ?? 2),
+          y: rectangle.y + (options.offsetY ?? 4),
+          size: options.size || 9.9,
+          font: options.font || helvetica
+        });
+        return true;
+      } catch (error) {
+        continue;
+      }
+    }
+    return false;
+  };
+
+  const setDropdown = (name, value = '') => {
+    if (!value) return;
+    try {
+      const field = form.getDropdown(name);
+      field.select(String(value));
+      field.updateAppearances(helvetica);
+    } catch (error) {
+      // Ignore missing dropdowns/options in template variants.
+    }
+  };
+
+  const setCheck = (name, checked) => {
+    try {
+      const field = form.getCheckBox(name);
+      if (checked) field.check();
+      else field.uncheck();
+    } catch (error) {
+      // Ignore missing checkbox in template variants.
+    }
+  };
+
+  const keepSignatureFieldEditable = (fieldName) => {
+    const normalized = String(fieldName || '').toLowerCase();
+    return normalized.includes('sig') || normalized.includes('signature');
+  };
+
+  const lockNonSignatureFields = () => {
+    try {
+      const fields = typeof form.getFields === 'function' ? form.getFields() : [];
+      fields.forEach((field) => {
+        const fieldName = typeof field.getName === 'function' ? field.getName() : '';
+        if (keepSignatureFieldEditable(fieldName)) return;
+        if (typeof field.enableReadOnly === 'function') field.enableReadOnly();
+        try {
+          field.updateAppearances(helvetica);
+        } catch (appearanceError) {
+          // Some field types do not support text appearances.
+        }
+        const widgets = field.acroField?.getWidgets?.() || [];
+        widgets.forEach((widget) => {
+          try {
+            widget.getOrCreateBorderStyle?.().setWidth(0);
+          } catch (borderError) {}
+          try {
+            const appearance = widget.getOrCreateAppearanceCharacteristics?.();
+            appearance?.setBackgroundColor?.(undefined);
+            appearance?.setBorderColor?.(undefined);
+          } catch (appearanceError) {}
+        });
+      });
+    } catch (error) {
+      console.warn('Unable to lock contract fields', error);
+    }
+  };
+
+  const hideNonSignatureFieldWidgets = () => {
+    try {
+      const fields = typeof form.getFields === 'function' ? form.getFields() : [];
+      fields.forEach((field) => {
+        const fieldName = typeof field.getName === 'function' ? field.getName() : '';
+        if (keepSignatureFieldEditable(fieldName)) return;
+        const widgets = field.acroField?.getWidgets?.() || [];
+        widgets.forEach((widget) => {
+          try {
+            widget.setRectangle({ x: -1000, y: -1000, width: 0, height: 0 });
+          } catch (error) {}
+        });
+      });
+    } catch (error) {
+      console.warn('Unable to hide contract fields', error);
+    }
+  };
+
+  const formatFrenchMoney = (value) =>
+    `${(Number(value) || 0).toLocaleString('fr-CA', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+
+  const drawFrenchContractPageContent = (helveticaBold) => {
+    if ((data.formLanguage || 'en') !== 'fr') return;
+    const page = pdfDoc.getPages()[0];
+    if (!page) return;
+    const { width, height } = page.getSize();
+    const sx = width / 612;
+    const sy = height / 792;
+    const scale = Math.min(sx, sy);
+    page.drawRectangle({
+      x: 0,
+      y: 228 * sy,
+      width,
+      height: 472 * sy,
+      color: window.PDFLib.rgb(1, 1, 1)
+    });
+    const draw = (text, x, y, options = {}) => {
+      const value = options.preserveWhitespace ? String(text || '') : String(text || '').trim();
+      if (!value) return;
+      page.drawText(value, {
+        x: x * sx,
+        y: y * sy,
+        size: (options.size || 9) * scale,
+        font: options.font || helvetica,
+        maxWidth: options.maxWidth ? options.maxWidth * sx : undefined
+      });
+    };
+    const line = (x1, y1, x2, y2, thickness = 1) => {
+      page.drawLine({
+        start: { x: x1 * sx, y: y1 * sy },
+        end: { x: x2 * sx, y: y2 * sy },
+        thickness: thickness * scale
+      });
+    };
+    const rect = (x, y, w, h, options = {}) => {
+      page.drawRectangle({
+        x: x * sx,
+        y: y * sy,
+        width: w * sx,
+        height: h * sy,
+        borderWidth: (options.borderWidth || 0.8) * scale,
+        borderColor: window.PDFLib.rgb(0, 0, 0)
+      });
+    };
+    const checkbox = (x, y, checked) => {
+      rect(x, y, 10, 10, { borderWidth: 1.2 });
+      if (checked) {
+        line(x + 2, y + 5, x + 4.2, y + 2.4, 1.2);
+        line(x + 4.2, y + 2.4, x + 8.5, y + 8.2, 1.2);
+      }
+    };
+    const heading = (text, x, y, width = 215) => {
+      draw(text, x, y, { font: helveticaBold, size: 10.8 });
+      line(x, y - 2, x + width, y - 2, 0.8);
+    };
+    const wrap = (text, maxChars) => {
+      const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+      const lines = [];
+      let current = '';
+      words.forEach((word) => {
+        const next = current ? `${current} ${word}` : word;
+        if (next.length <= maxChars) {
+          current = next;
+        } else {
+          if (current) lines.push(current);
+          current = word;
+        }
+      });
+      if (current) lines.push(current);
+      return lines;
+    };
+    const wrapByWidth = (text, maxWidth, options = {}) => {
+      const font = options.font || helvetica;
+      const size = (options.size || 9) * scale;
+      const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+      const lines = [];
+      let current = '';
+      words.forEach((word) => {
+        const next = current ? `${current} ${word}` : word;
+        const nextWidth = font.widthOfTextAtSize(next, size) / scale;
+        if (nextWidth <= maxWidth) {
+          current = next;
+        } else {
+          if (current) lines.push(current);
+          current = word;
+        }
+      });
+      if (current) lines.push(current);
+      return lines;
+    };
+    const paragraph = (text, x, y, maxWidth, options = {}) => {
+      let currentY = y;
+      wrapByWidth(text, maxWidth, options).forEach((row) => {
+        draw(row, x, currentY, options);
+        currentY -= options.lineHeight || 10;
+      });
+      return currentY;
+    };
+
+    const leftX = 48;
+    const labelX = 64;
+    const col1X = labelX;
+    const col2X = 285;
+    const col3X = 455;
+    const rightEdgeX = 564;
+    const totalRightEdgeX = 564;
+    const textSize = 9.9;
+    const headingSize = 11.2;
+    const headingTight = (text, y, width = 205) => {
+      draw(text, leftX, y, { font: helveticaBold, size: headingSize });
+      line(leftX, y - 2, leftX + width, y - 2, 0.8);
+    };
+    const pair = (label, value, x, y, options = {}) => {
+      const normalizedLabel = String(label || '').trim().replace(/\s*:?\s*$/, ':');
+      const normalizedValue = String(value || '').trim();
+      if (options.hideWhenEmpty && !normalizedValue) return;
+      const text = `${normalizedLabel}  ${normalizedValue}`;
+      draw(text, x, y, {
+        size: options.size || textSize,
+        font: options.font || helvetica,
+        maxWidth: options.maxWidth
+      });
+    };
+    const pairText = (label, value) =>
+      `${String(label || '').trim().replace(/\s*:?\s*$/, ':')}  ${String(value || '').trim()}`;
+    const rightPair = (label, value, rightX, y, options = {}) => {
+      const size = options.size || textSize;
+      const font = options.font || helvetica;
+      if (options.hideWhenEmpty && !String(value || '').trim()) return;
+      const text = pairText(label, value);
+      const measuredWidth = font.widthOfTextAtSize(text, size * scale) / scale;
+      pair(label, value, rightX - measuredWidth, y, options);
+    };
+    const drawInline = (segments, x, y, options = {}) => {
+      let currentX = x;
+      const size = options.size || textSize;
+      segments.forEach((segment) => {
+        const text = String(segment.text || '');
+        if (!text) return;
+        const font = segment.font || options.font || helvetica;
+        draw(text, currentX, y, { ...options, ...segment, font, size, preserveWhitespace: true });
+        currentX += font.widthOfTextAtSize(text, size * scale) / scale;
+      });
+    };
+    const row = (items, y, options = {}) => {
+      if (!Array.isArray(items) || !items.length) return;
+      const columns = [col1X, col2X, col3X];
+      items.forEach((item, index) => {
+        if (!item) return;
+        if (index === items.length - 1 && item.align === 'right') {
+          rightPair(item.label, item.value, item.rightX || rightEdgeX, y, item.options || options);
+        } else {
+          pair(item.label, item.value, item.x || columns[index] || col1X, y, item.options || options);
+        }
+      });
+    };
+
+    pair('SAISON:', formatSeasonDisplayLabel(data.season, 'fr'), leftX, 710, { font: helveticaBold, size: 10.2 });
+    line(leftX, 708, leftX + 42, 708, 0.8);
+    rightPair('Numero de Contrat:', effectiveContractId, rightEdgeX, 710, { maxWidth: 260 });
+
+    headingTight('INFORMATION DE LOCATAIRE:', 686, 205);
+    row([
+      { label: 'Nom:', value: data.tenantName },
+      { label: 'Courriel:', value: data.email, align: 'right' }
+    ], 668);
+    row([
+      { label: 'Adresse:', value: tenantAddressLine },
+      { label: 'Tel:', value: data.tenantPhone, align: 'right' }
+    ], 651);
+
+    headingTight('INFORMATION SUR LE LOCATEUR:', 622, 220);
+    row([
+      { label: 'Nom:', value: 'Ferme Colle - Alain Colle & Serge Colle' },
+      { label: 'Tel:', value: '514-627-5377' },
+      { label: 'Courriel:', value: 'entrepot@as-colle.com', align: 'right' }
+    ], 604);
+    pair('Adresse:', '276, rue Dolbec St-Eustache, QC J7R 6N5', labelX, 587);
+
+    headingTight('INFORMATION SUR LE VÉHICULE:', 558, 210);
+    row([
+      { label: 'Type de véhicule:', value: data.vehicleTypeLabel || data.vehicleType },
+      { label: 'Si autre précisez:', value: data.vehicleTypeOther, options: { hideWhenEmpty: true } }
+    ], 540);
+    row([
+      { label: 'Marque:', value: data.vehicleBrand },
+      { label: 'Modèle:', value: data.vehicleModel },
+      { label: 'Année:', value: data.vehicleYear, align: 'right' }
+    ], 523);
+    pair('Couleur:', data.vehicleColour, col1X, 506);
+    pair('Longueur(pied):', data.vehicleLength, 220, 506);
+    pair('Plaque:', data.vehiclePlate, 355, 506);
+    rightPair('Province:', data.vehicleProv, rightEdgeX, 506);
+
+    headingTight("INFORMATION SUR L'ASSURANCE:", 478, 225);
+    pair("Compagnie d'Assurance du locataire:", data.insuranceCompany, labelX, 460);
+    row([
+      { label: 'Numéro de police:', value: data.insurancePolicy },
+      { label: 'Expiration:', value: formatContractPdfDate(data.insuranceExpiration), align: 'right' }
+    ], 443);
+
+    headingTight('INFORMATION SUR LE SERVICE:', 416, 215);
+    checkbox(labelX, 394.5, data.battery === 'yes');
+    draw('Entretien de la batterie', labelX + 15, 397, { size: textSize });
+    checkbox(210, 394.5, data.propane === 'yes');
+    draw('Stockage de réservoirs de propane', 225, 397, { size: textSize });
+    rightPair('Coût des services:', formatFrenchMoney(serviceTotal), totalRightEdgeX, 397, { font: helveticaBold });
+    line(leftX, 379, totalRightEdgeX, 379, 2.2);
+
+    pair('Durée bail:', data.leaseDuration, leftX, 361, { font: helveticaBold });
+    rightPair('Frais de location $:', formatFrenchMoney(estimatedTotal), totalRightEdgeX, 361, { font: helveticaBold });
+
+    const insuranceText = "L'entreposage s’effectue aux risques et périls du locataire. Durant toute la durée d'occupation, le locataire devra détenir des polices d'assurances véhicules couvrant le vol, les dommages et la responsabilité civile et générale appropriées à son usage et à l'entreposage et conformes aux exigences du locateur et/ou des assureurs de véhicules. Sur demande, le locataire devra fournir une copie de sa police d'assurance. Le locataire est avisé par la présente et comprend que les biens personnels du locataire ne sont pas assurés par le locateur pour les dommages ou les pertes et le locateur n’assume aucune responsabilité pour ces pertes et dommages. Le locateur n’assumera aucune responsabilité pour les pertes et dommages, sauf dans le cas où ces dommages ou pertes sont causés par une faute intentionnelle ou une faute lourde du locateur. Par ailleurs, tout réservoir de propane et bidon d’essence doivent être retirés des véhicules.";
+    const afterInsuranceY = paragraph(insuranceText, leftX, 341, totalRightEdgeX - leftX, {
+      font: helveticaBold,
+      size: 9.1,
+      lineHeight: 9.4
+    });
+
+    const depositY = afterInsuranceY - 8;
+    drawInline([
+      { text: 'Un dépôt de garantie de $ ' },
+      { text: formatFrenchMoney(data.deposit), font: helveticaBold },
+      { text: ' sera versé à Ferme Colle à la signature du présent contrat.' }
+    ], leftX, depositY, { size: textSize });
+    drawInline([
+      { text: 'La somme restante de $ ' },
+      { text: formatFrenchMoney(remaining), font: helveticaBold },
+      { text: ' sera payée le premier jour de location.' }
+    ], leftX, depositY - 15, { size: textSize });
+
+  };
+
+  const tenantAddressLine = [data.tenantAddress, data.tenantCity, data.tenantProvince, data.tenantPostal]
+    .filter(Boolean)
+    .join(', ');
+  const effectiveContractId = String(contractId || request?.contractId || buildStorageContractId(request));
+  const contractAmount = resolveStorageAmount(request);
+  const batteryFee = data.battery === 'yes' ? getAddonPrice('battery', data.season) : 0;
+  const propaneFee = data.propane === 'yes' ? getAddonPrice('propane', data.season) : 0;
+  const serviceTotal = batteryFee + propaneFee;
+  const estimatedTotal = Number.isFinite(contractAmount) ? contractAmount : 0;
+  const remaining = Math.max(estimatedTotal - data.deposit, 0);
+  const currentUserEmail = String(auth.currentUser?.email || '').toLowerCase();
+  const repSigLocationByEmail = {
+    'sergecolle@gmail.com': 'Montreal',
+    'arcolle@gmail.com': 'St-Eustache'
+  };
+  const repSigLocation = repSigLocationByEmail[currentUserEmail] || '';
+  const serviceCostDisplay = serviceTotal > 0 ? formatCurrency(serviceTotal) : '0.00';
+  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  setDropdown('season', formatSeasonDisplayLabel(data.season, data.formLanguage));
+  setTextField('tenantName', data.tenantName);
+  setTextField('tenantPhone', data.tenantPhone);
+  setTextField('tenantEmail', data.email);
+  setTextField('tenantAddress', tenantAddressLine);
+  setDropdown('vehicleType', data.vehicleTypeLabel || data.vehicleType);
+  setTextField('vehicleTypeOther', data.vehicleTypeOther);
+  setTextField('vehicleBrand', data.vehicleBrand);
+  setTextField('vehicleModel', data.vehicleModel);
+  setTextField(['vehicleColour', 'vehicleColor', 'colour', 'color'], data.vehicleColour);
+  setTextField('vehicleLength', data.vehicleLength);
+  setTextField(['vehicleYear', 'Number_1'], data.vehicleYear);
+  setTextField('vehiclePlate', data.vehiclePlate);
+  setDropdown('vehicleProv', data.vehicleProv);
+  setTextField('insuranceCompany', data.insuranceCompany);
+  setTextField('insurancePolicy', data.insurancePolicy);
+  setTextField(['insuranceExpiration', 'insuranceExpiry', 'insuranceExpirationDate'], formatContractPdfDate(data.insuranceExpiration), true);
+  setTextField(['leaseDuration', 'leaseTerm', 'duration'], data.leaseDuration);
+  setTextField('leaseCost', estimatedTotal ? formatCurrency(estimatedTotal) : '');
+  setTextField('deposit', data.deposit ? formatCurrency(data.deposit) : '');
+  setTextField(['serviceCost', 'service Cost'], serviceCostDisplay);
+  setTextField('remaining', remaining ? formatCurrency(remaining) : '');
+  setTextField(['contractNumber', 'contract', 'contractId'], effectiveContractId);
+  setTextField('tenantSigLocation', '');
+  setTextField('tenantSigDate', '', true);
+  setTextField('tenantSignature', '');
+  setTextField('repSignature', '');
+  drawTextFieldAsPlainText(['repSigLocation', 'repSigLocaiton'], repSigLocation, { size: 9.9 });
+  setTextField('repSigDate', '');
+  setCheck('battery', data.battery === 'yes');
+  setCheck('propane', data.propane === 'yes');
+
+  drawFrenchContractPageContent(helveticaBold);
+  if ((data.formLanguage || 'en') === 'fr') {
+    hideNonSignatureFieldWidgets();
+  }
+
+  const useExistingPolicyPage = pdfDoc.getPageCount() > 1;
+  appendSharedPoliciesPageForTracker(pdfDoc, {
+    bodyFont: helvetica,
+    titleFont: helveticaBold,
+    lang: data.formLanguage || 'en',
+    titleFontSize: 11,
+    bodyFontSize: 9.5,
+    useExistingPage: useExistingPolicyPage,
+    existingPageBottomPadding: 160
+  });
+
+  lockNonSignatureFields();
+
+  const acroFormDict = pdfDoc.catalog.lookup(PDFName.of('AcroForm'));
+  if (acroFormDict) {
+    acroFormDict.set(PDFName.of('NeedAppearances'), PDFBool.True);
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const filename = `storage-contract-${effectiveContractId}.pdf`;
+  const url = URL.createObjectURL(blob);
+  return { blob, filename, url, contractId: effectiveContractId };
 }
 
 function syncMileageTagSuggestions() {
@@ -5059,6 +6740,65 @@ function renderCopyTable() {
   });
 }
 
+function formatEmailTemplateUpdatedAt(entry) {
+  const ms = timestampToMillis(entry?.updatedAt) || timestampToMillis(entry?.createdAt);
+  return ms ? formatDateTimeFromMillis(ms) : '—';
+}
+
+function renderEmailTemplateTable() {
+  if (!emailTemplateTableBody) return;
+  emailTemplateTableBody.innerHTML = '';
+  if (!emailTemplates.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.className = 'empty';
+    cell.textContent = 'No email templates yet.';
+    row.appendChild(cell);
+    emailTemplateTableBody.appendChild(row);
+    return;
+  }
+
+  const sortedTemplates = [...emailTemplates].sort((a, b) =>
+    String(a.templateId || a.id || '').localeCompare(String(b.templateId || b.id || ''))
+  );
+
+  sortedTemplates.forEach((entry) => {
+    const row = document.createElement('tr');
+    const cells = [
+      entry.templateId || entry.id || '—',
+      entry.subject?.en || '—',
+      entry.subject?.fr || '—',
+      formatEmailTemplateUpdatedAt(entry)
+    ];
+    cells.forEach((value) => {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    const actionCell = document.createElement('td');
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'icon-button';
+    editButton.dataset.action = 'edit-email-template';
+    editButton.dataset.id = entry.id;
+    editButton.setAttribute('aria-label', `Edit ${entry.templateId || 'email template'}`);
+    editButton.innerHTML = '<img src="icons/pencil.svg" alt="Edit email template" />';
+    actionCell.appendChild(editButton);
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-button';
+    deleteButton.dataset.action = 'delete-email-template';
+    deleteButton.dataset.id = entry.id;
+    deleteButton.setAttribute('aria-label', `Delete ${entry.templateId || 'email template'}`);
+    deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete email template" data-icon="trash" />';
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
+    emailTemplateTableBody.appendChild(row);
+  });
+}
+
 function renderPublishHistoryTable(message = '') {
   if (!publishHistoryTableBody) return;
   publishHistoryTableBody.innerHTML = '';
@@ -6180,9 +7920,14 @@ function syncEntryPaymentFields() {
   if (!entryPaidToggle || !entryPaidWrapper || !entryPaidDateWrapper || !entryPaidDateInput) return;
   const isExpense = entryTypeSelect?.value === 'expense';
   entryPaidWrapper.classList.toggle('hidden', !isExpense);
+  entryPaidDateWrapper.classList.toggle('hidden', !isExpense);
   if (!isExpense) {
     entryPaidToggle.checked = true;
     entryPaidToggle.disabled = true;
+    entryPaidDateInput.value = '';
+    entryPaidDateInput.required = false;
+    entryPaidDateWrapper.classList.remove('ghosted');
+    return;
   } else {
     entryPaidToggle.disabled = false;
   }
@@ -6468,6 +8213,21 @@ function subscribeToMileageSettings() {
   );
 }
 
+function subscribeToAppSettings() {
+  cleanAppSettingsSubscription();
+  const settingsDoc = getAppSettingsDocRef();
+  unsubscribeAppSettings = onSnapshot(
+    settingsDoc,
+    (snapshot) => {
+      appSettings = snapshot.exists() ? normalizeAppSettings(snapshot.data()) : normalizeAppSettings();
+      syncGeneralSettingsUI();
+    },
+    (error) => {
+      console.error('Failed to load app settings:', error);
+    }
+  );
+}
+
 function cleanExpensesSubscription() {
   if (unsubscribeExpenses) {
     unsubscribeExpenses();
@@ -6488,6 +8248,15 @@ function cleanMileageSettingsSubscription() {
   unsubscribeMileageSettings = null;
   mileageSettings = normalizeMileageSettings();
   syncMileageSettingsUI();
+}
+
+function cleanAppSettingsSubscription() {
+  if (unsubscribeAppSettings) {
+    unsubscribeAppSettings();
+  }
+  unsubscribeAppSettings = null;
+  appSettings = normalizeAppSettings();
+  syncGeneralSettingsUI();
 }
 
 function calculateAdjustments(entries) {
@@ -6591,6 +8360,9 @@ function openClientModal(mode, client = null) {
     editingClientId = client.id;
     clientFormTitle.textContent = `Edit ${client.name || 'client'}`;
     clientNameInput.value = client.name || '';
+    if (clientLanguageSelect) {
+      clientLanguageSelect.value = client.preferredLanguage === 'fr' ? 'fr' : 'en';
+    }
     clientPhoneInput.value = client.phone || '';
     clientEmailInput.value = client.email || '';
     clientAddressInput.value = client.address || '';
@@ -6607,6 +8379,9 @@ function openClientModal(mode, client = null) {
     editingClientId = null;
     clientFormTitle.textContent = 'New client';
     clientForm.reset();
+    if (clientLanguageSelect) {
+      clientLanguageSelect.value = getDefaultClientLanguage();
+    }
     clientProvinceSelect.value = '';
     if (clientActiveInput) {
       clientActiveInput.checked = true;
@@ -6623,6 +8398,9 @@ function openClientModal(mode, client = null) {
 function closeClientModal() {
   clientModal.classList.add('hidden');
   clientForm.reset();
+  if (clientLanguageSelect) {
+    clientLanguageSelect.value = 'en';
+  }
   clientProvinceSelect.value = '';
   if (clientActiveInput) {
     clientActiveInput.checked = true;
@@ -6661,6 +8439,23 @@ function findVehicleTypeEntry(identifier) {
   );
 }
 
+function getVehicleTypeDisplayLabel(identifier, lang = 'en', fallback = '') {
+  const locale = String(lang || 'en').toLowerCase() === 'fr' ? 'fr' : 'en';
+  const entry = findVehicleTypeEntry(identifier);
+  const entryId = entry?.id || entry?.value || identifier;
+  const defaultLabels = DEFAULT_VEHICLE_TYPE_LABELS[entryId] || DEFAULT_VEHICLE_TYPE_LABELS[identifier] || null;
+  return (
+    entry?.labels?.[locale] ||
+    defaultLabels?.[locale] ||
+    entry?.labels?.en ||
+    defaultLabels?.en ||
+    entry?.value ||
+    fallback ||
+    identifier ||
+    ''
+  );
+}
+
 function getVehicleTypeCandidates(identifier) {
   if (!identifier) return [];
   const entry = findVehicleTypeEntry(identifier);
@@ -6683,6 +8478,23 @@ function offerSupportsVehicleTypeForRequest(offer, vehicleTypeId) {
   const candidates = getVehicleTypeCandidates(vehicleTypeId);
   if (!candidates.length) return false;
   return candidates.some((candidate) => supportedTypes.includes(candidate));
+}
+
+function getOfferVehicleTypeMatchRank(offer, vehicleTypeId) {
+  const supportedTypes = getOfferVehicleTypes(offer);
+  if (!supportedTypes.length) return 1;
+  const candidates = getVehicleTypeCandidates(vehicleTypeId);
+  return candidates.some((candidate) => supportedTypes.includes(candidate)) ? 0 : 2;
+}
+
+function getStorageLocation(request) {
+  return request?.storageLocation === 'outdoor' ? 'outdoor' : 'indoor';
+}
+
+function offerMatchesStorageLocation(offer, storageLocation) {
+  const supportedTypes = getOfferVehicleTypes(offer);
+  if (storageLocation === 'indoor') return supportedTypes.length > 0;
+  return supportedTypes.length === 0 && offer?.price?.mode === 'flat';
 }
 
 function resolveSeasonId(seasonValue) {
@@ -6714,13 +8526,38 @@ function formatSeasonTypeLabel(type) {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
-function formatSeasonDisplayLabel(seasonValue) {
+function formatSeasonDisplayLabel(seasonValue, lang = 'en') {
   const resolvedId = resolveSeasonId(seasonValue);
   if (resolvedId) {
     const season = seasonLookup.get(resolvedId);
-    return season?.label?.en || season?.name?.en || resolvedId;
+    const locale = String(lang || 'en').toLowerCase() === 'fr' ? 'fr' : 'en';
+    return (
+      season?.label?.[locale] ||
+      season?.name?.[locale] ||
+      season?.label?.en ||
+      season?.name?.en ||
+      season?.label?.fr ||
+      season?.name?.fr ||
+      resolvedId
+    );
   }
   return seasonValue || '—';
+}
+
+function formatSeasonLeaseDuration(seasonValue, lang = 'en') {
+  const resolvedId = resolveSeasonId(seasonValue);
+  const season = resolvedId ? seasonLookup.get(resolvedId) : null;
+  const locale = String(lang || 'en').toLowerCase() === 'fr' ? 'fr' : 'en';
+  if (season?.duration?.[locale]) return season.duration[locale];
+  if (season?.duration?.en || season?.duration?.fr) return season.duration.en || season.duration.fr;
+  if (season?.timeframe?.[locale]) {
+    const joiner = locale === 'fr' ? ' au ' : ' to ';
+    return String(season.timeframe[locale]).replace(/\s+[–-]\s+/, joiner);
+  }
+  if (season?.timeframe?.en || season?.timeframe?.fr) {
+    return String(season.timeframe.en || season.timeframe.fr).replace(/\s+[–-]\s+/, ' to ');
+  }
+  return formatSeasonDisplayLabel(seasonValue);
 }
 
 function formatTemplateLabel(offer) {
@@ -6844,9 +8681,18 @@ function getOffersForRequest(request) {
   if (!request?.season || !request?.vehicle?.type) return [];
   const seasonId = resolveSeasonId(request.season);
   if (!seasonId) return [];
+  const storageLocation = getStorageLocation(request);
   const filtered = offers
-    .filter((offer) => offer.seasonId === seasonId && offerSupportsVehicleTypeForRequest(offer, request.vehicle.type))
+    .filter(
+      (offer) =>
+        offer.seasonId === seasonId &&
+        offerMatchesStorageLocation(offer, storageLocation) &&
+        offerSupportsVehicleTypeForRequest(offer, request.vehicle.type)
+    )
     .sort((a, b) => {
+      const matchRankA = getOfferVehicleTypeMatchRank(a, request.vehicle.type);
+      const matchRankB = getOfferVehicleTypeMatchRank(b, request.vehicle.type);
+      if (matchRankA !== matchRankB) return matchRankA - matchRankB;
       const orderA = Number.isFinite(a.order) ? a.order : 0;
       const orderB = Number.isFinite(b.order) ? b.order : 0;
       return orderA - orderB;
@@ -6909,8 +8755,9 @@ function estimateStorageAmount(request) {
   if (needsLength && !Number.isFinite(numericLength)) {
     return null;
   }
-  const matched = seasonOffers.find((offer) => lengthMatchesRange(numericLength, offer.lengthRange));
-  const selectedOffer = matched || seasonOffers[seasonOffers.length - 1];
+  const selectedOffer =
+    seasonOffers.find((offer) => lengthMatchesRange(numericLength, offer.lengthRange)) ||
+    seasonOffers[seasonOffers.length - 1];
   const baseAmount = computeOfferPriceValue(selectedOffer, { length: numericLength });
   if (!Number.isFinite(baseAmount)) return null;
   let total = baseAmount;
@@ -6958,9 +8805,48 @@ function syncStorageAmountInput(request) {
   const suggestedAmount = request ? resolveStorageAmount({ ...request, contractAmount: null }) : null;
   const valueToDisplay = overrideAmount != null ? overrideAmount : suggestedAmount;
   storageAmountInput.value = formatAmountInputValue(valueToDisplay);
+  storageAmountInput.dataset.suggestedAmount = Number.isFinite(suggestedAmount) ? String(suggestedAmount) : '';
   storageAmountInput.placeholder = Number.isFinite(suggestedAmount)
     ? `Suggested ${formatCurrency(suggestedAmount)}`
     : 'Auto-calculated from pricing';
+  storageAmountManualOverride = overrideAmount != null;
+}
+
+function buildStorageRequestDraftFromForm() {
+  const vehicleType = storageVehicleTypeSelect.value;
+  return {
+    season: storageSeasonSelect.value,
+    clientId: storageClientSelect.value,
+    storageLocation: storageLocationSelect?.value === 'outdoor' ? 'outdoor' : 'indoor',
+    vehicle: {
+      type: vehicleType,
+      typeLabel: VEHICLE_TYPE_OPTIONS.find((option) => option.value === vehicleType)?.label || vehicleType || '—',
+      brand: storageVehicleBrandInput.value.trim(),
+      model: storageVehicleModelInput.value.trim(),
+      colour: storageVehicleColourInput.value.trim(),
+      lengthFeet: storageVehicleLengthInput.value ? Number(storageVehicleLengthInput.value) : null,
+      year: storageVehicleYearInput.value ? Number(storageVehicleYearInput.value) : null,
+      plate: storageVehiclePlateInput.value.trim(),
+      province: storageVehicleProvinceSelect.value
+    },
+    insuranceCompany: storageInsuranceCompanyInput.value.trim(),
+    policyNumber: storagePolicyNumberInput.value.trim(),
+    insuranceExpiration: storageInsuranceExpirationInput.value
+      ? Timestamp.fromDate(new Date(`${storageInsuranceExpirationInput.value}T00:00:00`))
+      : null,
+    status: storageStatusSelect.value || 'new',
+    addons: {
+      battery: storageAddonBatteryInput.checked,
+      propane: storageAddonPropaneInput.checked
+    },
+    sourceLanguage: clientLookup.get(storageClientSelect.value)?.preferredLanguage || getDefaultClientLanguage()
+  };
+}
+
+function syncStorageAmountFromForm() {
+  if (storageAmountManualOverride) return;
+  const draft = buildStorageRequestDraftFromForm();
+  syncStorageAmountInput({ ...draft, contractAmount: null });
 }
 
 function setStorageFormReadOnly(readOnly) {
@@ -6977,15 +8863,18 @@ function setStorageFormReadOnly(readOnly) {
 
 function resetStorageFormFields() {
   storageForm.reset();
+  storageAmountManualOverride = false;
   storageSeasonSelect.value = '';
   storageClientSelect.value = '';
   storageVehicleTypeSelect.value = '';
+  if (storageLocationSelect) storageLocationSelect.value = 'indoor';
   storageVehicleProvinceSelect.value = '';
   storageStatusSelect.value = 'new';
   storageAddonBatteryInput.checked = false;
   storageAddonPropaneInput.checked = false;
   storageInsuranceExpirationInput.value = '';
   syncStorageAmountInput(null);
+  renderStorageContractLinks(storageContractLinks, null);
 }
 
 function populateStorageFormFields(request) {
@@ -7000,6 +8889,7 @@ function populateStorageFormFields(request) {
   }
   storageClientSelect.value = request.clientId || '';
   storageVehicleTypeSelect.value = request.vehicle?.type || '';
+  if (storageLocationSelect) storageLocationSelect.value = getStorageLocation(request);
   storageVehicleBrandInput.value = request.vehicle?.brand || '';
   storageVehicleModelInput.value = request.vehicle?.model || '';
   storageVehicleColourInput.value = request.vehicle?.colour || '';
@@ -7018,6 +8908,110 @@ function populateStorageFormFields(request) {
   storageAddonBatteryInput.checked = Boolean(request.addons?.battery);
   storageAddonPropaneInput.checked = Boolean(request.addons?.propane);
   syncStorageAmountInput(request);
+  renderStorageContractLinks(storageContractLinks, request);
+}
+
+function updateStorageContractButtons() {
+  if (generateStorageContractButton) {
+    generateStorageContractButton.disabled = storageContractBusy;
+  }
+  if (uploadStorageSignedContractButton) {
+    uploadStorageSignedContractButton.disabled = storageContractBusy;
+  }
+}
+
+function closeStorageContractModal() {
+  const requestIdForRollback = storageContractRequiresSignedUpload ? activeStorageContractRequestId : null;
+  if (generatedStorageContractUrl) {
+    URL.revokeObjectURL(generatedStorageContractUrl);
+  }
+  generatedStorageContractBlob = null;
+  generatedStorageContractUrl = null;
+  storageContractRequiresSignedUpload = false;
+  activeStorageContractRequestId = null;
+  storageContractBusy = false;
+  if (storageSignedContractFileInput) storageSignedContractFileInput.value = '';
+  if (storageContractModalSummary) storageContractModalSummary.textContent = '';
+  if (storageContractModalLinks) storageContractModalLinks.innerHTML = '';
+  if (storageContractModalError) storageContractModalError.textContent = '';
+  updateStorageContractButtons();
+  storageContractModal?.classList.add('hidden');
+
+  if (requestIdForRollback) {
+    const latest = getStorageRequestById(requestIdForRollback);
+    const hasSignedContract = Boolean(latest?.signedContractUrl);
+    if (!hasSignedContract) {
+      updateDoc(doc(db, 'storageRequests', requestIdForRollback), {
+        status: 'new',
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.uid || null
+      }).catch((error) => {
+        alert(error.message || 'Unable to reset status to New.');
+      });
+    }
+  }
+}
+
+function openStorageContractModal(request, options = {}) {
+  if (!request || !storageContractModal) return;
+  const { requireSignedUpload = false } = options;
+  activeStorageContractRequestId = request.id;
+  storageContractRequiresSignedUpload = Boolean(requireSignedUpload);
+  if (storageContractModalSummary) {
+    const clientName = clientLookup.get(request.clientId)?.name || 'client';
+    storageContractModalSummary.textContent = `Generate a contract for ${clientName}, review/sign it outside Tracker, then upload the signed copy.`;
+  }
+  renderStorageContractLinks(storageContractModalLinks, request);
+  if (storageContractModalError) {
+    storageContractModalError.textContent = '';
+  }
+  storageContractBusy = false;
+  updateStorageContractButtons();
+  storageContractModal.classList.remove('hidden');
+}
+
+async function generateAndDownloadStorageDraftContract({ autoDownload = true } = {}) {
+  const request = getStorageRequestById(activeStorageContractRequestId);
+  if (!request) {
+    if (storageContractModalError) storageContractModalError.textContent = 'Storage request not found.';
+    return;
+  }
+  storageContractBusy = true;
+  if (storageContractModalError) storageContractModalError.textContent = '';
+  updateStorageContractButtons();
+  try {
+    const resolvedContractId = String(request.contractId || buildStorageContractId(request));
+    if (!request.contractId) {
+      await updateDoc(doc(db, 'storageRequests', request.id), {
+        caseId: resolveStorageCaseId(request),
+        contractId: resolvedContractId,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.uid || null
+      });
+    }
+    const result = await generateStorageContractPdf({ ...request, contractId: resolvedContractId }, resolvedContractId);
+    if (generatedStorageContractUrl) {
+      URL.revokeObjectURL(generatedStorageContractUrl);
+    }
+    generatedStorageContractBlob = result.blob;
+    generatedStorageContractUrl = result.url;
+
+    if (autoDownload) {
+      const anchor = document.createElement('a');
+      anchor.href = result.url;
+      anchor.download = result.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    }
+  } catch (error) {
+    if (storageContractModalError) storageContractModalError.textContent = error.message || 'Unable to generate contract.';
+  } finally {
+    storageContractBusy = false;
+    const refreshed = getStorageRequestById(activeStorageContractRequestId);
+    renderStorageContractLinks(storageContractModalLinks, refreshed);
+    updateStorageContractButtons();
+  }
 }
 
 function openStorageModal(mode, request = null) {
@@ -7057,6 +9051,8 @@ function closeStorageModal() {
   setStorageFormReadOnly(false);
   storageFormError.textContent = '';
   editingStorageRequestId = null;
+  storageAmountManualOverride = false;
+  renderStorageContractLinks(storageContractLinks, null);
 }
 
 function openSeasonModal(mode, season = null) {
@@ -7408,6 +9404,113 @@ function closeCopyModal() {
   copyKeyInput.disabled = false;
   copyFormError.textContent = '';
   editingCopyId = null;
+}
+
+function escapeEmailTemplateHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderEmailTemplatePreview() {
+  if (!emailTemplatePreviewFrame) return;
+  const lang = emailTemplatePreviewLanguageSelect?.value === 'fr' ? 'fr' : 'en';
+  const subject = lang === 'fr' ? emailTemplateSubjectFrInput?.value || '' : emailTemplateSubjectEnInput?.value || '';
+  const body = lang === 'fr' ? emailTemplateBodyFrInput?.value || '' : emailTemplateBodyEnInput?.value || '';
+  const subjectHtml = escapeEmailTemplateHtml(subject);
+  const bodyHtml = escapeEmailTemplateHtml(body).replace(/\n/g, '<br>');
+  const locale = lang === 'fr' ? 'fr-CA' : 'en-CA';
+  const previewTimestamp = new Date().toLocaleString(locale);
+  const brandName = 'Entrepot Ferme Colle';
+  const brandTagline = lang === 'fr' ? 'ENTREPOSAGE SAISONNIER DE VEHICULES' : 'SEASONAL VEHICLE STORAGE';
+  const fixedFooterNote = lang === 'fr'
+    ? 'Questions ? <a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | entrepot@as-colle.com'
+    : 'Questions? <a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | warehouse@as-colle.com';
+  const html = `<!doctype html>
+<html lang="${lang}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; background:#f1f5f9; font-family: Inter, Arial, sans-serif; color:#0f172a; }
+    .shell { max-width:680px; margin:24px auto; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; }
+    .banner { background:#0f172a; color:#fff; padding:20px 24px; }
+    .brand { font-size:20px; font-weight:700; letter-spacing:0.01em; }
+    .tag { margin-top:4px; font-size:12px; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.08em; }
+    .content { padding:24px; }
+    .subject { font-size:22px; font-weight:700; margin:0 0 16px; color:#111827; }
+    .body { font-size:15px; line-height:1.6; color:#1f2937; }
+    .footer { background:#0f172a; color:#94a3b8; padding:16px 24px; font-size:12px; }
+    .meta { margin-top:4px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="banner">
+      <div class="brand">${brandName}</div>
+      <div class="tag">${brandTagline}</div>
+    </div>
+    <div class="content">
+      <h1 class="subject">${subjectHtml || '&nbsp;'}</h1>
+      <div class="body">${bodyHtml || '&nbsp;'}</div>
+    </div>
+    <div class="footer">
+      <div>${fixedFooterNote}</div>
+      <div class="meta">${previewTimestamp}</div>
+    </div>
+  </div>
+</body>
+</html>`;
+  emailTemplatePreviewFrame.srcdoc = html;
+}
+
+function openEmailTemplateModal(mode, template = null) {
+  if (!emailTemplateModal || !emailTemplateForm) return;
+  if (mode === 'edit' && template) {
+    editingEmailTemplateId = template.id;
+    emailTemplateFormTitle.textContent = `Edit template (${template.templateId || template.id})`;
+    emailTemplateIdInput.value = template.templateId || template.id || '';
+    emailTemplateIdInput.disabled = true;
+    emailTemplateCategoryInput.value = template.category || '';
+    emailTemplateSubjectEnInput.value = template.subject?.en || '';
+    emailTemplateSubjectFrInput.value = template.subject?.fr || '';
+    emailTemplateBodyEnInput.value = template.body?.en || '';
+    emailTemplateBodyFrInput.value = template.body?.fr || '';
+  } else {
+    editingEmailTemplateId = null;
+    emailTemplateFormTitle.textContent = 'New email template';
+    emailTemplateForm.reset();
+    emailTemplateIdInput.disabled = false;
+    if (emailTemplatePreviewLanguageSelect) {
+      emailTemplatePreviewLanguageSelect.value = 'en';
+    }
+  }
+  if (emailTemplateFormError) emailTemplateFormError.textContent = '';
+  renderEmailTemplatePreview();
+  emailTemplateModal.classList.remove('hidden');
+  emailTemplateIdInput.focus();
+}
+
+function closeEmailTemplateModal() {
+  if (!emailTemplateModal || !emailTemplateForm) return;
+  emailTemplateModal.classList.add('hidden');
+  emailTemplateForm.reset();
+  emailTemplateIdInput.disabled = false;
+  if (emailTemplatePreviewFrame) {
+    emailTemplatePreviewFrame.srcdoc = '';
+  }
+  if (emailTemplateFormError) emailTemplateFormError.textContent = '';
+  editingEmailTemplateId = null;
+}
+
+async function deleteEmailTemplateById(templateId) {
+  const entry = emailTemplates.find((item) => item.id === templateId);
+  const label = entry?.templateId || templateId;
+  if (!window.confirm(`Delete email template "${label}"?`)) return;
+  await deleteDoc(doc(db, 'emailTemplates', templateId));
 }
 
 function openCategoryModal(mode, category = null) {
@@ -7807,6 +9910,58 @@ if (pricingTabs) {
 
 if (storageTableBody) {
   storageTableBody.addEventListener('click', (event) => {
+    const toggleButton = event.target.closest('button[data-action="toggle-storage-case"]');
+    if (toggleButton) {
+      const caseId = String(toggleButton.dataset.caseId || '');
+      if (!caseId) return;
+      if (storageCasesExpanded.has(caseId)) storageCasesExpanded.delete(caseId);
+      else storageCasesExpanded.add(caseId);
+      renderStorageTable();
+      return;
+    }
+    const confirmationButton = event.target.closest('button[data-action="send-storage-confirmation"]');
+    if (confirmationButton) {
+      const caseId = String(confirmationButton.dataset.caseId || '');
+      if (!caseId) return;
+      const caseRequests = storageRequests
+        .filter((request) => resolveStorageCaseId(request) === caseId)
+        .sort(compareStorageRequests);
+      if (!caseRequests.length) {
+        alert('Storage case not found.');
+        return;
+      }
+      openStorageConfirmationEmailModal(caseRequests, 'confirmation');
+      return;
+    }
+    const contractEmailButton = event.target.closest('button[data-action="send-storage-contract"]');
+    if (contractEmailButton) {
+      const caseId = String(contractEmailButton.dataset.caseId || '');
+      if (!caseId) return;
+      const caseRequests = storageRequests
+        .filter((request) => resolveStorageCaseId(request) === caseId)
+        .sort(compareStorageRequests);
+      if (!caseRequests.length) {
+        alert('Storage case not found.');
+        return;
+      }
+      openStorageConfirmationEmailModal(caseRequests, 'contract');
+      return;
+    }
+    const receiptEmailButton = event.target.closest('button[data-action="send-storage-receipt"]');
+    if (receiptEmailButton) {
+      const caseId = String(receiptEmailButton.dataset.caseId || '');
+      const receiptType = String(receiptEmailButton.dataset.receiptType || '');
+      if (!caseId || !receiptType) return;
+      const caseRequests = storageRequests
+        .filter((request) => resolveStorageCaseId(request) === caseId)
+        .sort(compareStorageRequests);
+      if (!caseRequests.length) {
+        alert('Storage case not found.');
+        return;
+      }
+      openStorageConfirmationEmailModal(caseRequests, 'receipt', { receiptType });
+      return;
+    }
     const viewButton = event.target.closest('button[data-action="view-storage"]');
     if (viewButton) {
       const request = storageRequests.find((item) => item.id === viewButton.dataset.id);
@@ -7847,8 +10002,18 @@ if (storageTableBody) {
     if (!select) return;
     const requestId = select.dataset.id;
     const newStatus = select.value;
+    const existing = storageRequests.find((item) => item.id === requestId) || null;
+    const previousStatus = existing?.status || 'new';
+    if (newStatus === 'contract_ready' && previousStatus !== 'contract_ready') {
+      select.value = previousStatus;
+      if (existing) {
+        openStorageContractModal(existing, { requireSignedUpload: true });
+      }
+      return;
+    }
     try {
       await updateDoc(doc(db, 'storageRequests', requestId), {
+        caseId: resolveStorageCaseId(existing),
         status: newStatus,
         updatedAt: serverTimestamp(),
         updatedBy: auth.currentUser?.uid || null
@@ -7866,6 +10031,20 @@ if (newStorageRequestButton) {
   });
 }
 
+if (storageAmountInput) {
+  storageAmountInput.addEventListener('input', () => {
+    storageAmountManualOverride = storageAmountInput.value.trim() !== '';
+  });
+}
+
+[storageSeasonSelect, storageVehicleTypeSelect, storageLocationSelect, storageVehicleLengthInput, storageAddonBatteryInput, storageAddonPropaneInput].forEach(
+  (field) => {
+    if (!field) return;
+    const eventName = field.type === 'checkbox' || field.tagName === 'SELECT' ? 'change' : 'input';
+    field.addEventListener(eventName, syncStorageAmountFromForm);
+  }
+);
+
 if (closeStorageModalButton) {
   closeStorageModalButton.addEventListener('click', () => {
     closeStorageModal();
@@ -7876,6 +10055,138 @@ if (storageModal) {
   storageModal.addEventListener('click', (event) => {
     if (shouldCloseModalFromBackdrop(event)) {
       closeStorageModal();
+    }
+  });
+}
+
+if (closeStorageContractModalButton) {
+  closeStorageContractModalButton.addEventListener('click', () => {
+    closeStorageContractModal();
+  });
+}
+
+if (storageContractModal) {
+  storageContractModal.addEventListener('click', (event) => {
+    if (shouldCloseModalFromBackdrop(event)) {
+      closeStorageContractModal();
+    }
+  });
+}
+
+if (closeStorageConfirmationEmailModalButton) {
+  closeStorageConfirmationEmailModalButton.addEventListener('click', () => {
+    closeStorageConfirmationEmailModal();
+  });
+}
+
+if (cancelStorageConfirmationEmailButton) {
+  cancelStorageConfirmationEmailButton.addEventListener('click', () => {
+    closeStorageConfirmationEmailModal();
+  });
+}
+
+if (storageConfirmationEmailModal) {
+  storageConfirmationEmailModal.addEventListener('click', (event) => {
+    if (shouldCloseModalFromBackdrop(event)) {
+      closeStorageConfirmationEmailModal();
+    }
+  });
+}
+
+if (sendStorageConfirmationEmailButton) {
+  sendStorageConfirmationEmailButton.addEventListener('click', async () => {
+    if (!pendingStorageConfirmationEmail?.requestIds?.length) {
+      if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = 'No storage case is selected.';
+      return;
+    }
+    setStorageConfirmationEmailBusy(true);
+    if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = '';
+    try {
+      const callable =
+        pendingStorageConfirmationEmail.emailType === 'contract'
+          ? sendStorageContractEmailCallable
+          : pendingStorageConfirmationEmail.emailType === 'receipt'
+            ? sendStorageReceiptEmailCallable
+            : sendStorageConfirmationEmailCallable;
+      const payload =
+        pendingStorageConfirmationEmail.emailType === 'receipt'
+          ? {
+              requestIds: pendingStorageConfirmationEmail.requestIds,
+              receiptType: pendingStorageConfirmationEmail.receiptType
+            }
+          : { requestIds: pendingStorageConfirmationEmail.requestIds };
+      await callable(payload);
+      setStorageConfirmationEmailBusy(false);
+      closeStorageConfirmationEmailModal();
+    } catch (error) {
+      if (storageConfirmationEmailError) {
+        storageConfirmationEmailError.textContent = error.message || 'Unable to send email.';
+      }
+      setStorageConfirmationEmailBusy(false);
+    }
+  });
+}
+
+if (generateStorageContractButton) {
+  generateStorageContractButton.addEventListener('click', async () => {
+    await generateAndDownloadStorageDraftContract({ autoDownload: true });
+  });
+}
+
+if (uploadStorageSignedContractButton) {
+  uploadStorageSignedContractButton.addEventListener('click', async () => {
+    const request = getStorageRequestById(activeStorageContractRequestId);
+    const file = storageSignedContractFileInput?.files?.[0];
+    if (!request) {
+      if (storageContractModalError) storageContractModalError.textContent = 'Storage request not found.';
+      return;
+    }
+    if (!file) {
+      if (storageContractModalError) storageContractModalError.textContent = 'Select the signed contract file first.';
+      return;
+    }
+    storageContractBusy = true;
+    if (storageContractModalError) storageContractModalError.textContent = '';
+    updateStorageContractButtons();
+    try {
+      const resolvedContractId = String(request.contractId || buildStorageContractId(request));
+      if (!request.contractId) {
+        await updateDoc(doc(db, 'storageRequests', request.id), {
+          caseId: resolveStorageCaseId(request),
+          contractId: resolvedContractId,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.uid || null
+        });
+      }
+      const upload = await uploadStorageContractFile(request.id, 'signed', file, { contractId: resolvedContractId });
+      if (request.signedContractPath && request.signedContractPath !== upload?.path) {
+        await deleteStorageContractAtPath(request.signedContractPath);
+      }
+      await updateDoc(doc(db, 'storageRequests', request.id), {
+        caseId: resolveStorageCaseId(request),
+        contractId: resolvedContractId,
+        status: 'contract_ready',
+        contractDraftUrl: deleteField(),
+        contractDraftPath: deleteField(),
+        contractDraftUploadedAt: deleteField(),
+        signedContractUrl: upload?.url || null,
+        signedContractPath: upload?.path || null,
+        signedContractUploadedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.uid || null
+      });
+      storageContractRequiresSignedUpload = false;
+      if (storageSignedContractFileInput) {
+        storageSignedContractFileInput.value = '';
+      }
+      closeStorageContractModal();
+    } catch (error) {
+      if (storageContractModalError) storageContractModalError.textContent = error.message || 'Unable to upload signed contract.';
+    } finally {
+      storageContractBusy = false;
+      const refreshed = getStorageRequestById(activeStorageContractRequestId);
+      renderStorageContractLinks(storageContractModalLinks, refreshed);
+      updateStorageContractButtons();
     }
   });
 }
@@ -8223,6 +10534,23 @@ if (copyTableBody) {
   });
 }
 
+if (emailTemplateTableBody) {
+  emailTemplateTableBody.addEventListener('click', (event) => {
+    const editButton = event.target.closest('button[data-action="edit-email-template"]');
+    if (editButton) {
+      const entry = emailTemplates.find((item) => item.id === editButton.dataset.id);
+      if (entry) {
+        openEmailTemplateModal('edit', entry);
+      }
+      return;
+    }
+    const deleteButton = event.target.closest('button[data-action="delete-email-template"]');
+    if (deleteButton) {
+      deleteEmailTemplateById(deleteButton.dataset.id);
+    }
+  });
+}
+
 if (closeCopyModalButton) {
   closeCopyModalButton.addEventListener('click', () => {
     closeCopyModal();
@@ -8234,6 +10562,32 @@ if (copyModal) {
     if (shouldCloseModalFromBackdrop(event)) {
       closeCopyModal();
     }
+  });
+}
+
+if (closeEmailTemplateModalButton) {
+  closeEmailTemplateModalButton.addEventListener('click', () => {
+    closeEmailTemplateModal();
+  });
+}
+
+if (emailTemplateModal) {
+  emailTemplateModal.addEventListener('click', (event) => {
+    if (shouldCloseModalFromBackdrop(event)) {
+      closeEmailTemplateModal();
+    }
+  });
+}
+
+if (emailTemplatePreviewButton) {
+  emailTemplatePreviewButton.addEventListener('click', () => {
+    renderEmailTemplatePreview();
+  });
+}
+
+if (emailTemplatePreviewLanguageSelect) {
+  emailTemplatePreviewLanguageSelect.addEventListener('change', () => {
+    renderEmailTemplatePreview();
   });
 }
 
@@ -8419,6 +10773,7 @@ clientForm.addEventListener('submit', async (event) => {
   clientFormError.textContent = '';
 
   const name = clientNameInput.value.trim();
+  const preferredLanguage = clientLanguageSelect?.value === 'fr' ? 'fr' : 'en';
   const rawPhone = clientPhoneInput.value.trim();
   const email = clientEmailInput.value.trim();
   const address = clientAddressInput.value.trim();
@@ -8455,6 +10810,7 @@ clientForm.addEventListener('submit', async (event) => {
 
   const payload = {
     name,
+    preferredLanguage,
     phone: formatClientPhone(rawPhone),
     email,
     address,
@@ -8498,36 +10854,15 @@ storageForm.addEventListener('submit', async (event) => {
   storageFormError.textContent = '';
 
   const vehicleType = storageVehicleTypeSelect.value;
-  const vehicleLabel =
-      VEHICLE_TYPE_OPTIONS.find((option) => option.value === vehicleType)?.label || vehicleType || '—';
   const contractAmountValue = storageAmountInput?.value?.trim();
   const contractAmount = contractAmountValue ? Number(contractAmountValue) : null;
+  if (!storageAmountManualOverride) {
+    syncStorageAmountFromForm();
+  }
 
   const payload = {
-    season: storageSeasonSelect.value,
-    clientId: storageClientSelect.value,
-    vehicle: {
-      type: vehicleType,
-      typeLabel: vehicleLabel,
-      brand: storageVehicleBrandInput.value.trim(),
-      model: storageVehicleModelInput.value.trim(),
-      colour: storageVehicleColourInput.value.trim(),
-      lengthFeet: storageVehicleLengthInput.value ? Number(storageVehicleLengthInput.value) : null,
-      year: storageVehicleYearInput.value ? Number(storageVehicleYearInput.value) : null,
-      plate: storageVehiclePlateInput.value.trim(),
-      province: storageVehicleProvinceSelect.value
-    },
-    insuranceCompany: storageInsuranceCompanyInput.value.trim(),
-    policyNumber: storagePolicyNumberInput.value.trim(),
-    insuranceExpiration: storageInsuranceExpirationInput.value
-      ? Timestamp.fromDate(new Date(`${storageInsuranceExpirationInput.value}T00:00:00`))
-      : null,
-    status: storageStatusSelect.value || 'new',
-    addons: {
-      battery: storageAddonBatteryInput.checked,
-      propane: storageAddonPropaneInput.checked
-    },
-    contractAmount: Number.isFinite(contractAmount) ? contractAmount : null,
+    ...buildStorageRequestDraftFromForm(),
+    contractAmount: storageAmountManualOverride && Number.isFinite(contractAmount) ? contractAmount : null,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null
   };
@@ -8548,28 +10883,43 @@ storageForm.addEventListener('submit', async (event) => {
     storageFormError.textContent = 'Enter a valid amount.';
     return;
   }
+  payload.caseId = resolveStorageCaseId(payload);
 
   try {
+    let savedRequestId = editingStorageRequestId;
+    let previousStatus = null;
+    if (editingStorageRequestId) {
+      previousStatus = storageRequests.find((entry) => entry.id === editingStorageRequestId)?.status || null;
+    }
+    const requestedContractReady = payload.status === 'contract_ready' && previousStatus !== 'contract_ready';
+    const payloadToSave = requestedContractReady
+      ? { ...payload, status: previousStatus || 'new' }
+      : payload;
     if (editingStorageRequestId) {
       await setDoc(
         doc(db, 'storageRequests', editingStorageRequestId),
         {
-          ...payload,
+          ...payloadToSave,
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser?.uid || null
         },
         { merge: true }
       );
     } else {
-      await addDoc(collection(db, 'storageRequests'), {
-        ...payload,
+      const created = await addDoc(collection(db, 'storageRequests'), {
+        ...payloadToSave,
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.uid || null,
         updatedAt: serverTimestamp(),
         updatedBy: auth.currentUser?.uid || null
       });
+      savedRequestId = created.id;
     }
     closeStorageModal();
+    if (requestedContractReady && savedRequestId) {
+      const request = getStorageRequestById(savedRequestId) || { id: savedRequestId, ...payloadToSave };
+      openStorageContractModal(request, { requireSignedUpload: true });
+    }
   } catch (error) {
     storageFormError.textContent = error.message;
   }
@@ -9006,6 +11356,56 @@ copyForm.addEventListener('submit', async (event) => {
   }
 });
 
+if (emailTemplateForm) {
+  emailTemplateForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (emailTemplateFormError) emailTemplateFormError.textContent = '';
+    const templateId = emailTemplateIdInput.value.trim();
+    const subjectEn = emailTemplateSubjectEnInput.value.trim();
+    const subjectFr = emailTemplateSubjectFrInput.value.trim();
+    const bodyEn = emailTemplateBodyEnInput.value.trim();
+    const bodyFr = emailTemplateBodyFrInput.value.trim();
+    const category = emailTemplateCategoryInput.value.trim();
+
+    if (!templateId) {
+      if (emailTemplateFormError) emailTemplateFormError.textContent = 'Template ID is required.';
+      return;
+    }
+    if (!subjectEn || !subjectFr) {
+      if (emailTemplateFormError) emailTemplateFormError.textContent = 'Provide subject in both English and French.';
+      return;
+    }
+    if (!bodyEn || !bodyFr) {
+      if (emailTemplateFormError) emailTemplateFormError.textContent = 'Provide body content in both English and French.';
+      return;
+    }
+
+    const payload = {
+      templateId,
+      category: category || '',
+      subject: { en: subjectEn, fr: subjectFr },
+      body: { en: bodyEn, fr: bodyFr },
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    };
+
+    try {
+      if (editingEmailTemplateId) {
+        await setDoc(doc(db, 'emailTemplates', editingEmailTemplateId), payload, { merge: true });
+      } else {
+        await setDoc(doc(db, 'emailTemplates', templateId), {
+          ...payload,
+          createdAt: serverTimestamp(),
+          createdBy: auth.currentUser?.uid || null
+        });
+      }
+      closeEmailTemplateModal();
+    } catch (error) {
+      if (emailTemplateFormError) emailTemplateFormError.textContent = error.message;
+    }
+  });
+}
+
 categoryForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   categoryFormError.textContent = '';
@@ -9357,7 +11757,6 @@ if (reportFilterForm) {
     if (applyReportFilterControls()) {
       updateCurrentShareUrl();
       renderReports();
-      showCopyViewLinkStatus('Link updated');
     }
   });
 }
@@ -9383,6 +11782,9 @@ function applyReportFilterControls() {
 function buildCurrentViewShareUrl() {
   const url = new URL(window.location.origin + window.location.pathname);
   url.searchParams.set('view', currentView || 'dashboard');
+  if (currentView === 'pricing' || (currentView === 'settings' && activeSettingsSection === 'pricing')) {
+    url.searchParams.set('panel', activePricingPanel || 'seasons');
+  }
   if (currentView === 'reports') {
     if (reportFilters.entityId) {
       url.searchParams.set('report', reportFilters.type);
@@ -9398,51 +11800,6 @@ function buildCurrentViewShareUrl() {
 function updateCurrentShareUrl() {
   if (typeof window === 'undefined') return;
   window.history.replaceState({}, '', buildCurrentViewShareUrl());
-}
-
-function showCopyViewLinkStatus(message) {
-  if (!copyViewLinkStatus) return;
-  copyViewLinkStatus.textContent = message;
-  copyViewLinkStatus.classList.remove('hidden');
-  window.clearTimeout(showCopyViewLinkStatus.timeoutId);
-  showCopyViewLinkStatus.timeoutId = window.setTimeout(() => {
-    copyViewLinkStatus.classList.add('hidden');
-  }, 2500);
-}
-
-async function copyTextToClipboard(text) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.left = '-9999px';
-  document.body.appendChild(textarea);
-  textarea.select();
-  const copied = document.execCommand('copy');
-  textarea.remove();
-  if (!copied) {
-    throw new Error('Clipboard copy failed.');
-  }
-}
-
-if (copyViewLinkButton) {
-  copyViewLinkButton.addEventListener('click', async () => {
-    if (currentView === 'reports') {
-      applyReportFilterControls();
-    }
-    const shareUrl = buildCurrentViewShareUrl().toString();
-    updateCurrentShareUrl();
-    try {
-      await copyTextToClipboard(shareUrl);
-      showCopyViewLinkStatus('Copied');
-    } catch (error) {
-      window.prompt('Copy this link:', shareUrl);
-    }
-  });
 }
 
 if (loginForm) {
@@ -9496,6 +11853,7 @@ function handleSignedOutState() {
   showAppUI(false);
   cleanAccountSubscription();
   cleanExpensesSubscription();
+  cleanAppSettingsSubscription();
   cleanMileageSettingsSubscription();
   cleanClientSubscription();
   cleanStorageSubscription();
@@ -9508,6 +11866,7 @@ function handleSignedOutState() {
   cleanConditionSubscription();
   cleanEtiquetteSubscription();
   cleanMarketingCopySubscription();
+  cleanEmailTemplateSubscription();
   cleanPublishHistorySubscription();
   cleanPublishJobsSubscription();
   cleanPublishJobSubscription();
@@ -9526,6 +11885,7 @@ function handleSignedOutState() {
   cleanConditionsData();
   cleanEtiquetteData();
   cleanMarketingCopyData();
+  cleanEmailTemplateData();
   cleanPublishHistoryData();
   cleanPublishStateData();
   cleanCategoriesData();
@@ -9538,6 +11898,7 @@ function handleSignedOutState() {
   closeOfferModal();
   closeAddonModal();
   closeSeasonAddonModal();
+  closeEmailTemplateModal();
   closePublishPreviewModal();
   ledgerAccountSelection = [];
   if (ledgerFilterMenu) {
@@ -9611,6 +11972,7 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToConditions();
   subscribeToEtiquette();
   subscribeToMarketingCopy();
+  subscribeToEmailTemplates();
   subscribeToPublishHistory();
   subscribeToPublishJobs();
   subscribeToCategories();
@@ -9618,6 +11980,7 @@ onAuthStateChanged(auth, async (user) => {
   subscribeToExpensesStream();
   subscribeToMileageLogs();
   subscribeToMileageRates();
+  subscribeToAppSettings();
   subscribeToMileageSettings();
   subscribeToCcaPools();
   subscribeToCcaRecords();
@@ -9686,6 +12049,29 @@ settingsNavButtons.forEach((button) => {
   });
 });
 
+if (defaultClientLanguageSelect) {
+  defaultClientLanguageSelect.addEventListener('change', async () => {
+    const nextLanguage = normalizeLanguageCode(defaultClientLanguageSelect.value, 'fr');
+    if (generalSettingsStatus) {
+      generalSettingsStatus.textContent = 'Saving...';
+    }
+    try {
+      await patchAppSettings({ defaultClientLanguage: nextLanguage });
+      appSettings.defaultClientLanguage = nextLanguage;
+      syncGeneralSettingsUI();
+      if (generalSettingsStatus) {
+        generalSettingsStatus.textContent = 'Saved.';
+      }
+    } catch (error) {
+      console.error('Failed to save app settings', error);
+      syncGeneralSettingsUI();
+      if (generalSettingsStatus) {
+        generalSettingsStatus.textContent = error.message || 'Unable to save setting.';
+      }
+    }
+  });
+}
+
 if (closeSettingsNavButton) {
   closeSettingsNavButton.addEventListener('click', () => {
     setView(lastNonSettingsView || 'dashboard');
@@ -9740,11 +12126,18 @@ function setView(view) {
     const showCategories = showingSettings && activeSettingsSection === 'categories';
     settingsView.classList.toggle('hidden', !showCategories);
   }
+  if (generalSettingsView) {
+    const showGeneralSettings = showingSettings && activeSettingsSection === 'general';
+    generalSettingsView.classList.toggle('hidden', !showGeneralSettings);
+  }
   if (!showingSettings) {
     activeSettingsSection = null;
     settingsNavButtons.forEach((button) => button.classList.remove('active'));
     if (settingsView) {
       settingsView.classList.add('hidden');
+    }
+    if (generalSettingsView) {
+      generalSettingsView.classList.add('hidden');
     }
     if (mileageSettingsView) {
       mileageSettingsView.classList.add('hidden');
@@ -9802,13 +12195,14 @@ function setView(view) {
     renderStorageTable();
   } else if (showingPricing) {
     panelTitle.textContent = 'Pricing';
-    panelSubtitle.textContent = 'Manage seasons, offers, add-ons, policies, etiquette, and site copy.';
+    panelSubtitle.textContent = 'Manage seasons, offers, add-ons, policies, etiquette, site copy, and email templates.';
     renderSeasonTable();
     renderOfferTable();
     renderAddonTable();
     renderConditionTable();
     renderEtiquetteTable();
     renderCopyTable();
+    renderEmailTemplateTable();
   } else if (showingReports) {
     panelTitle.textContent = 'Reports';
     panelSubtitle.textContent = 'Balance sheet and CRA T2042 totals per entity.';
@@ -9820,6 +12214,7 @@ function setView(view) {
     renderAccountList();
   }
   closeMobileNav();
+  updateCurrentShareUrl();
 }
 
 function setSettingsSection(section) {
@@ -9831,6 +12226,7 @@ function setSettingsSection(section) {
     button.classList.toggle('active', button.dataset.settingsTarget === activeSettingsSection);
   });
   const showCategories = activeSettingsSection === 'categories';
+  const showGeneralSettings = activeSettingsSection === 'general';
   const showPricing = activeSettingsSection === 'pricing';
   const showMileageSettings = activeSettingsSection === 'mileage';
   const showCcaPools = activeSettingsSection === 'cca';
@@ -9839,6 +12235,9 @@ function setSettingsSection(section) {
   }
   if (settingsView) {
     settingsView.classList.toggle('hidden', !showCategories);
+  }
+  if (generalSettingsView) {
+    generalSettingsView.classList.toggle('hidden', !showGeneralSettings);
   }
   pricingView.classList.toggle('hidden', !(showPricing || currentView === 'pricing'));
   if (mileageSettingsView) {
@@ -9851,19 +12250,24 @@ function setSettingsSection(section) {
   if (!activeSettingsSection) {
     panelTitle.textContent = 'Settings';
     panelSubtitle.textContent = 'Choose a section to manage.';
+  } else if (activeSettingsSection === 'general') {
+    panelTitle.textContent = 'General settings';
+    panelSubtitle.textContent = 'Configure defaults used across Tracker.';
+    syncGeneralSettingsUI();
   } else if (activeSettingsSection === 'categories') {
     panelTitle.textContent = 'Categories';
     panelSubtitle.textContent = 'Manage ledger categories and client requirements.';
     renderCategoryTable();
   } else if (activeSettingsSection === 'pricing') {
     panelTitle.textContent = 'Pricing';
-    panelSubtitle.textContent = 'Manage seasons, offers, add-ons, policies, etiquette, and site copy.';
+    panelSubtitle.textContent = 'Manage seasons, offers, add-ons, policies, etiquette, site copy, and email templates.';
     renderSeasonTable();
     renderOfferTable();
     renderAddonTable();
     renderConditionTable();
     renderEtiquetteTable();
     renderCopyTable();
+    renderEmailTemplateTable();
   } else if (activeSettingsSection === 'mileage') {
     panelTitle.textContent = 'Mileage log';
     panelSubtitle.textContent = 'Configure CRA rates and entity attachment options.';
@@ -9877,6 +12281,7 @@ function setSettingsSection(section) {
   }
   updatePricingToolbarActions();
   updatePublishButtonState();
+  updateCurrentShareUrl();
 }
 
 function updateSettingsActionsVisibility() {
@@ -9898,28 +12303,36 @@ function buildLedgerEntries(entries) {
       return;
     }
     const hasEntity = Boolean(entry?.entityId);
+    const cashAccountId = isEntryPaid(entry) ? getEntryPaidAccountId(entry) : '';
+    const cashDate = entry.entryType === 'income' ? entry.date : entry.paidAt || entry.date;
+    const cashAndEntityShareDate = getDateKey(cashDate) === getDateKey(entry.date);
+    const sameCombinedAccount =
+      hasEntity &&
+      cashAccountId &&
+      cashAccountId === entry.entityId &&
+      isCombinedAccount(accountLookup.get(entry.entityId)) &&
+      cashAndEntityShareDate;
     if (hasEntity) {
-      ledgerEntries.push({
-        ...entry,
-        date: entry.date,
-        accountId: entry.entityId,
-        entityId: entry.entityId,
-        entityOnly: true,
-        ledgerSide: 'entity'
-      });
-    }
-    if (isEntryPaid(entry)) {
-      const cashAccountId = getEntryPaidAccountId(entry);
-      if (cashAccountId) {
+      if (!sameCombinedAccount) {
         ledgerEntries.push({
           ...entry,
-          date: entry.paidAt || entry.date,
-          accountId: cashAccountId,
-          entityId: null,
-          entityOnly: false,
-          ledgerSide: 'cash'
+          date: entry.date,
+          accountId: entry.entityId,
+          entityId: entry.entityId,
+          entityOnly: true,
+          ledgerSide: 'entity'
         });
       }
+    }
+    if (cashAccountId) {
+      ledgerEntries.push({
+        ...entry,
+        date: cashDate,
+        accountId: cashAccountId,
+        entityId: sameCombinedAccount ? entry.entityId : null,
+        entityOnly: false,
+        ledgerSide: 'cash'
+      });
     }
   });
   return ledgerEntries;
@@ -9968,7 +12381,7 @@ function buildAccountLedgerExportRows(accountId) {
       activityRows.push({
         entry,
         side: 'cash',
-        date: entry.paidAt || entry.date,
+        date: entry.entryType === 'income' ? entry.date : entry.paidAt || entry.date,
         amount: delta,
         transactionId: entry.transactionId || entry.id || ''
       });
@@ -10005,7 +12418,7 @@ function buildAccountLedgerExportRows(accountId) {
         ? accountLookup.get(getEntryPaidAccountId(entry))?.name || ''
         : '',
       entityName: entry.entityId ? accountLookup.get(entry.entityId)?.name || '' : '',
-      paymentStatus: entry.paymentStatus || (isEntryPaid(entry) ? 'paid' : 'unpaid'),
+      paymentStatus: entry.entryType === 'expense' ? entry.paymentStatus || (isEntryPaid(entry) ? 'paid' : 'unpaid') : '',
       tags: Array.isArray(entry.tags) ? entry.tags.map((tag) => formatTagLabel(tag) || tag).join('; ') : '',
       vendorTag: entry.vendorTag || '',
       clientName: entry.clientId ? clientLookup.get(entry.clientId)?.name || '' : '',
@@ -10422,17 +12835,32 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
     `;
   };
 
+  const getCashBalanceAtCursor = (accountId, opening) => {
+    if (cashRunning.has(accountId)) return cashRunning.get(accountId);
+    return (accountAdjustments.get(accountId) || 0) + opening;
+  };
+
+  const getEntityBalanceAtCursor = (accountId, opening) => {
+    if (entityRunning.has(accountId)) return entityRunning.get(accountId);
+    return (entityAdjustments.get(accountId) || 0) + opening;
+  };
+
+  const formatBalanceCell = (account, cashBalance, entityBalance, preferredBalance) => {
+    if (!isCombinedAccount(account) || Math.abs((cashBalance || 0) - (entityBalance || 0)) < 0.01) {
+      return formatCurrency(preferredBalance);
+    }
+    return `
+      <div class="ledger-balance-split">
+        <span><span class="ledger-balance-label">Cash</span>${formatCurrency(cashBalance)}</span>
+        <span><span class="ledger-balance-label">Entity</span>${formatCurrency(entityBalance)}</span>
+      </div>
+    `;
+  };
+
   renderPlans.forEach(({ entry, includeCash, includeEntity, txnKey, delta }) => {
     const groupMeta = txnGroups.get(txnKey) || { cash: 0, entity: 0, isTransfer: false };
     const state = txnRenderState.get(txnKey) || { cashRendered: 0, entityRendered: 0 };
     txnRenderState.set(txnKey, state);
-    const account = accountLookup.get(entry.accountId);
-    const opening = Number(account?.openingBalance) || 0;
-    const accountFinal = (accountAdjustments.get(entry.accountId) || 0) + opening;
-    const previousCash = cashRunning.has(entry.accountId) ? cashRunning.get(entry.accountId) : accountFinal;
-    const displayAmount = entry.isVirtualOpening ? Number(account?.openingBalance) || 0 : delta;
-    const balance = entry.isVirtualOpening ? Number(account?.openingBalance) || 0 : previousCash;
-    cashRunning.set(entry.accountId, previousCash - delta);
 
     if (!txnStripeMap.has(txnKey)) {
       txnStripeMap.set(txnKey, stripeToggle ? 'txn-stripe-b' : 'txn-stripe-a');
@@ -10445,6 +12873,21 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
     const shareTransferRows = !shareCells && groupMeta.isTransfer && groupMeta.cash > 1;
 
     if (includeCash) {
+      const account = accountLookup.get(entry.accountId);
+      const opening = Number(account?.openingBalance) || 0;
+      const previousCash = getCashBalanceAtCursor(entry.accountId, opening);
+      const displayAmount = entry.isVirtualOpening ? opening : delta;
+      const balance = entry.isVirtualOpening ? opening : previousCash;
+      cashRunning.set(entry.accountId, previousCash - delta);
+      let balanceMarkup = formatCurrency(balance);
+      if (isCombinedAccount(account) && entry.entityId === entry.accountId) {
+        const previousEntity = getEntityBalanceAtCursor(entry.accountId, opening);
+        const entityDelta = entry.isVirtualOpening ? 0 : delta;
+        const entityBalance = entry.isVirtualOpening ? opening : previousEntity;
+        entityRunning.set(entry.accountId, previousEntity - entityDelta);
+        balanceMarkup = formatBalanceCell(account, balance, entityBalance, balance);
+      }
+
       const row = document.createElement('tr');
       row.className = 'ledger-account-row';
       row.classList.add(rowStripeClass);
@@ -10475,7 +12918,7 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
         ${descriptionCell}
         ${amountCell}
         <td class="account-cell">${account?.name || 'Unknown'}</td>
-        <td class="ledger-balance">${formatCurrency(balance)}</td>
+        <td class="ledger-balance">${balanceMarkup}</td>
         ${actionsCell}
       `;
       const cashPalette = applyStripeColors(row, rowStripeClass);
@@ -10487,12 +12930,13 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
     if (includeEntity && entry.entityId) {
       const entity = accountLookup.get(entry.entityId);
       const entityOpening = Number(entity?.openingBalance) || 0;
-      const entityFinal = (entityAdjustments.get(entry.entityId) || 0) + entityOpening;
-      const previousEntity = entityRunning.has(entry.entityId) ? entityRunning.get(entry.entityId) : entityFinal;
+      const previousEntity = getEntityBalanceAtCursor(entry.entityId, entityOpening);
       const entityDelta = entry.isVirtualOpening ? 0 : getEntryDelta(entry);
       const entityDisplayAmount = entry.isVirtualOpening ? entityOpening : entityDelta;
       const entityBalance = entry.isVirtualOpening ? entityOpening : previousEntity;
       entityRunning.set(entry.entityId, previousEntity - entityDelta);
+      const cashBalance = getCashBalanceAtCursor(entry.entityId, entityOpening);
+      const entityBalanceMarkup = formatBalanceCell(entity, cashBalance, entityBalance, entityBalance);
       const entityRow = document.createElement('tr');
       entityRow.className = 'ledger-entity-row';
       entityRow.classList.add(rowStripeClass);
@@ -10509,7 +12953,7 @@ const applyAmountColor = (rowEl, amountValue, fallbackColor) => {
         ${entityDescriptionCell}
         ${entityAmountCell}
         <td class="account-cell">${entity?.name || 'Entity'}</td>
-        <td class="ledger-balance">${formatCurrency(entityBalance)}</td>
+        <td class="ledger-balance">${entityBalanceMarkup}</td>
         ${entityActionsCell}
       `;
       const entityPalette = applyStripeColors(entityRow, rowStripeClass);
@@ -10810,7 +13254,7 @@ if (entryPaidToggle) {
 
 if (entryDateInput) {
   entryDateInput.addEventListener('change', () => {
-    if (shouldRequireCashAccount() && entryPaidDateInput && !entryPaidDateInput.value) {
+    if (entryTypeSelect?.value === 'expense' && shouldRequireCashAccount() && entryPaidDateInput) {
       entryPaidDateInput.value = entryDateInput.value;
     }
   });
@@ -11303,7 +13747,7 @@ function startEditEntry(entry) {
   renderSelectedInterestTags();
   setDateInputValue(entryDateInput, entry.date, true);
   if (entryPaidDateInput) {
-    const paidDateValue = isEntryPaid(entry) ? entry.paidAt || entry.date : null;
+    const paidDateValue = entry.entryType === 'expense' && isEntryPaid(entry) ? entry.paidAt || entry.date : null;
     setDateInputValue(entryPaidDateInput, paidDateValue, false);
   }
   updateEntryClientOptions();
@@ -11394,7 +13838,8 @@ entryForm.addEventListener('submit', async (event) => {
   const selectedClientId = entryClientSelect ? entryClientSelect.value : '';
   const isReturn = Boolean(entryReturnInput?.checked);
   const requiresCash = shouldRequireCashAccount();
-  const paidDateValue = requiresCash ? entryPaidDateInput?.value || dateValue : '';
+  const tracksPaymentDate = entryType === 'expense' && requiresCash;
+  const paidDateValue = tracksPaymentDate ? entryPaidDateInput?.value || dateValue : '';
 
   if (requiresCash && !accountId) {
     entryFormError.textContent = 'Select an account.';
@@ -11411,13 +13856,13 @@ entryForm.addEventListener('submit', async (event) => {
     return;
   }
 
-  if (requiresCash && !paidDateValue) {
+  if (tracksPaymentDate && !paidDateValue) {
     entryFormError.textContent = 'Choose a payment date.';
     return;
   }
 
   let paidAt = null;
-  if (requiresCash && paidDateValue) {
+  if (tracksPaymentDate && paidDateValue) {
     const paidDate = new Date(`${paidDateValue}T00:00:00`);
     if (Number.isNaN(paidDate.getTime())) {
       entryFormError.textContent = 'Enter a valid payment date.';
@@ -11481,9 +13926,9 @@ entryForm.addEventListener('submit', async (event) => {
     isReturn,
     ccaPoolId: selectedCcaPoolId || null,
     isCcaClass: isCcaSelection,
-    paymentStatus: requiresCash ? 'paid' : 'unpaid',
-    paidAt,
-    paidAccountId: requiresCash ? accountId : null,
+    paymentStatus: entryType === 'expense' ? (requiresCash ? 'paid' : 'unpaid') : null,
+    paidAt: entryType === 'expense' ? paidAt : null,
+    paidAccountId: entryType === 'expense' && requiresCash ? accountId : null,
     receiptUrl: receiptMeta.receiptUrl || null,
     receiptStoragePath: receiptMeta.receiptStoragePath || null
   };
