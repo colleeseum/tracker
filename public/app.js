@@ -14950,8 +14950,8 @@ function updateDashboardKpis({ cashTotal = 0, entityTotal = 0, outstandingTotal 
     dashboardKpiMileage.textContent = formatKilometres(mileageYearToDate);
   }
   if (dashboardKpiStorage) {
-    const pendingStorage = storageRequests.filter((request) => request?.status !== 'completed').length;
-    dashboardKpiStorage.textContent = String(pendingStorage);
+    const newStorageRequests = storageRequests.filter((request) => String(request?.status || 'new') === 'new').length;
+    dashboardKpiStorage.textContent = String(newStorageRequests);
   }
   const { totalOutflow, topTag, topTagAmount } = getMonthlyTagMetrics();
   if (dashboardKpiOutflow) {
