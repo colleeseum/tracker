@@ -47,16 +47,53 @@ jobs:
           SMTP2GO_USER: ${{ secrets.SMTP2GO_USER }}
           SMTP2GO_PASS: ${{ secrets.SMTP2GO_PASS }}
           SMTP2GO_FROM: ${{ secrets.SMTP2GO_FROM }}
+          MAILER_RESTRICTED_DOMAIN: ${{ secrets.MAILER_RESTRICTED_DOMAIN }}
+          RECAPTCHA_SECRET: ${{ secrets.RECAPTCHA_SECRET }}
+          PUBLIC_ALLOWED_RECIPIENTS: ${{ secrets.PUBLIC_ALLOWED_RECIPIENTS }}
+          RATE_LIMIT_EXEMPT_REPLY_TO: ${{ secrets.RATE_LIMIT_EXEMPT_REPLY_TO }}
+          FRENCH_SENDER_KEYWORD: ${{ secrets.FRENCH_SENDER_KEYWORD }}
+          ENGLISH_SENDER_KEYWORD: ${{ secrets.ENGLISH_SENDER_KEYWORD }}
+          GITHUB_PUBLISH_REPO: ${{ secrets.GITHUB_PUBLISH_REPO }}
+          GITHUB_PUBLISH_EVENT: ${{ secrets.GITHUB_PUBLISH_EVENT }}
+          GITHUB_PUBLISH_TOKEN_SECRET: ${{ secrets.GITHUB_PUBLISH_TOKEN_SECRET }}
+          GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE: ${{ secrets.GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE }}
+          PUBLISH_CALLBACK_TOKEN_SECRET: ${{ secrets.PUBLISH_CALLBACK_TOKEN_SECRET }}
+          PUBLISH_CALLBACK_TOKEN_SECRET_RESOURCE: ${{ secrets.PUBLISH_CALLBACK_TOKEN_SECRET_RESOURCE }}
+          PUBLISH_DRY_RUN: ${{ secrets.PUBLISH_DRY_RUN }}
         run: |
           : "${SMTP2GO_USER:?Missing SMTP2GO_USER secret}"
           : "${SMTP2GO_PASS:?Missing SMTP2GO_PASS secret}"
           : "${SMTP2GO_FROM:?Missing SMTP2GO_FROM secret}"
+          : "${RECAPTCHA_SECRET:?Missing RECAPTCHA_SECRET secret}"
+          : "${PUBLIC_ALLOWED_RECIPIENTS:?Missing PUBLIC_ALLOWED_RECIPIENTS secret}"
           {
             printf 'SMTP2GO_HOST=%s\n' "${SMTP2GO_HOST:-mail.smtp2go.com}"
             printf 'SMTP2GO_PORT=%s\n' "${SMTP2GO_PORT:-587}"
             printf 'SMTP2GO_USER=%s\n' "$SMTP2GO_USER"
             printf 'SMTP2GO_PASS=%s\n' "$SMTP2GO_PASS"
             printf 'SMTP2GO_FROM=%s\n' "$SMTP2GO_FROM"
+            printf 'MAILER_RESTRICTED_DOMAIN=%s\n' "${MAILER_RESTRICTED_DOMAIN:-@as-colle.com}"
+            printf 'RECAPTCHA_SECRET=%s\n' "$RECAPTCHA_SECRET"
+            printf 'SKIP_CAPTCHA=false\n'
+            printf 'PUBLIC_ALLOWED_RECIPIENTS=%s\n' "$PUBLIC_ALLOWED_RECIPIENTS"
+            printf 'RATE_LIMIT_EXEMPT_REPLY_TO=%s\n' "${RATE_LIMIT_EXEMPT_REPLY_TO:-}"
+            printf 'FRENCH_SENDER_KEYWORD=%s\n' "${FRENCH_SENDER_KEYWORD:-entrepot@as-colle.com}"
+            printf 'ENGLISH_SENDER_KEYWORD=%s\n' "${ENGLISH_SENDER_KEYWORD:-warehouse@as-colle.com}"
+            printf 'GITHUB_PUBLISH_REPO=%s\n' "${GITHUB_PUBLISH_REPO:-colleeseum/entrepot}"
+            printf 'GITHUB_PUBLISH_EVENT=%s\n' "${GITHUB_PUBLISH_EVENT:-tracker-content-publish}"
+            if [ -n "$GITHUB_PUBLISH_TOKEN_SECRET" ]; then
+              printf 'GITHUB_PUBLISH_TOKEN_SECRET=%s\n' "$GITHUB_PUBLISH_TOKEN_SECRET"
+            fi
+            if [ -n "$GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE" ]; then
+              printf 'GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE=%s\n' "$GITHUB_PUBLISH_TOKEN_SECRET_RESOURCE"
+            fi
+            if [ -n "$PUBLISH_CALLBACK_TOKEN_SECRET" ]; then
+              printf 'PUBLISH_CALLBACK_TOKEN_SECRET=%s\n' "$PUBLISH_CALLBACK_TOKEN_SECRET"
+            fi
+            if [ -n "$PUBLISH_CALLBACK_TOKEN_SECRET_RESOURCE" ]; then
+              printf 'PUBLISH_CALLBACK_TOKEN_SECRET_RESOURCE=%s\n' "$PUBLISH_CALLBACK_TOKEN_SECRET_RESOURCE"
+            fi
+            printf 'PUBLISH_DRY_RUN=%s\n' "${PUBLISH_DRY_RUN:-false}"
           } > functions/.env
 
       - name: Deploy to Firebase

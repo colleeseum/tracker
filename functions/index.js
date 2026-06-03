@@ -737,6 +737,58 @@ async function sendStorageRequestConfirmationEmail({ to, locale, confirmationCod
   });
 }
 
+async function sendStorageRequestNotificationEmail({ confirmationCode, tenant, requests, requestIds = [], clientId = '' }) {
+  const to = frenchSenderKeyword;
+  if (!to) return;
+  const sender = defaultFrom;
+  if (!sender) {
+    throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
+  }
+  const tenantAddress = [
+    tenant.tenantAddress,
+    tenant.tenantCity,
+    tenant.tenantProvince,
+    tenant.tenantPostal
+  ].filter(Boolean).join(', ');
+  const requestLines = requests.map((request, index) => {
+    const id = requestIds[index] || '';
+    const prefix = id ? `${index + 1}. ${id} - ` : `${index + 1}. `;
+    return `${prefix}${formatStorageRequestLine(request, 'fr')}`;
+  });
+  const subject = `Nouvelle demande d'entreposage - ${confirmationCode}`;
+  const text = [
+    'Une nouvelle demande d’entreposage a été soumise.',
+    '',
+    `Confirmation : ${confirmationCode}`,
+    `Client : ${tenant.tenantName || ''}`,
+    `Courriel : ${tenant.email || ''}`,
+    `Téléphone : ${tenant.tenantPhone || ''}`,
+    `Adresse : ${tenantAddress}`,
+    clientId ? `Client ID : ${clientId}` : '',
+    '',
+    'Demandes :',
+    ...requestLines
+  ].filter(Boolean).join('\n');
+  const htmlItems = requestLines
+    .map((line) => `<li>${escapeHtml(line)}</li>`)
+    .join('');
+  const bodyHtml = `
+    <p>Une nouvelle demande d’entreposage a été soumise.</p>
+    <table style="border-collapse:collapse;width:100%;margin:12px 0;">
+      <tr><th style="text-align:left;padding:6px 8px;border:1px solid #e2e8f0;background:#f8fafc;">Confirmation</th><td style="padding:6px 8px;border:1px solid #e2e8f0;">${escapeHtml(confirmationCode)}</td></tr>
+      <tr><th style="text-align:left;padding:6px 8px;border:1px solid #e2e8f0;background:#f8fafc;">Client</th><td style="padding:6px 8px;border:1px solid #e2e8f0;">${escapeHtml(tenant.tenantName || '')}</td></tr>
+      <tr><th style="text-align:left;padding:6px 8px;border:1px solid #e2e8f0;background:#f8fafc;">Courriel</th><td style="padding:6px 8px;border:1px solid #e2e8f0;">${escapeHtml(tenant.email || '')}</td></tr>
+      <tr><th style="text-align:left;padding:6px 8px;border:1px solid #e2e8f0;background:#f8fafc;">Téléphone</th><td style="padding:6px 8px;border:1px solid #e2e8f0;">${escapeHtml(tenant.tenantPhone || '')}</td></tr>
+      <tr><th style="text-align:left;padding:6px 8px;border:1px solid #e2e8f0;background:#f8fafc;">Adresse</th><td style="padding:6px 8px;border:1px solid #e2e8f0;">${escapeHtml(tenantAddress)}</td></tr>
+      ${clientId ? `<tr><th style="text-align:left;padding:6px 8px;border:1px solid #e2e8f0;background:#f8fafc;">Client ID</th><td style="padding:6px 8px;border:1px solid #e2e8f0;">${escapeHtml(clientId)}</td></tr>` : ''}
+    </table>
+    <p><strong>Demandes :</strong></p>
+    <ol>${htmlItems}</ol>
+  `;
+  const html = wrapTrackerEmailHtml({ locale: 'fr', subject, body: text, bodyHtml });
+  await transporter.sendMail({ from: sender, to, subject, html, text });
+}
+
 function normalizeLanguage(value) {
   return String(value || '').toLowerCase() === 'fr' ? 'fr' : 'en';
 }
@@ -2504,6 +2556,42 @@ export const createStorageRequest = functions.https.onCall(async (data, context)
     console.error('Storage request confirmation email failed', err);
   }
 
+  try {
+    await sendStorageRequestNotificationEmail({
+      confirmationCode,
+      tenant: {
+        tenantName,
+        tenantPhone,
+        tenantAddress,
+        tenantCity,
+        tenantProvince,
+        tenantPostal,
+        email: tenantEmail
+      },
+      requests: [
+        {
+          season,
+          vehicleType,
+          vehicleTypeLabel: normalize(payload.vehicleTypeLabel) || vehicleType || '—',
+          vehicleTypeOther: normalize(payload.vehicleTypeOther),
+          vehicleBrand: normalize(payload.vehicleBrand),
+          vehicleModel: normalize(payload.vehicleModel),
+          vehicleColour: normalize(payload.vehicleColour),
+          vehicleLength: normalize(payload.vehicleLength),
+          vehicleYear: normalize(payload.vehicleYear),
+          vehiclePlate: normalize(payload.vehiclePlate),
+          vehicleProv: normalize(payload.vehicleProv),
+          battery: payload.battery === true,
+          propane: payload.propane === true
+        }
+      ],
+      requestIds: [requestDoc.id],
+      clientId
+    });
+  } catch (err) {
+    console.error('Storage request notification email failed', err);
+  }
+
   return { success: true, requestId: requestDoc.id, clientId, confirmationCode };
 });
 
@@ -2633,6 +2721,18 @@ export const createStorageRequests = functions.https.onCall(async (data, context
     });
   } catch (err) {
     console.error('Storage request confirmation email failed', err);
+  }
+
+  try {
+    await sendStorageRequestNotificationEmail({
+      confirmationCode,
+      tenant,
+      requests,
+      requestIds,
+      clientId
+    });
+  } catch (err) {
+    console.error('Storage request notification email failed', err);
   }
 
   return { success: true, confirmationCode, requestIds, clientId };
