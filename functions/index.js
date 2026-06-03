@@ -705,18 +705,18 @@ function buildStorageRequestConfirmationMessage(locale, confirmationCode, tenant
     .filter(Boolean)
     .join('\n');
   const htmlItems = requests
-    .map((request, index) => `<li><strong>${index + 1}.</strong> ${formatStorageRequestLine(request, locale)}</li>`)
+    .map((request, index) => `<li><strong>${index + 1}.</strong> ${escapeHtml(formatStorageRequestLine(request, locale))}</li>`)
     .join('');
   const html = `
-    <p>${intro}</p>
-    <p>${title}</p>
-    <p><strong>${confirmationLine}</strong></p>
-    <p>${listLabel}</p>
+    <p>${escapeHtml(intro)}</p>
+    <p>${escapeHtml(title)}</p>
+    <p><strong>${escapeHtml(confirmationLine)}</strong></p>
+    <p>${escapeHtml(listLabel)}</p>
     <ol>${htmlItems}</ol>
-    <p>${outro}</p>
+    <p>${escapeHtml(outro)}</p>
   `;
   const subject = isFrench
-    ? `Confirmation ${confirmationCode} – demande d’entreposage`
+    ? `Confirmation ${confirmationCode} - demande d’entreposage`
     : `Storage request confirmation ${confirmationCode}`;
   return { subject, text, html };
 }
@@ -728,11 +728,17 @@ async function sendStorageRequestConfirmationEmail({ to, locale, confirmationCod
     throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
   }
   const message = buildStorageRequestConfirmationMessage(locale, confirmationCode, tenant, requests);
+  const html = wrapTrackerEmailHtml({
+    locale,
+    subject: message.subject,
+    body: message.text,
+    bodyHtml: message.html
+  });
   await transporter.sendMail({
     from: sender,
     to,
     subject: message.subject,
-    html: message.html,
+    html,
     text: message.text
   });
 }
