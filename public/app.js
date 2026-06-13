@@ -116,6 +116,7 @@ const accountsView = document.getElementById('accounts-view');
 const ledgerView = document.getElementById('ledger-view');
 const newAccountButton = document.getElementById('new-account');
 const accountBalanceStatus = document.getElementById('account-balance-status');
+const clientEmailStatus = document.getElementById('client-email-status');
 const newClientButton = document.getElementById('new-client');
 const newStorageRequestButton = document.getElementById('new-storage-request');
 const pricingPrimaryActionButton = document.getElementById('pricing-primary-action');
@@ -306,6 +307,7 @@ const closeClientEmailModalButton = document.getElementById('close-client-email-
 const clientEmailForm = document.getElementById('client-email-form');
 const clientEmailTitle = document.getElementById('client-email-title');
 const clientEmailTo = document.getElementById('client-email-to');
+const clientEmailCc = document.getElementById('client-email-cc');
 const clientEmailSubjectInput = document.getElementById('client-email-subject');
 const clientEmailBodyInput = document.getElementById('client-email-body');
 const clientEmailPreview = document.getElementById('client-email-preview');
@@ -736,6 +738,7 @@ let currentView = 'dashboard';
 let lastNonSettingsView = 'dashboard';
 let activeClientEmailClientId = null;
 let clientEmailBusy = false;
+let clientEmailStatusTimer = null;
 let activeSettingsSection = null;
 let ledgerAccountSelection = [];
 let ledgerFilterCustom = false;
@@ -2271,6 +2274,11 @@ function renderStorageTable() {
       } else {
         addCaseActionSelect([
           {
+            value: 'generate-contract',
+            label: 'Generate contracts',
+            title: 'Generate contract PDFs without sending the initial confirmation email'
+          },
+          {
             value: 'confirmation-email',
             label: 'Send confirmation email',
             title: 'Send the initial confirmation email'
@@ -2377,6 +2385,17 @@ function renderStorageTable() {
       viewButton.setAttribute('aria-label', `View storage request for ${tenantDisplay}`);
       viewButton.innerHTML = '<img src="icons/eye.svg" alt="View storage request" />';
       actionCell.appendChild(viewButton);
+
+      if (['new', 'contract_ready'].includes(normalizedStatus)) {
+        const contractButton = document.createElement('button');
+        contractButton.type = 'button';
+        contractButton.className = 'icon-button';
+        contractButton.dataset.action = 'storage-request-contract';
+        contractButton.dataset.id = request.id;
+        contractButton.setAttribute('aria-label', `Generate contract for ${tenantDisplay}`);
+        contractButton.innerHTML = '<img src="icons/download.svg" alt="Generate contract" />';
+        actionCell.appendChild(contractButton);
+      }
 
       const editButton = document.createElement('button');
       editButton.type = 'button';
@@ -8847,6 +8866,24 @@ function setClientEmailBusy(isBusy) {
   if (closeClientEmailModalButton) closeClientEmailModalButton.disabled = clientEmailBusy;
 }
 
+function showClientEmailStatus(message, type = 'success') {
+  if (!clientEmailStatus) return;
+  if (clientEmailStatusTimer) {
+    window.clearTimeout(clientEmailStatusTimer);
+    clientEmailStatusTimer = null;
+  }
+  clientEmailStatus.textContent = message || '';
+  clientEmailStatus.classList.toggle('error', type === 'error');
+  clientEmailStatus.classList.toggle('hidden', !message || currentView !== 'clients');
+  if (message) {
+    clientEmailStatusTimer = window.setTimeout(() => {
+      clientEmailStatus.classList.add('hidden');
+      clientEmailStatus.textContent = '';
+      clientEmailStatusTimer = null;
+    }, 7000);
+  }
+}
+
 function renderClientEmailPreview() {
   if (!clientEmailPreview || !activeClientEmailClientId) return;
   const client = clientLookup.get(activeClientEmailClientId);
@@ -8860,6 +8897,7 @@ function openClientEmailModal(client) {
   activeClientEmailClientId = client.id;
   if (clientEmailTitle) clientEmailTitle.textContent = `Email ${client.name || 'client'}`;
   if (clientEmailTo) clientEmailTo.textContent = client.email || '—';
+  if (clientEmailCc) clientEmailCc.textContent = getStorageConfirmationCc(normalizeLanguageCode(client.preferredLanguage, getDefaultClientLanguage()));
   if (clientEmailSubjectInput) clientEmailSubjectInput.value = '';
   if (clientEmailBodyInput) clientEmailBodyInput.value = '';
   if (clientEmailError) clientEmailError.textContent = '';
@@ -9535,6 +9573,52 @@ async function generateAndDownloadStorageDraftContract({ autoDownload = true } =
     const refreshed = getStorageRequestById(activeStorageContractRequestId);
     renderStorageContractLinks(storageContractModalLinks, refreshed);
     updateStorageContractButtons();
+  }
+}
+
+function downloadGeneratedContract(result) {
+  if (!result?.url) return;
+  const anchor = document.createElement('a');
+  anchor.href = result.url;
+  anchor.download = result.filename || 'storage-contract.pdf';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+async function generateAndDownloadStorageDraftContractsForCase(caseRequests) {
+  const requests = (Array.isArray(caseRequests) ? caseRequests : [])
+    .filter((request) => request?.id && String(request.status || 'new') === 'new');
+  if (!requests.length) {
+    alert('No New requests were found for this case.');
+    return;
+  }
+
+  const generatedUrls = [];
+  try {
+    for (const request of requests) {
+      const resolvedContractId = String(resolveStorageContractId(request));
+      if (request.contractId !== resolvedContractId) {
+        await updateDoc(doc(db, 'storageRequests', request.id), {
+          caseId: resolveStorageCaseId(request),
+          contractId: resolvedContractId,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.uid || null
+        });
+      }
+      const result = await generateStorageContractPdf(
+        { ...request, contractId: resolvedContractId },
+        resolvedContractId
+      );
+      generatedUrls.push(result.url);
+      downloadGeneratedContract(result);
+    }
+  } catch (error) {
+    alert(error.message || 'Unable to generate contracts.');
+  } finally {
+    window.setTimeout(() => {
+      generatedUrls.forEach((url) => URL.revokeObjectURL(url));
+    }, 30000);
   }
 }
 
@@ -10451,6 +10535,9 @@ if (clientEmailForm) {
         subject,
         body
       });
+      const client = clientLookup.get(activeClientEmailClientId);
+      showClientEmailStatus(`Email sent to ${client?.email || client?.name || 'client'}.`);
+      setClientEmailBusy(false);
       closeClientEmailModal();
     } catch (error) {
       if (clientEmailError) clientEmailError.textContent = error.message || 'Unable to send email.';
@@ -10542,6 +10629,10 @@ if (storageTableBody) {
       openStorageConfirmationEmailModal(caseRequests, 'confirmation');
       return;
     }
+    if (selectedAction === 'generate-contract') {
+      await generateAndDownloadStorageDraftContractsForCase(caseRequests);
+      return;
+    }
     if (selectedAction === 'contract-email') {
       openStorageConfirmationEmailModal(caseRequests, 'contract');
       return;
@@ -10630,6 +10721,14 @@ if (storageTableBody) {
       const request = storageRequests.find((item) => item.id === viewButton.dataset.id);
       if (request) {
         openStorageModal('view', request);
+      }
+      return;
+    }
+    const requestContractButton = event.target.closest('button[data-action="storage-request-contract"]');
+    if (requestContractButton) {
+      const request = storageRequests.find((item) => item.id === requestContractButton.dataset.id);
+      if (request) {
+        openStorageContractModal(request);
       }
       return;
     }
@@ -12846,6 +12945,9 @@ function setView(view) {
     }
   }
   newClientButton.classList.toggle('hidden', !showingClients);
+  if (clientEmailStatus && currentView !== 'clients') {
+    clientEmailStatus.classList.add('hidden');
+  }
   newStorageRequestButton.classList.toggle('hidden', !showingStorage);
   addEntryButton.classList.toggle('hidden', !showingLedger);
   transferButton.classList.toggle('hidden', !showingLedger);

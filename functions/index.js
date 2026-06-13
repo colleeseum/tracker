@@ -1904,8 +1904,9 @@ export const sendClientEmail = functions.https.onCall(async (data, context) => {
 
   const locale = normalizeLanguage(client.preferredLanguage);
   const isStorageClient = client.nonStorageClient !== true;
+  const cc = getStorageConfirmationCc(locale);
   const html = wrapClientEmailHtml({ locale, subject, body, isStorageClient });
-  await transporter.sendMail({ from: defaultFrom, to, subject, html, text: body });
+  await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text: body });
 
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
   const emailRef = db.collection('clientEmails').doc();
@@ -1913,6 +1914,7 @@ export const sendClientEmail = functions.https.onCall(async (data, context) => {
     transaction.set(emailRef, {
       clientId,
       to,
+      cc,
       subject,
       body,
       isStorageClient,
@@ -1936,7 +1938,7 @@ export const sendClientEmail = functions.https.onCall(async (data, context) => {
     );
   });
 
-  return { success: true, to };
+  return { success: true, to, cc };
 });
 
 function parseAttachmentContent(rawContent) {
@@ -2460,6 +2462,15 @@ export const createStorageRequest = functions.https.onCall(async (data, context)
     throw new functions.https.HttpsError('invalid-argument', 'Missing vehicle type.');
   }
 
+  const insurancePolicy = normalize(payload.insurancePolicy);
+  const insuranceExpiration = normalize(payload.insuranceExpiration);
+  if (!insurancePolicy || !insuranceExpiration) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required insurance details.');
+  }
+  if (Number.isNaN(Date.parse(insuranceExpiration))) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid insurance expiration date.');
+  }
+
   const requesterIp = extractIp(context.rawRequest);
   await verifyCaptcha(payload.captchaToken, requesterIp);
 
@@ -2475,11 +2486,8 @@ export const createStorageRequest = functions.https.onCall(async (data, context)
     formLanguage: payload.formLanguage
   });
 
-  const insuranceExpiration = normalize(payload.insuranceExpiration);
   const insuranceDate =
-    insuranceExpiration && !Number.isNaN(Date.parse(insuranceExpiration))
-      ? admin.firestore.Timestamp.fromDate(new Date(insuranceExpiration))
-      : null;
+    admin.firestore.Timestamp.fromDate(new Date(insuranceExpiration));
 
   const estimateAmount = asNumber(payload.estimatedCost);
   const depositEstimate = asNumber(payload.deposit);
@@ -2501,7 +2509,7 @@ export const createStorageRequest = functions.https.onCall(async (data, context)
       province: normalize(payload.vehicleProv)
     },
     insuranceCompany: normalize(payload.insuranceCompany),
-    policyNumber: normalize(payload.insurancePolicy),
+    policyNumber: insurancePolicy,
     insuranceExpiration: insuranceDate,
     status: 'new',
     addons: {
@@ -2659,11 +2667,16 @@ export const createStorageRequests = functions.https.onCall(async (data, context
     if (!vehicleType) {
       return;
     }
+    const insurancePolicy = normalize(request.insurancePolicy);
     const insuranceExpiration = normalize(request.insuranceExpiration);
+    if (!insurancePolicy || !insuranceExpiration) {
+      throw new functions.https.HttpsError('invalid-argument', 'Missing required insurance details.');
+    }
+    if (Number.isNaN(Date.parse(insuranceExpiration))) {
+      throw new functions.https.HttpsError('invalid-argument', 'Invalid insurance expiration date.');
+    }
     const insuranceDate =
-      insuranceExpiration && !Number.isNaN(Date.parse(insuranceExpiration))
-        ? admin.firestore.Timestamp.fromDate(new Date(insuranceExpiration))
-        : null;
+      admin.firestore.Timestamp.fromDate(new Date(insuranceExpiration));
 
     const estimateAmount = asNumber(request.estimatedCost);
     const depositEstimate = asNumber(request.deposit);
@@ -2687,7 +2700,7 @@ export const createStorageRequests = functions.https.onCall(async (data, context
         province: normalize(request.vehicleProv)
       },
       insuranceCompany: normalize(request.insuranceCompany),
-      policyNumber: normalize(request.insurancePolicy),
+      policyNumber: insurancePolicy,
       insuranceExpiration: insuranceDate,
       status: 'new',
       addons: {

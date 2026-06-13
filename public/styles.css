@@ -185,6 +185,25 @@ button.secondary {
   color: #0f172a;
 }
 
+.client-email-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.35rem;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #bbf7d0;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.client-email-status.error {
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .storage-case-action-select {
   width: 100%;
   min-width: 10rem;
@@ -336,17 +355,17 @@ form {
 }
 
 #storage-confirmation-email-modal {
-  padding: 2vh 0.5rem;
+  padding: 2vh 1rem;
 }
 
 #storage-confirmation-email-modal .storage-email-modal-content {
-  width: min(760px, calc(100vw - 1rem));
-  max-width: 760px;
+  width: min(1120px, calc(100vw - 2rem));
+  max-width: 1120px;
   flex: 0 0 auto;
 }
 
 #storage-confirmation-email-modal .email-template-preview-frame {
-  min-height: min(68vh, 760px);
+  min-height: min(72vh, 820px);
 }
 
 .storage-email-meta {
