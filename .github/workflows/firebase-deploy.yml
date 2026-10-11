@@ -25,6 +25,7 @@ jobs:
         shell: python
         run: |
           import os
+          import re
           from pathlib import Path
           path = Path("public/index.html")
           text = path.read_text()
@@ -32,7 +33,9 @@ jobs:
           version = os.environ.get("VERSION", "dev")
           if marker not in text:
               raise SystemExit("Version marker not found in public/index.html")
-          path.write_text(text.replace(marker, f'data-app-version="{version}"', 1))
+          text = text.replace(marker, f'data-app-version="{version}"', 1)
+          text = re.sub(r'(app\.js|styles\.css)\?v=[^"\s]+', lambda match: f'{match.group(1)}?v={version}', text)
+          path.write_text(text)
 
       - name: Install Functions dependencies
         run: npm install --prefix functions
