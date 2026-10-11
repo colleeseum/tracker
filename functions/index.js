@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import Mustache from 'mustache';
 import { getOfferStorageLocation, getOfferVehicleTypes, getSelectedOfferForWebsiteRequest, getRequestEligibility } from './lib/storage-offers.js';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { inheritedOfferNotes } from './lib/offer-notes.js';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
 const smtpPort = Number(process.env.SMTP2GO_PORT || 587);
@@ -2233,7 +2234,7 @@ function normalizeOffer(offer, templateLookup) {
     storageLocation: getOfferStorageLocation(offer),
     vehicleTypes: getOfferVehicleTypes(offer, templateLookup),
     lengthRange: offer.lengthRange || null,
-    note: normalizeLocaleMap(offer.note),
+    note: normalizeLocaleMap(inheritedOfferNotes(offer, templateLookup?.get(offer.templateId))),
     hideInTable: Boolean(offer.hideInTable),
     order: typeof offer.order === 'number' ? offer.order : 0,
     updatedAt: toPlainTimestamp(offer.updatedAt)

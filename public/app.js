@@ -415,6 +415,11 @@ const offerMinimumInput = document.getElementById('offer-minimum');
 const offerPriceUnitEnInput = document.getElementById('offer-price-unit-en');
 const offerPriceUnitFrInput = document.getElementById('offer-price-unit-fr');
 const offerAvailabilitySelect = document.getElementById('offer-availability');
+const offerNoteEnInput = document.getElementById('offer-note-en');
+const offerNoteFrInput = document.getElementById('offer-note-fr');
+const offerNoteDefaultsButton = document.getElementById('offer-note-defaults');
+let offerNoteCustom = {};
+let offerTemplateNoteCustom = {};
 const offerOrderInput = document.getElementById('offer-order');
 const offerFormError = document.getElementById('offer-form-error');
 
@@ -9809,6 +9814,7 @@ function closeVehicleTypeModal() {
 
 function openOfferTemplateModal(mode, template = null) {
   if (!offerTemplateModal) return;
+  offerTemplateNoteCustom = { ...template?.noteCustom };
   if (mode === 'edit' && template) {
     editingOfferTemplateId = template.id;
     offerTemplateFormTitle.textContent = `Edit ${template.label?.en || 'template'}`;
@@ -9885,6 +9891,7 @@ function openOfferModal(mode, offer = null, options = {}) {
     offerOrderInput.value = 0;
   }
   offerFormError.textContent = '';
+  loadOfferNotes(offer);
   offerModal.classList.remove('hidden');
   (offerTemplateSelect || offerSeasonSelect).focus();
   syncOfferPriceFields();
@@ -9911,6 +9918,53 @@ function syncOfferPriceFields() {
   offerMinimumWrapper.classList.toggle('hidden', !showPerFoot);
   offerUnitEnWrapper.classList.toggle('hidden', !showPerFoot);
   offerUnitFrWrapper.classList.toggle('hidden', !showPerFoot);
+}
+
+function defaultOfferNote(price, language) {
+  if (price?.mode === 'flat') return language === 'fr' ? 'tarif fixe' : 'flat rate';
+  if (price?.mode === 'perFoot' && price.minimum != null && price.minimum !== '' && Number.isFinite(Number(price.minimum))) return 'minimum {{amount}}';
+  return '';
+}
+
+function reconcileOfferNotes(note = {}, price = {}, custom = {}) {
+  const defaults = new Set(['', 'flat rate', 'tarif fixe', 'minimum {{amount}}']);
+  return Object.fromEntries(['en', 'fr'].map((language) => {
+    const text = typeof note?.[language] === 'string' ? note[language] : '';
+    return [language, custom?.[language] || !defaults.has(text.trim().toLowerCase()) ? text : defaultOfferNote(price, language)];
+  }));
+}
+
+function inheritedOfferNotes(offer, template) {
+  return reconcileOfferNotes(template?.note ?? offer.note, offer.price, template?.noteCustom ?? offer.noteCustom);
+}
+
+function currentOfferNotePrice() {
+  return { mode: offerPriceModeSelect.value, minimum: offerMinimumInput.value };
+}
+
+function loadOfferNotes(offer = null) {
+  const template = offerTemplateLookup.get(offerTemplateSelect.value);
+  offerNoteCustom = { ...(template?.noteCustom ?? offer?.noteCustom) };
+  const note = reconcileOfferNotes(template?.note ?? offer?.note, currentOfferNotePrice(), offerNoteCustom);
+  offerNoteEnInput.value = note.en;
+  offerNoteFrInput.value = note.fr;
+}
+
+function syncOfferDefaultNotes() {
+  const note = reconcileOfferNotes({ en: offerNoteEnInput.value, fr: offerNoteFrInput.value }, currentOfferNotePrice(), offerNoteCustom);
+  offerNoteEnInput.value = note.en;
+  offerNoteFrInput.value = note.fr;
+}
+
+function syncTemplateOfferNotes(batch, templateId, template, excludedOfferId = null) {
+  offers.filter((offer) => offer.templateId === templateId && offer.id !== excludedOfferId).forEach((offer) => {
+    batch.set(doc(db, 'storageOffers', offer.id), {
+      note: inheritedOfferNotes(offer, template),
+      noteCustom: template.noteCustom || {},
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
+    }, { merge: true });
+  });
 }
 
 function openAddonModal(mode, addon = null) {
@@ -11213,9 +11267,22 @@ if (offerModal) {
 }
 
 if (offerPriceModeSelect) {
-  offerPriceModeSelect.addEventListener('change', syncOfferPriceFields);
+  offerPriceModeSelect.addEventListener('change', () => {
+    syncOfferPriceFields();
+    syncOfferDefaultNotes();
+  });
   syncOfferPriceFields();
 }
+offerMinimumInput.addEventListener('input', syncOfferDefaultNotes);
+offerNoteEnInput.addEventListener('input', () => { offerNoteCustom.en = true; });
+offerNoteFrInput.addEventListener('input', () => { offerNoteCustom.fr = true; });
+offerTemplateNoteEnInput.addEventListener('input', () => { offerTemplateNoteCustom.en = true; });
+offerTemplateNoteFrInput.addEventListener('input', () => { offerTemplateNoteCustom.fr = true; });
+offerNoteDefaultsButton.addEventListener('click', () => {
+  offerNoteCustom = { en: false, fr: false };
+  offerNoteEnInput.value = defaultOfferNote(currentOfferNotePrice(), 'en');
+  offerNoteFrInput.value = defaultOfferNote(currentOfferNotePrice(), 'fr');
+});
 
 if (closeOfferTemplateModalButton) {
   closeOfferTemplateModalButton.addEventListener('click', () => {
@@ -11892,6 +11959,7 @@ if (offerTemplateForm) {
       label: { en: labelEn, fr: labelFr },
       vehicleTypes,
       note: { en: noteEn, fr: noteFr },
+      noteCustom: { en: Boolean(offerTemplateNoteCustom.en), fr: Boolean(offerTemplateNoteCustom.fr) },
       hideInTable: offerTemplateHideInput.checked,
       order: orderValue,
       updatedAt: serverTimestamp(),
@@ -11900,7 +11968,10 @@ if (offerTemplateForm) {
 
     try {
       if (editingOfferTemplateId) {
-        await setDoc(doc(db, 'offerTemplates', editingOfferTemplateId), payload, { merge: true });
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'offerTemplates', editingOfferTemplateId), payload, { merge: true });
+        syncTemplateOfferNotes(batch, editingOfferTemplateId, payload);
+        await batch.commit();
       } else {
         await addDoc(collection(db, 'offerTemplates'), {
           ...payload,
@@ -11916,6 +11987,7 @@ if (offerTemplateForm) {
 }
 
 offerTemplateSelect.addEventListener('change', () => {
+  loadOfferNotes();
   if (editingOfferId) return;
   const template = offerTemplateLookup.get(offerTemplateSelect.value);
   updateOfferVehicleTypes(template?.vehicleTypes || []);
@@ -11943,12 +12015,16 @@ offerForm.addEventListener('submit', async (event) => {
   }
 
   const template = templateId ? offerTemplateLookup.get(templateId) : null;
+  syncOfferDefaultNotes();
+  const note = { en: offerNoteEnInput.value.trim(), fr: offerNoteFrInput.value.trim() };
+  const noteCustom = { en: Boolean(offerNoteCustom.en), fr: Boolean(offerNoteCustom.fr) };
 
   const payload = {
     seasonId,
     templateId,
     label: existingOffer?.label || template?.label || { en: '', fr: '' },
-    note: existingOffer?.note || template?.note || { en: '', fr: '' },
+    note,
+    noteCustom,
     vehicleTypes: Array.from(offerVehicleTypesSelect.selectedOptions, (option) => option.value),
     storageLocation: offerStorageLocationSelect.value,
     hideInTable: existingOffer?.hideInTable ?? Boolean(template?.hideInTable),
@@ -11987,15 +12063,20 @@ offerForm.addEventListener('submit', async (event) => {
   }
 
   try {
+    if (!template) throw new Error('The selected template is unavailable. Reload and select it again.');
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'offerTemplates', templateId), { note, noteCustom, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || null }, { merge: true });
+    syncTemplateOfferNotes(batch, templateId, { ...template, note, noteCustom }, editingOfferId);
     if (editingOfferId) {
-      await setDoc(doc(db, 'storageOffers', editingOfferId), payload, { merge: true });
+      batch.set(doc(db, 'storageOffers', editingOfferId), payload, { merge: true });
     } else {
-      await addDoc(collection(db, 'storageOffers'), {
+      batch.set(doc(collection(db, 'storageOffers')), {
         ...payload,
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.uid || null
       });
     }
+    await batch.commit();
     closeOfferModal();
   } catch (error) {
     offerFormError.textContent = error.message;

@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadActiveProfile } from '../../lib/profile-config.js';
 import { getOfferStorageLocation, getOfferVehicleTypes } from '../lib/storage-offers.js';
+import { inheritedOfferNotes } from '../lib/offer-notes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -231,7 +232,7 @@ function normalizeOffer(offer, templateLookup) {
     availability,
     storageLocation: getOfferStorageLocation(offer),
     vehicleTypes: getOfferVehicleTypes(offer, templateLookup),
-    note: normalizeLocaleMap(offer.note),
+    note: normalizeLocaleMap(inheritedOfferNotes(offer, templateLookup?.get(offer.templateId))),
     hideInTable: Boolean(offer.hideInTable),
     order: typeof offer.order === 'number' ? offer.order : 0,
     lengthRange: normalizeLengthRange(offer),

@@ -5,7 +5,7 @@
     "node": "20"
   },
   "scripts": {
-    "test": "node --test lib/storage-offers.test.js",
+    "test": "node --test lib/*.test.js",
     "export:site:local": "node scripts/export-site-data.mjs --out ../../entrepot/static/generated/website-text.generated.js",
     "mark:site:local": "node scripts/mark-local-publish.mjs",
     "preview:site:local": "node scripts/preview-local-publish.mjs",

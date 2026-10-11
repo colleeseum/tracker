@@ -341,6 +341,26 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 GCLOUD_PROJECT=tracker-187c5 FUNCTIONS_EM
 
 These integration checks stop permitted requests before persistence and email delivery.
 
+## Offer-template pricing notes
+
+The offer editor exposes English and French template notes. Saving updates the template and synchronizes inherited notes on its associated offers without changing their prices or restrictions. Both website exports resolve notes from the current template rather than stale offer copies.
+
+Default notes follow each offer's price mode: `flat rate` / `tarif fixe` for flat pricing, or `minimum {{amount}}` in both languages for per-foot pricing with a configured minimum. The website substitutes each offer's minimum for `{{amount}}`. Custom text and manual edits (tracked per language by `noteCustom`) survive mode changes. Use **Use pricing defaults for both notes** to explicitly discard custom text and restore defaults.
+
+Review existing template and offer notes without writing data:
+
+```bash
+FIREBASE_PROFILE=prod USE_FIRESTORE_EMULATOR=false node functions/scripts/review-offer-notes.mjs
+```
+
+To apply safe note-only corrections in the local emulator:
+
+```bash
+FIREBASE_PROFILE=local USE_FIRESTORE_EMULATOR=true FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 node functions/scripts/review-offer-notes.mjs --apply
+```
+
+The script refuses production writes and reports divergent custom notes for manual review. Shared templates with mixed pricing modes are reported rather than assigned a single incorrect static default; exports normalize their default notes per offer.
+
 ## Firebase Storage rules
 
 Receipt photos live under `gs://<project-bucket>/receipts/**`. Protect them by adding Storage rules similar to the following before deploying:
