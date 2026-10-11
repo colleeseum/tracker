@@ -21,7 +21,6 @@
     "source": "functions"
   },
   "emulators": {
-    "import": "emulator-data", 
     "auth": {
       "port": 9099
     },

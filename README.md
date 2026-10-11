@@ -57,12 +57,18 @@ When the active profile enables emulators, the helper sets `FIRESTORE_EMULATOR_H
 From the repository root run:
 
 ```bash
-firebase emulators:start
+node bin/start-dev.mjs
 ```
 
 This launches Firestore (8081), Auth (9099) and Hosting (5002). The Emulator UI is enabled, so you can inspect data at `http://localhost:4000`.
 
 Then open `http://localhost:5002` in the browser to use the app. Port 8080 is left free for the local Entrepôt site.
+
+The dev launcher imports the saved `emulator-data/` snapshot and exports Firestore,
+local Auth accounts, and Storage data there when you stop it with Ctrl+C. Allow the
+export to finish before closing the terminal. The snapshot is ignored by git.
+To save a snapshot while the emulators are still running, use
+`firebase emulators:export emulator-data --project local --force`.
 
 ## Using the app
 
@@ -85,8 +91,8 @@ Then open `http://localhost:5002` in the browser to use the app. Port 8080 is le
 - `expenses/{expenseId}` — ledger entry with `accountId` (cash source), `entityId`, `date`, `entryType` (expense/income), `category`, `amount`, `description`, optional tags/vendor/client references, receipt metadata (`receiptUrl`, `receiptStoragePath`), and timestamps.
 - `clients/{clientId}` — tenant address book with `name`, `email`, `phone`, `address`, `city`, `province`, `postalCode`, plus audit stamps.
 - `storageRequests/{requestId}` — seasonal storage applications linked to a `clientId`, vehicle metadata (type, brand, model, plate, etc.), insurance details, add-on booleans, `season`, and `status` (New → Picked-Up).
-- `storageSeasons/{seasonId}` — localized season metadata (names, timeframe, descriptions, ordering, active flag) used to power pricing.
-- `storageOffers/{offerId}` — per-season offers with price mode (flat/perFoot/contact), vehicle type filters, localized labels/notes, ordering, and visibility flags.
+- `storageSeasons/{seasonId}` — localized season metadata (names, timeframe, descriptions, ordering, active flag) and availability (`available`, `limited`, or `full`, defaulting to `available` when missing or invalid) used to power pricing. A full season blocks new website requests without changing individual offer prices or availability.
+- `storageOffers/{offerId}` — per-season offers with price mode (flat/perFoot/contact), availability (`available`, `limited`, or `full`, defaulting to `available` when absent), vehicle type filters, localized labels/notes, ordering, and visibility flags.
 - `storageAddOns/{addonId}` — add-on service definitions (battery maintenance, propane storage, etc.) with localized copy.
 - `storageSeasonAddOns/{seasonAddonId}` — per-season add-on pricing linked by `seasonId` and add-on `code`.
 - `storageConditions/{conditionId}` — global “conditions” policies (localized text, optional tooltips) shown on the marketing site and in contracts.
@@ -321,6 +327,20 @@ This API works from `~/personal/entrepot` (just adjust the relative import path)
    ```
 
    > To allow custom `from` addresses and unrestricted recipients, attach the `isTrackerAdmin=true` custom claim to the authenticated user. Otherwise, any custom sender is restricted to the configured domain.
+## Seasonal storage restrictions
+
+Season and offer `availability` support `available`, `limited`, and `full`. Missing or invalid values normalize to `available` without migration. A full season blocks every location; a full offer blocks only that offer. Limited remains requestable.
+
+Offers store `storageLocation` (`indoor` or `outdoor`) and an explicit `vehicleTypes` allowlist using the existing vehicle type IDs. Empty lists allow no vehicles. Legacy offers without a list can use their configured template's list. Missing locations default to indoor, except clearly labelled legacy outdoor offers. Existing pricing is retained when editing restrictions.
+
+The website export and both public request endpoints enforce these fields. Run unit checks with `npm --prefix functions test`. For read-only integration checks against the configured local concrete-pad offer, run:
+
+```bash
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 GCLOUD_PROJECT=tracker-187c5 FUNCTIONS_EMULATOR=true node functions/scripts/test-local-storage.mjs
+```
+
+These integration checks stop permitted requests before persistence and email delivery.
+
 ## Firebase Storage rules
 
 Receipt photos live under `gs://<project-bucket>/receipts/**`. Protect them by adding Storage rules similar to the following before deploying:

@@ -341,8 +341,8 @@
                               <th>Label (FR)</th>
                               <th>Timeframe</th>
                               <th>Type</th>
-                              <th>Order</th>
                               <th>Active</th>
+                              <th>Availability</th>
                               <th></th>
                             </tr>
                           </thead>
@@ -372,6 +372,7 @@
                               <th>Template</th>
                               <th>Amount / Rate</th>
                               <th>Minimum</th>
+                              <th>Availability</th>
                               <th>Hidden?</th>
                               <th></th>
                             </tr>
@@ -1510,6 +1511,14 @@
                 <input type="checkbox" id="season-active" />
                 Active
               </label>
+              <label>
+                Availability
+                <select id="season-availability" required>
+                  <option value="available">Available</option>
+                  <option value="limited">Limited</option>
+                  <option value="full">Full</option>
+                </select>
+              </label>
               <button type="submit" class="wide">Save season</button>
             <p class="error" id="season-form-error"></p>
           </form>
@@ -1608,6 +1617,18 @@
                 </select>
               </label>
               <label>
+                Storage location
+                <select id="offer-storage-location" required>
+                  <option value="indoor">Indoor</option>
+                  <option value="outdoor">Outdoor</option>
+                </select>
+              </label>
+              <label class="wide">
+                Allowed vehicle types
+                <select id="offer-vehicle-types" multiple size="6" required></select>
+                <span class="hint">Select permitted types. Use Ctrl or Command to select several. No selection allows no vehicles.</span>
+              </label>
+              <label>
                 Price mode
                 <select id="offer-price-mode" required>
                   <option value="flat">Flat</option>
@@ -1634,6 +1655,14 @@
               <label id="offer-unit-fr-wrapper">
                 Price unit (FR)
                 <input type="text" id="offer-price-unit-fr" placeholder="/ pi" />
+              </label>
+              <label>
+                Availability
+                <select id="offer-availability" required>
+                  <option value="available">Available</option>
+                  <option value="limited">Limited</option>
+                  <option value="full">Full</option>
+                </select>
               </label>
               <label>
                 Order

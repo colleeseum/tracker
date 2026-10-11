@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadActiveProfile } from '../../lib/profile-config.js';
+import { getOfferStorageLocation, getOfferVehicleTypes } from '../lib/storage-offers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -218,15 +219,18 @@ function normalizePolicy(policy) {
   return { text };
 }
 
-function normalizeOffer(offer) {
+function normalizeOffer(offer, templateLookup) {
   const normalizedPrice = normalizePrice(offer.price);
+  const availability = ['available', 'limited', 'full'].includes(offer.availability)
+    ? offer.availability
+    : 'available';
   return {
     id: offer.id,
     label: normalizeLocaleMap(offer.label) || { en: '', fr: '' },
     price: normalizedPrice,
-    vehicleTypes: Array.isArray(offer.vehicleTypes)
-      ? offer.vehicleTypes.filter((value) => typeof value === 'string' && value.length > 0)
-      : [],
+    availability,
+    storageLocation: getOfferStorageLocation(offer),
+    vehicleTypes: getOfferVehicleTypes(offer, templateLookup),
     note: normalizeLocaleMap(offer.note),
     hideInTable: Boolean(offer.hideInTable),
     order: typeof offer.order === 'number' ? offer.order : 0,
@@ -284,6 +288,9 @@ function normalizeSeason(season, offersBySeason) {
   offers.sort((a, b) => (a.order || 0) - (b.order || 0));
   return {
     id: season.id,
+    availability: ['available', 'limited', 'full'].includes(season.availability)
+      ? season.availability
+      : 'available',
     name: normalizeLocaleMap(season.name) || { en: '', fr: '' },
     seasonLabel: normalizeLocaleMap(season.label) || normalizeLocaleMap(season.name) || { en: '', fr: '' },
     timeframe: normalizeLocaleMap(season.timeframe),
@@ -303,7 +310,7 @@ function normalizeSeason(season, offersBySeason) {
 async function main() {
   const outputPath = resolveOutputPath();
 
-  const [addOns, seasonAddOns, conditions, etiquette, i18nDocs, seasons, offers, vehicleTypes] = await Promise.all([
+  const [addOns, seasonAddOns, conditions, etiquette, i18nDocs, seasons, offers, vehicleTypes, templates] = await Promise.all([
     fetchCollection('storageAddOns', 'order'),
     fetchCollection('storageSeasonAddOns', 'order'),
     fetchCollection('storageConditions', 'order'),
@@ -311,7 +318,8 @@ async function main() {
     fetchCollection('i18nEntries'),
     fetchCollection('storageSeasons', 'order'),
     fetchCollection('storageOffers', 'order'),
-    fetchCollection('vehicleTypes', 'order')
+    fetchCollection('vehicleTypes', 'order'),
+    fetchCollection('offerTemplates')
   ]);
 
   const normalizedAddOns = addOns.map((entry) => ({
@@ -349,10 +357,11 @@ async function main() {
   }));
 
   const offersBySeason = new Map();
+  const templateLookup = new Map(templates.map((template) => [template.id, template]));
   offers.forEach((offer) => {
     const seasonId = offer.seasonId;
     if (!seasonId) return;
-    const normalizedOffer = normalizeOffer(offer);
+    const normalizedOffer = normalizeOffer(offer, templateLookup);
     if (!offersBySeason.has(seasonId)) {
       offersBySeason.set(seasonId, []);
     }

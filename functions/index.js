@@ -3,6 +3,7 @@ import admin from 'firebase-admin';
 import nodemailer from 'nodemailer';
 import crypto from 'node:crypto';
 import Mustache from 'mustache';
+import { getOfferStorageLocation, getOfferVehicleTypes, getSelectedOfferForWebsiteRequest, getRequestEligibility } from './lib/storage-offers.js';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
@@ -995,13 +996,6 @@ function requestAmountValue(request) {
   return 0;
 }
 
-function getOfferVehicleTypesForEmail(offer, templateLookup) {
-  if (Array.isArray(offer?.vehicleTypes) && offer.vehicleTypes.length) return offer.vehicleTypes;
-  const template = offer?.templateId ? templateLookup.get(offer.templateId) : null;
-  if (Array.isArray(template?.vehicleTypes) && template.vehicleTypes.length) return template.vehicleTypes;
-  return [];
-}
-
 function computeOfferPriceForEmail(offer, lengthFeet) {
   if (!offer?.price) return null;
   if (offer.price.mode === 'flat') {
@@ -1016,15 +1010,6 @@ function computeOfferPriceForEmail(offer, lengthFeet) {
     return Math.max(length * rate, minimum);
   }
   return null;
-}
-
-function lengthMatchesRangeForEmail(lengthFeet, range) {
-  if (!range) return true;
-  const length = Number(lengthFeet);
-  if (!Number.isFinite(length)) return false;
-  if (typeof range.min === 'number' && length < range.min) return false;
-  if (typeof range.max === 'number' && length > range.max) return false;
-  return true;
 }
 
 async function loadStoragePricingData() {
@@ -1148,19 +1133,7 @@ function resolveRequestAmountForEmail(request, pricingData) {
     if (Number.isFinite(amount)) return amount;
   }
   const seasonId = request?.season || '';
-  const vehicleType = request?.vehicle?.type || '';
-  const storageLocation = request?.storageLocation === 'outdoor' ? 'outdoor' : 'indoor';
-  const offers = (pricingData?.offers || [])
-    .filter((offer) => offer.seasonId === seasonId)
-    .filter((offer) => {
-      const types = getOfferVehicleTypesForEmail(offer, pricingData.templateLookup);
-      if (storageLocation === 'outdoor') return !types.length && offer?.price?.mode === 'flat';
-      return types.includes(vehicleType);
-    });
-  const selectedOffer =
-    offers.find((offer) => lengthMatchesRangeForEmail(request?.vehicle?.lengthFeet, offer.lengthRange)) ||
-    offers[offers.length - 1] ||
-    null;
+  const selectedOffer = getSelectedOfferForWebsiteRequest(request, pricingData);
   const pricedAmount = computeOfferPriceForEmail(selectedOffer, request?.vehicle?.lengthFeet);
   if (Number.isFinite(pricedAmount)) {
     let total = pricedAmount;
@@ -1169,6 +1142,15 @@ function resolveRequestAmountForEmail(request, pricingData) {
     return total;
   }
   return requestAmountValue(request);
+}
+
+function normalizeSeasonAvailability(availability) {
+  return ['available', 'limited', 'full'].includes(availability) ? availability : 'available';
+}
+
+function assertWebsiteRequestAvailable(request, pricingData) {
+  const eligibility = getRequestEligibility(request, pricingData);
+  if (!eligibility.allowed) throw new functions.https.HttpsError('failed-precondition', eligibility.reason);
 }
 
 function getAddOnPriceForEmail(code, seasonId, pricingData) {
@@ -2239,14 +2221,18 @@ function toPlainTimestamp(timestamp) {
   return null;
 }
 
-function normalizeOffer(offer) {
+function normalizeOffer(offer, templateLookup) {
+  const availability = ['available', 'limited', 'full'].includes(offer.availability)
+    ? offer.availability
+    : 'available';
   return {
     id: offer.id,
     label: normalizeLocaleMap(offer.label) || { en: '', fr: '' },
     price: normalizePrice(offer.price),
-    vehicleTypes: Array.isArray(offer.vehicleTypes)
-      ? offer.vehicleTypes.filter((value) => typeof value === 'string' && value.length > 0)
-      : [],
+    availability,
+    storageLocation: getOfferStorageLocation(offer),
+    vehicleTypes: getOfferVehicleTypes(offer, templateLookup),
+    lengthRange: offer.lengthRange || null,
     note: normalizeLocaleMap(offer.note),
     hideInTable: Boolean(offer.hideInTable),
     order: typeof offer.order === 'number' ? offer.order : 0,
@@ -2271,7 +2257,8 @@ export const getWebsiteContent = functions.https.onCall(async (data, context) =>
     i18nSnap,
     seasonsSnap,
     offersSnap,
-    vehicleTypesSnap
+    vehicleTypesSnap,
+    templatesSnap
   ] = await Promise.all([
     db.collection('storageAddOns').orderBy('order').get(),
     db.collection('storageSeasonAddOns').orderBy('order').get(),
@@ -2280,7 +2267,8 @@ export const getWebsiteContent = functions.https.onCall(async (data, context) =>
     db.collection('i18nEntries').get(),
     db.collection('storageSeasons').orderBy('order').get(),
     db.collection('storageOffers').orderBy('order').get(),
-    db.collection('vehicleTypes').orderBy('order').get()
+    db.collection('vehicleTypes').orderBy('order').get(),
+    db.collection('offerTemplates').get()
   ]);
 
   const STORAGE_ADDONS = addOnsSnap.docs.map((docSnap) => {
@@ -2330,11 +2318,12 @@ export const getWebsiteContent = functions.https.onCall(async (data, context) =>
   });
 
   const offersBySeason = new Map();
+  const templateLookup = new Map(templatesSnap.docs.map((snap) => [snap.id, snap.data()]));
   offersSnap.docs.forEach((docSnap) => {
     const offer = { id: docSnap.id, ...docSnap.data() };
     const seasonId = offer.seasonId;
     if (!seasonId) return;
-    const normalizedOffer = normalizeOffer(offer);
+    const normalizedOffer = normalizeOffer(offer, templateLookup);
     if (!offersBySeason.has(seasonId)) offersBySeason.set(seasonId, []);
     offersBySeason.get(seasonId).push(normalizedOffer);
   });
@@ -2347,6 +2336,7 @@ export const getWebsiteContent = functions.https.onCall(async (data, context) =>
       offers.sort((a, b) => (a.order || 0) - (b.order || 0));
       return {
         id: season.id,
+        availability: normalizeSeasonAvailability(season.availability),
         name: normalizeLocaleMap(season.name) || { en: '', fr: '' },
         seasonLabel: normalizeLocaleMap(season.label) || normalizeLocaleMap(season.name) || { en: '', fr: '' },
         timeframe: normalizeLocaleMap(season.timeframe),
@@ -2461,6 +2451,9 @@ export const createStorageRequest = functions.https.onCall(async (data, context)
   if (!vehicleType) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing vehicle type.');
   }
+
+  const pricingData = await loadStoragePricingData();
+  assertWebsiteRequestAvailable({ ...payload, season }, pricingData);
 
   const insurancePolicy = normalize(payload.insurancePolicy);
   const insuranceExpiration = normalize(payload.insuranceExpiration);
@@ -2641,6 +2634,11 @@ export const createStorageRequests = functions.https.onCall(async (data, context
   if (!requests.length) {
     throw new functions.https.HttpsError('invalid-argument', 'At least one vehicle request is required.');
   }
+
+  const pricingData = await loadStoragePricingData();
+  requests.forEach((request) => {
+    assertWebsiteRequestAvailable({ ...request, season: normalize(request.season) || season }, pricingData);
+  });
 
   const requesterIp = extractIp(context.rawRequest);
   await verifyCaptcha(payload.captchaToken, requesterIp);

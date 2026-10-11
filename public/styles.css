@@ -1780,6 +1780,11 @@ form {
 .modal-content {
   max-width: 540px;
   width: 100%;
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: 92vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-header {
@@ -2132,9 +2137,33 @@ table {
 
 .season-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
   align-items: flex-start;
+}
+
+.season-layout > .pricing-section {
+  display: block;
+  min-width: 0;
+}
+
+.season-layout .table-wrapper {
+  width: 100%;
+  max-width: 100%;
+}
+
+.season-layout table {
+  table-layout: fixed;
+}
+
+.season-layout th,
+.season-layout td {
+  overflow-wrap: anywhere;
+  padding: 0.6rem 0.4rem;
+}
+
+#offer-vehicle-types {
+  min-height: 9rem;
 }
 
 @media (max-width: 1200px) {
