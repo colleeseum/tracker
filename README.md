@@ -341,6 +341,50 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 GCLOUD_PROJECT=tracker-187c5 FUNCTIONS_EM
 
 These integration checks stop permitted requests before persistence and email delivery.
 
+## Storage request referrals
+
+Storage requests can record multiple referring clients in `referredByClientIds`, an optional array of existing client IDs. Use **Referred by (clients)** in the request editor. Select more than one client with Ctrl or Command, or deselect a client to remove their referral. The tenant cannot refer themself. Referrals appear under the request's vehicle details and in its view/edit form.
+
+Requests without this field work unchanged. Missing client records retain a visible unavailable-client entry so unrelated edits do not silently discard historical referrals. Referrals are internal Tracker metadata, not public website fields or email recipients.
+
+## Storage invoices and referral discounts
+
+For an approved no-deposit case, first confirm **Received Contract** and upload every signed contract. While the case is **Waiting for Deposit**, choose **Schedule without deposit** and confirm the exception. The backend validates the complete case, signed contracts, absence of active deposit receipts and pending deliveries, then atomically marks all vehicles Scheduled. Each request records `depositRequired: false`, `depositRequirementWaivedAt` and `depositRequirementWaivedBy`. No email, receipt or accounting payment is created by this scheduling action. The regular deposit-received workflow stays available and unchanged.
+
+The subsequent Stored invoice still uses actual recorded deposits only. With no deposit receipt it subtracts zero, leaving the full agreed total less any eligible referral discounts due. The approved exception does not waive any contract charges or fabricate a payment.
+
+**Mark stored & invoice** opens an email preview plus an invoice PDF link for the complete scheduled storage case. Previewing or cancelling does not create an invoice, send email, consume referral credit, or change storage status. Confirm **Send invoice & mark stored** to email the PDF and record the vehicles as Stored. The request editor also routes a Scheduled-to-Stored transition through this preview. Existing Stored requests are not retroactively invoiced.
+
+The invoice uses the agreed contract amounts, subtracts actual deposit receipts linked to the case, and subtracts available referring-client credits. It does not add another tax calculation or record the outstanding balance as cash received. Saved invoices and the exact PDF emailed are accessible through the top-level case's **Invoice (PDF)** link in the Vehicle Type cell. Invoice dates use America/Toronto.
+
+After receiving the full remaining balance, choose **Mark paid & receipt** on a Stored case. Review the localized email and the original invoice PDF with a green **PAID / PAYÉ** seal, then choose **Confirm full payment & send receipt**. This records the payment amount/date/admin and zero remaining balance in `storageInvoices.payment`, and marks every invoiced vehicle Paid after the email is accepted. Partial payments are not handled by this action. The original invoice, deposits, prices and referral credits remain unchanged. No separate accounting income entry is created. The Paid case can then move to Picked-Up; the existing Stored-to-Picked-Up action remains available for legacy records.
+
+The editable **storage-paid** email template uses the normal banner/footer and supports `{{payment_amount}}`, `{{paid_date}}`, `{{invoice_id}}`, `{{saison}}`, `{{balance_due}}` and `{{invoice_details}}`. **Paid (PDF)** reopens the saved stamped attachment at case level without emailing it. Preview/cancel is read-only. A definite rejection leaves the case Stored and permits a reviewed retry; uncertain delivery remains locked for reconciliation. Already accepted email can complete Paid status without resending. Dev receipt emails use the same fixed safe recipient as all other dev emails.
+
+Set **General settings > Storage billing > Referral discount (CAD)** and save it. The proposed initial value is $25; billing calculations use only the saved `admin/appSettings.referralDiscountAmount`, not a hard-coded rate. A referring client earns one credit per referred customer, even when that customer has multiple vehicles or returns for another season. Multiple referring clients each have their own customer-credit record. Credits are derived from recorded client referrals on non-cancelled/non-rejected requests, not awarded separately for every vehicle. The preview lists the customers contributing each credit. New credits use the saved rate; partially used credits retain their original value and unused amounts carry forward.
+
+`storageInvoices` stores immutable billing snapshots, email previews and attached PDF bytes. `storageReferralCredits` tracks each referring/referred client pair, applied amounts and in-flight reservations. Duplicate confirmations and concurrent invoices cannot consume a credit twice. Requests remain Scheduled when SMTP rejects the email. If delivery is uncertain, automatic retry is blocked pending reconciliation. If the mail server accepted the email but status persistence failed, reopening the preview can complete the Stored status without resending the email. An invoice pending delivery blocks edits to its associated requests.
+
+Invoice PDFs use a branded invoice layout with supplier/client address blocks, invoice number/date, localized season, description/amount columns, separate deposit/referral deductions, a highlighted balance due, and numbered continuation pages. Supplier contact details match the existing storage contract.
+
+Invoice emails render the editable **storage-invoice** template and reuse the same banner/footer wrapper as contract and receipt messages. A built-in English/French default appears in **Website & Offering > Email templates** even before it has a Firestore record; editing and saving it creates the override without changing other templates. Supported tokens include `{{tenant}}`, `{{invoice_id}}`, `{{invoice_date}}`, `{{saison}}`, `{{total_cost}}`, `{{total_deposit}}`, `{{referral_discount}}`, `{{balance_due}}`, and `{{invoice_details}}` (the invoice table). Both the billing snapshot and rendered email are fingerprinted: editing a template after preview requires a fresh preview. Previously sent invoices/PDFs remain unchanged.
+
+Run `npm --prefix functions test` for invoice, credit, PDF and failure-path checks. For local Firestore integration with a mocked mail sender:
+
+```bash
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 node functions/scripts/test-local-invoices.mjs
+```
+
+Add `--preview` to keep the disposable local case visible while inspecting its UI preview, then press Enter in the terminal to complete mock-send checks and remove all fixtures. This test never sends real email; it initializes the local discount setting to $25 only if that setting is absent.
+
+## Development email safety
+
+Every email workflow shares a protected SMTP sender. When running with Firebase emulator settings or a local/dev/test profile, emails go **only to `entrepot@as-colle.com`**. Customer To/CC/BCC recipients are replaced, custom SMTP envelopes are overridden, replies and bounces route to the same safe address, and subjects get a `[DEV]` prefix. Raw messages and recipient/read-receipt headers cannot bypass this safeguard. This includes invoice, contract, receipt, manual client, website notification, and acknowledgement emails.
+
+Previews show the effective destination and a dev warning. A local preview fails closed if its backend reports live production routing. Sent-email metadata records the effective destination; invoice billing details still identify the customer without emailing them. The safeguard cannot be disabled by a client payload. Any emulator signal forces it on, even if another environment flag says production. `DEV_EMAIL_MODE=true` can additionally force safe routing in another environment. Normal production routing is unchanged when no dev/emulator signal is present.
+
+Reload Tracker after updating the local code. The Functions emulator reloads the central protection automatically; if the preview cannot verify routing, restart it with `node bin/start-dev.mjs` and do not send until the preview shows the safe destination.
+
 ## Offer-template pricing notes
 
 The offer editor exposes English and French template notes. Saving updates the template and synchronizes inherited notes on its associated offers without changing their prices or restrictions. Both website exports resolve notes from the current template rather than stale offer copies.

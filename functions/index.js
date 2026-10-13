@@ -6,6 +6,11 @@ import Mustache from 'mustache';
 import { getOfferStorageLocation, getOfferVehicleTypes, getSelectedOfferForWebsiteRequest, getRequestEligibility } from './lib/storage-offers.js';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { inheritedOfferNotes } from './lib/offer-notes.js';
+import { createStorageInvoiceService, renderInvoiceHtml, invoiceTextLines, money as formatInvoiceMoney } from './lib/storage-invoices.js';
+import { DEFAULT_STORAGE_INVOICE_TEMPLATE, DEFAULT_STORAGE_PAID_TEMPLATE } from './lib/storage-invoice-template.js';
+import { createStoragePaymentService } from './lib/storage-payments.js';
+import { createStorageNoDepositService } from './lib/storage-no-deposit.js';
+import { createEmailSafetyPolicy, createSafeMailer } from './lib/email-safety.js';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
 const smtpPort = Number(process.env.SMTP2GO_PORT || 587);
@@ -296,7 +301,7 @@ export const reportSitePublishJobUpdate = functions.https.onRequest(async (req, 
 const RATE_LIMIT = 2;
 const RATE_LIMIT_COLLECTION = 'emailRateLimits';
 
-const transporter = nodemailer.createTransport({
+const smtpTransport = nodemailer.createTransport({
   host: smtpHost,
   port: smtpPort,
   secure: smtpPort === 465,
@@ -305,6 +310,8 @@ const transporter = nodemailer.createTransport({
     pass: smtpPass
   }
 });
+const emailSafetyPolicy = createEmailSafetyPolicy(process.env);
+const transporter = createSafeMailer(smtpTransport, emailSafetyPolicy);
 
 const currentDateKey = () => new Date().toISOString().slice(0, 10);
 
@@ -1478,6 +1485,7 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
   });
   const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
 
+  const delivery = emailSafetyPolicy.preview({ to, cc, subject });
   await transporter.sendMail({
     from: defaultFrom,
     to,
@@ -1495,8 +1503,9 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
       {
         confirmationEmailSentAt: timestamp,
         confirmationEmailSentBy: context.auth.uid,
-        confirmationEmailSentTo: to,
-        confirmationEmailCc: cc,
+        confirmationEmailSentTo: delivery.to,
+        confirmationEmailCc: delivery.cc,
+        confirmationEmailDevRedirect: delivery.developmentEmailRedirect,
         updatedAt: timestamp,
         updatedBy: context.auth.uid
       },
@@ -1505,7 +1514,7 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
   });
   await batch.commit();
 
-  return { success: true, to, cc };
+  return { success: true, ...delivery };
 });
 
 function buildContractDetailsHtml(requests, locale, pricingData) {
@@ -1616,6 +1625,7 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
     }
   }
 
+  const delivery = emailSafetyPolicy.preview({ to, cc, subject });
   await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text, attachments });
 
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
@@ -1627,8 +1637,9 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
         status: 'waiting_contract_deposit',
         contractEmailSentAt: timestamp,
         contractEmailSentBy: context.auth.uid,
-        contractEmailSentTo: to,
-        contractEmailCc: cc,
+        contractEmailSentTo: delivery.to,
+        contractEmailCc: delivery.cc,
+        contractEmailDevRedirect: delivery.developmentEmailRedirect,
         updatedAt: timestamp,
         updatedBy: context.auth.uid
       },
@@ -1637,7 +1648,7 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
   });
   await batch.commit();
 
-  return { success: true, to, cc };
+  return { success: true, ...delivery };
 });
 
 export const sendStorageReceiptEmail = functions.https.onCall(async (data, context) => {
@@ -1755,6 +1766,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   const bodyHtml = fillTemplateHtml(rawBody, contextValues, { details: detailsHtml });
   const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
 
+  const delivery = emailSafetyPolicy.preview({ to, cc, subject });
   await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text });
 
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
@@ -1779,8 +1791,9 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
       templateId,
       sentAt: timestamp,
       sentBy: context.auth.uid,
-      sentTo: to,
-      sentCc: cc,
+      sentTo: delivery.to,
+      sentCc: delivery.cc,
+      developmentEmailRedirect: delivery.developmentEmailRedirect,
       statusFrom: currentStatus,
       statusTo: targetStatus,
       createdAt: timestamp,
@@ -1831,16 +1844,18 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
     if (workflow.changesStatus === false) {
       requestUpdate.followUpEmailSentAt = timestamp;
       requestUpdate.followUpEmailSentBy = context.auth.uid;
-      requestUpdate.followUpEmailSentTo = to;
-      requestUpdate.followUpEmailCc = cc;
+      requestUpdate.followUpEmailSentTo = delivery.to;
+      requestUpdate.followUpEmailCc = delivery.cc;
+      requestUpdate.followUpEmailDevRedirect = delivery.developmentEmailRedirect;
       requestUpdate.followUpEmailTemplateId = templateId;
       requestUpdate.followUpEmailType = receiptType;
     } else {
       requestUpdate.status = targetStatus;
       requestUpdate.receiptEmailSentAt = timestamp;
       requestUpdate.receiptEmailSentBy = context.auth.uid;
-      requestUpdate.receiptEmailSentTo = to;
-      requestUpdate.receiptEmailCc = cc;
+      requestUpdate.receiptEmailSentTo = delivery.to;
+      requestUpdate.receiptEmailCc = delivery.cc;
+      requestUpdate.receiptEmailDevRedirect = delivery.developmentEmailRedirect;
       requestUpdate.receiptEmailTemplateId = templateId;
       requestUpdate.receiptEmailType = receiptType;
     }
@@ -1852,7 +1867,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   });
   await batch.commit();
 
-  return { success: true, to, cc, templateId, targetStatus, receiptId };
+  return { success: true, ...delivery, templateId, targetStatus, receiptId };
 });
 
 export const sendClientEmail = functions.https.onCall(async (data, context) => {
@@ -1889,6 +1904,7 @@ export const sendClientEmail = functions.https.onCall(async (data, context) => {
   const isStorageClient = client.nonStorageClient !== true;
   const cc = getStorageConfirmationCc(locale);
   const html = wrapClientEmailHtml({ locale, subject, body, isStorageClient });
+  const delivery = emailSafetyPolicy.preview({ to, cc, subject });
   await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text: body });
 
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
@@ -1896,9 +1912,10 @@ export const sendClientEmail = functions.https.onCall(async (data, context) => {
   await db.runTransaction(async (transaction) => {
     transaction.set(emailRef, {
       clientId,
-      to,
-      cc,
-      subject,
+      to: delivery.to,
+      cc: delivery.cc,
+      subject: delivery.subject,
+      developmentEmailRedirect: delivery.developmentEmailRedirect,
       body,
       isStorageClient,
       sentAt: timestamp,
@@ -1921,7 +1938,7 @@ export const sendClientEmail = functions.https.onCall(async (data, context) => {
     );
   });
 
-  return { success: true, to, cc };
+  return { success: true, ...delivery };
 });
 
 function parseAttachmentContent(rawContent) {
@@ -2240,6 +2257,72 @@ function normalizeOffer(offer, templateLookup) {
     updatedAt: toPlainTimestamp(offer.updatedAt)
   };
 }
+
+async function renderStorageInvoiceEmail(invoice, paid = false) {
+  const templateId = paid ? 'storage-paid' : 'storage-invoice';
+  const template = await loadEmailTemplate(templateId) || (paid ? DEFAULT_STORAGE_PAID_TEMPLATE : DEFAULT_STORAGE_INVOICE_TEMPLATE);
+  const displayedInvoice = paid ? { ...invoice, balanceDueCents: 0 } : invoice;
+  const context = {
+    tenant: invoice.client.name, tenant_name: invoice.client.name,
+    invoice_id: invoice.invoiceId, invoiceId: invoice.invoiceId, invoice_date: invoice.date,
+    saison: invoice.seasonLabel || invoice.seasonId, season: invoice.seasonLabel || invoice.seasonId,
+    total_cost: formatInvoiceMoney(invoice.subtotalCents, invoice.locale),
+    total_deposit: formatInvoiceMoney(invoice.depositCents, invoice.locale),
+    referral_discount: formatInvoiceMoney(invoice.referralDiscountCents, invoice.locale),
+    balance_due: formatInvoiceMoney(displayedInvoice.balanceDueCents, invoice.locale),
+    paid_date: invoice.paidDate || '', payment_amount: formatInvoiceMoney(invoice.paymentAmountCents || 0, invoice.locale),
+    invoice_details: invoiceTextLines(displayedInvoice).join('\n'), details: invoiceTextLines(displayedInvoice).join('\n')
+  };
+  const subject = fillTemplateText(getLocalizedTemplateField(template, 'subject', invoice.locale), context);
+  const rawBody = getLocalizedTemplateField(template, 'body', invoice.locale);
+  const text = fillTemplateText(rawBody, context);
+  if (!subject.trim() || !text.trim()) throw new functions.https.HttpsError('failed-precondition', 'Invoice email template subject and body are required.');
+  const details = renderInvoiceHtml(displayedInvoice);
+  const bodyHtml = fillTemplateHtml(rawBody, context, { invoice_details: details, details });
+  return { subject, text, html: wrapTrackerEmailHtml({ locale: invoice.locale, subject, body: text, bodyHtml }), templateId };
+}
+
+const storageInvoiceService = createStorageInvoiceService({
+  db, fieldValue: admin.firestore.FieldValue, loadPricing: loadStoragePricingData,
+  resolveAmount: (request, pricing) => {
+    const amount = resolveRequestAmountForEmail(request, pricing);
+    if (amount <= 0 && request.contractAmount !== 0) throw new functions.https.HttpsError('failed-precondition', 'Set a valid agreed contract amount before invoicing.');
+    return amount;
+  },
+  resolveCaseId: resolveEmailCaseId, sendEmail: (message) => transporter.sendMail(message),
+  from: defaultFrom, ccForLocale: getStorageConfirmationCc,
+  renderEmail: renderStorageInvoiceEmail, seasonLabelFor: formatSeasonLabelForEmail,
+  routeEmail: (message) => emailSafetyPolicy.preview(message)
+});
+
+const storagePaymentService = createStoragePaymentService({
+  db, fieldValue: admin.firestore.FieldValue, sendEmail: (message) => transporter.sendMail(message),
+  from: defaultFrom, renderEmail: (invoice) => renderStorageInvoiceEmail(invoice, true),
+  routeEmail: (message) => emailSafetyPolicy.preview(message), resolveCaseId: resolveEmailCaseId
+});
+const storageNoDepositService = createStorageNoDepositService({ db, fieldValue: admin.firestore.FieldValue, resolveCaseId: resolveEmailCaseId });
+
+function storageInvoiceCallable(handler) {
+  return functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in to manage invoices.');
+    if (!TRACKER_ADMIN_EMAILS.has(String(context.auth.token?.email || '').toLowerCase())) throw new functions.https.HttpsError('permission-denied', 'Not authorized to manage invoices.');
+    try { return await handler(data || {}, context.auth.uid); }
+    catch (error) {
+      const validCodes = ['invalid-argument', 'failed-precondition', 'not-found', 'permission-denied'];
+      throw new functions.https.HttpsError(validCodes.includes(error.code) ? error.code : 'internal', error.message || 'Unable to process the storage invoice.');
+    }
+  });
+}
+export const prepareStorageInvoice = storageInvoiceCallable((data) => storageInvoiceService.prepare(data.requestIds));
+export const sendStorageInvoice = storageInvoiceCallable((data, uid) => storageInvoiceService.send(data, uid));
+export const getStorageInvoice = storageInvoiceCallable((data) => storageInvoiceService.get(data.invoiceId));
+export const getDefaultStorageInvoiceEmailTemplate = storageInvoiceCallable(() => DEFAULT_STORAGE_INVOICE_TEMPLATE);
+export const getDefaultStoragePaidEmailTemplate = storageInvoiceCallable(() => DEFAULT_STORAGE_PAID_TEMPLATE);
+export const prepareStoragePayment = storageInvoiceCallable((data) => storagePaymentService.prepare(data.invoiceId));
+export const sendStoragePayment = storageInvoiceCallable((data, uid) => storagePaymentService.send(data, uid));
+export const getStoragePayment = storageInvoiceCallable((data) => storagePaymentService.get(data.invoiceId));
+export const scheduleStorageWithoutDeposit = storageInvoiceCallable((data, uid) => storageNoDepositService.schedule(data, uid));
+export const getEmailDeliveryPolicy = storageInvoiceCallable(() => ({ development: emailSafetyPolicy.development, redirectTo: emailSafetyPolicy.redirectTo }));
 
 export const getWebsiteContent = functions.https.onCall(async (data, context) => {
   if (!context.auth) {

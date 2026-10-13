@@ -51,6 +51,20 @@ const requestSitePublishCallable = httpsCallable(functionsApp, 'requestSitePubli
 const sendStorageConfirmationEmailCallable = httpsCallable(functionsApp, 'sendStorageConfirmationEmail');
 const sendStorageContractEmailCallable = httpsCallable(functionsApp, 'sendStorageContractEmail');
 const sendStorageReceiptEmailCallable = httpsCallable(functionsApp, 'sendStorageReceiptEmail');
+const prepareStorageInvoiceCallable = httpsCallable(functionsApp, 'prepareStorageInvoice');
+const sendStorageInvoiceCallable = httpsCallable(functionsApp, 'sendStorageInvoice');
+const getStorageInvoiceCallable = httpsCallable(functionsApp, 'getStorageInvoice');
+const prepareStoragePaymentCallable = httpsCallable(functionsApp, 'prepareStoragePayment');
+const sendStoragePaymentCallable = httpsCallable(functionsApp, 'sendStoragePayment');
+const getStoragePaymentCallable = httpsCallable(functionsApp, 'getStoragePayment');
+const scheduleStorageWithoutDepositCallable = httpsCallable(functionsApp, 'scheduleStorageWithoutDeposit');
+const getDefaultStoragePaidEmailTemplateCallable = httpsCallable(functionsApp, 'getDefaultStoragePaidEmailTemplate');
+let defaultStoragePaidEmailTemplate = null;
+const getEmailDeliveryPolicyCallable = httpsCallable(functionsApp, 'getEmailDeliveryPolicy');
+let emailPreviewGeneration = 0;
+let activeClientEmailDelivery = null;
+const getDefaultStorageInvoiceEmailTemplateCallable = httpsCallable(functionsApp, 'getDefaultStorageInvoiceEmailTemplate');
+let defaultStorageInvoiceEmailTemplate = null;
 const sendClientEmailCallable = httpsCallable(functionsApp, 'sendClientEmail');
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -220,6 +234,13 @@ const pricingView = document.getElementById('pricing-view');
 const settingsView = document.getElementById('settings-view');
 const generalSettingsView = document.getElementById('general-settings-view');
 const defaultClientLanguageSelect = document.getElementById('default-client-language');
+const referralDiscountAmountInput = document.getElementById('referral-discount-amount');
+const storageBillingSettingsForm = document.getElementById('storage-billing-settings-form');
+const storageBillingSettingsStatus = document.getElementById('storage-billing-settings-status');
+const storageInvoicePdfSection = document.getElementById('storage-invoice-pdf-section');
+const storageInvoicePdfLink = document.getElementById('storage-invoice-pdf-link');
+let storageInvoicePdfUrl = null;
+let storageInvoicePreparing = false;
 const generalSettingsStatus = document.getElementById('general-settings-status');
 const seasonTableBody = document.getElementById('season-table-body');
 const seasonOffersPanel = document.getElementById('season-offers-panel');
@@ -320,6 +341,7 @@ const storageForm = document.getElementById('storage-form');
 const storageFormTitle = document.getElementById('storage-form-title');
 const storageSeasonSelect = document.getElementById('storage-season');
 const storageClientSelect = document.getElementById('storage-client');
+const storageReferredBySelect = document.getElementById('storage-referred-by');
 const storageVehicleTypeSelect = document.getElementById('storage-vehicle-type');
 const storageLocationSelect = document.getElementById('storage-location');
 const storageVehicleBrandInput = document.getElementById('storage-vehicle-brand');
@@ -1009,6 +1031,7 @@ const STORAGE_STATUS_OPTIONS = [
   { value: 'reserved', label: 'Reserved' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'stored', label: 'Stored' },
+  { value: 'paid', label: 'Paid' },
   { value: 'picked_up', label: 'Picked-Up' }
 ];
 
@@ -1438,6 +1461,7 @@ function subscribeToClients() {
       clientLookup = new Map(clients.map((client) => [client.id, client]));
       renderClientTable();
       updateStorageClientOptions();
+      renderStorageTable();
       updateEntryClientOptions();
     },
     (error) => {
@@ -1468,6 +1492,7 @@ function subscribeToStorageRequests() {
 async function backfillStorageRequestCaseIds(requests) {
   if (storageCaseBackfillInFlight) return;
   const missing = (requests || [])
+    .filter((request) => request?.id && String(request.clientId || '').trim() && String(request.season || '').trim())
     .filter((request) => !String(request?.caseId || '').trim() || !String(request?.storageLocation || '').trim())
     .slice(0, 400);
   if (!missing.length) return;
@@ -1485,10 +1510,10 @@ async function backfillStorageRequestCaseIds(requests) {
       if (!String(request?.storageLocation || '').trim()) {
         patch.storageLocation = 'indoor';
       }
-      batch.set(
+      // Never recreate a request deleted after this snapshot was received.
+      batch.update(
         doc(db, 'storageRequests', request.id),
-        patch,
-        { merge: true }
+        patch
       );
     });
     await batch.commit();
@@ -1676,6 +1701,30 @@ function subscribeToEmailTemplates() {
     q,
     (snapshot) => {
       emailTemplates = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      const addDefaultInvoiceTemplate = () => {
+        if (defaultStorageInvoiceEmailTemplate && auth.currentUser && !emailTemplates.some((template) => template.templateId === 'storage-invoice' || template.id === 'storage-invoice')) {
+          emailTemplates.push({ ...defaultStorageInvoiceEmailTemplate, id: 'storage-invoice', builtIn: true });
+          emailTemplates.sort((a, b) => String(a.templateId || a.id).localeCompare(String(b.templateId || b.id)));
+          renderEmailTemplateTable();
+        }
+      };
+      const addDefaultPaidTemplate = () => {
+        if (defaultStoragePaidEmailTemplate && auth.currentUser && !emailTemplates.some((template) => template.templateId === 'storage-paid' || template.id === 'storage-paid')) {
+          emailTemplates.push({ ...defaultStoragePaidEmailTemplate, id: 'storage-paid', builtIn: true });
+          emailTemplates.sort((a, b) => String(a.templateId || a.id).localeCompare(String(b.templateId || b.id)));
+          renderEmailTemplateTable();
+        }
+      };
+      if (defaultStoragePaidEmailTemplate) addDefaultPaidTemplate();
+      else getDefaultStoragePaidEmailTemplateCallable({}).then((response) => {
+        defaultStoragePaidEmailTemplate = response.data;
+        addDefaultPaidTemplate();
+      }).catch((error) => { console.error('Unable to load payment email template:', error); });
+      if (defaultStorageInvoiceEmailTemplate) addDefaultInvoiceTemplate();
+      else getDefaultStorageInvoiceEmailTemplateCallable({}).then((response) => {
+        defaultStorageInvoiceEmailTemplate = response.data;
+        addDefaultInvoiceTemplate();
+      }).catch((error) => { console.error('Unable to load default invoice email template:', error); });
       renderEmailTemplateTable();
       updateLatestContentTimestamp();
     },
@@ -2253,6 +2302,7 @@ function renderStorageTable() {
     const allReserved = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'reserved');
     const allScheduled = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'scheduled');
     const allStored = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'stored');
+    const allPaid = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'paid');
     const addCaseActionSelect = (actions) => {
       if (!actions.length) return;
       const select = document.createElement('select');
@@ -2334,6 +2384,11 @@ function renderStorageTable() {
     } else if (allWaitingDeposit) {
       addCaseActionSelect([
         {
+          value: 'schedule-no-deposit',
+          label: 'Schedule without deposit',
+          title: 'Approve scheduling after receiving the signed contracts, without recording any deposit payment'
+        },
+        {
           value: 'receipt:deposit',
           label: 'Received Deposit',
           title: 'Confirm deposit received and move to Waiting for Scheduling'
@@ -2347,10 +2402,32 @@ function renderStorageTable() {
     } else if (allReserved) {
       addCaseActionSelect([{ value: 'status:scheduled', label: 'Schedule', title: 'Move this case to Scheduled' }]);
     } else if (allScheduled) {
-      addCaseActionSelect([{ value: 'status:stored', label: 'Mark stored', title: 'Move this case to Stored' }]);
+      addCaseActionSelect([{ value: 'status:stored', label: 'Mark stored & invoice', title: 'Preview the invoice and PDF before emailing and moving this case to Stored' }]);
     } else if (allStored) {
+      addCaseActionSelect([
+        { value: 'status:paid', label: 'Mark paid & receipt', title: 'Confirm full payment, preview the email and stamped PDF, then mark this case Paid' },
+        { value: 'status:picked_up', label: 'Mark picked up', title: 'Move this case to Picked-Up' }
+      ]);
+    } else if (allPaid) {
       addCaseActionSelect([{ value: 'status:picked_up', label: 'Mark picked up', title: 'Move this case to Picked-Up' }]);
     }
+    const invoiceIds = [...new Set(caseRequests.map((request) => request.invoiceId).filter(Boolean))];
+    const invoiceLinks = document.createElement('div');
+    invoiceLinks.className = 'storage-case-invoices';
+    invoiceIds.forEach((invoiceId, index) => {
+      const paid = caseRequests.some((request) => request.paidInvoiceId === invoiceId);
+      const invoiceButton = document.createElement('button');
+      invoiceButton.type = 'button';
+      invoiceButton.className = 'link';
+      invoiceButton.dataset.action = paid ? 'view-storage-paid' : 'view-storage-invoice';
+      invoiceButton.dataset.invoiceId = invoiceId;
+      const label = paid ? 'Paid' : 'Invoice';
+      invoiceButton.textContent = invoiceIds.length > 1 ? `${label} ${index + 1} (PDF)` : `${label} (PDF)`;
+      invoiceButton.title = `View ${paid ? 'paid ' : ''}${invoiceId}`;
+      invoiceButton.setAttribute('aria-label', `View ${paid ? 'paid ' : ''}invoice ${invoiceId} for ${tenantDisplay}`);
+      invoiceLinks.appendChild(invoiceButton);
+    });
+    if (invoiceIds.length) vehicleCell.appendChild(invoiceLinks);
     caseRow.appendChild(caseActionCell);
     storageTableBody.appendChild(caseRow);
 
@@ -2367,6 +2444,13 @@ function renderStorageTable() {
       vehicleTypeCell.textContent = [vehicle.typeLabel || vehicle.type || '—', locationLabel]
         .filter(Boolean)
         .join(' / ');
+      const referralIds = normalizeReferralClientIds(request.referredByClientIds, request.clientId);
+      if (referralIds.length) {
+        const referrals = document.createElement('div');
+        referrals.className = 'hint';
+        referrals.textContent = `Referred by: ${referralIds.map((id) => clientLookup.get(id)?.name || clientLookup.get(id)?.email || `Unavailable client (${id})`).join(', ')}`;
+        vehicleTypeCell.appendChild(referrals);
+      }
       row.appendChild(vehicleTypeCell);
 
       const addonCell = document.createElement('td');
@@ -2452,8 +2536,9 @@ function deriveStorageCaseStatus(requests) {
   if (!statuses.length) return 'Draft';
   if (statuses.every((status) => status === 'new')) return 'Draft';
   if (statuses.every((status) => status === 'picked_up')) return 'Closed';
-  if (statuses.every((status) => status === 'stored' || status === 'picked_up')) return 'Stored';
-  if (statuses.some((status) => status === 'stored')) return 'In storage';
+  if (statuses.every((status) => status === 'paid' || status === 'picked_up')) return 'Paid';
+  if (statuses.every((status) => ['stored', 'paid', 'picked_up'].includes(status))) return 'Stored';
+  if (statuses.some((status) => ['stored', 'paid'].includes(status))) return 'In storage';
   if (
     statuses.some((status) =>
       ['contract_ready', 'waiting_contract_deposit', 'waiting_contract', 'waiting_deposit'].includes(status)
@@ -3512,7 +3597,8 @@ function normalizeMileageSettings(data = {}) {
 
 function normalizeAppSettings(data = {}) {
   return {
-    defaultClientLanguage: normalizeLanguageCode(data.defaultClientLanguage, 'fr')
+    defaultClientLanguage: normalizeLanguageCode(data.defaultClientLanguage, 'fr'),
+    referralDiscountAmount: typeof data.referralDiscountAmount === 'number' && Number.isFinite(data.referralDiscountAmount) && data.referralDiscountAmount >= 0 ? data.referralDiscountAmount : null
   };
 }
 
@@ -3631,6 +3717,10 @@ function syncMileageSettingsUI() {
 function syncGeneralSettingsUI() {
   if (defaultClientLanguageSelect) {
     defaultClientLanguageSelect.value = getDefaultClientLanguage();
+  }
+  if (referralDiscountAmountInput && document.activeElement !== referralDiscountAmountInput) {
+    // This is only the proposed initial setting. Invoice calculations read the saved database value.
+    referralDiscountAmountInput.value = appSettings.referralDiscountAmount ?? '25.00';
   }
 }
 
@@ -4481,8 +4571,9 @@ async function uploadPendingReceiptContracts() {
 function updateStorageConfirmationEmailButtons() {
   if (sendStorageConfirmationEmailButton) {
     sendStorageConfirmationEmailButton.disabled =
-      storageConfirmationEmailBusy || !arePendingReceiptContractsUploaded() || !hasRequiredReceiptInteracReference();
-    sendStorageConfirmationEmailButton.textContent = storageConfirmationEmailBusy ? 'Sending...' : 'Send';
+      storageConfirmationEmailBusy || pendingStorageConfirmationEmail?.archived || !arePendingReceiptContractsUploaded() || !hasRequiredReceiptInteracReference();
+    const payment = pendingStorageConfirmationEmail?.emailType === 'payment';
+    sendStorageConfirmationEmailButton.textContent = storageConfirmationEmailBusy ? 'Sending...' : pendingStorageConfirmationEmail?.alreadyAccepted ? `Complete ${payment ? 'Paid' : 'Stored'} status (email already sent)` : payment ? 'Confirm full payment & send receipt' : pendingStorageConfirmationEmail?.emailType === 'invoice' ? 'Send invoice & mark stored' : 'Send';
   }
   if (cancelStorageConfirmationEmailButton) {
     cancelStorageConfirmationEmailButton.disabled = storageConfirmationEmailBusy;
@@ -4495,8 +4586,30 @@ function setStorageConfirmationEmailBusy(isBusy) {
   updateStorageConfirmationEmailButtons();
 }
 
-function openStorageConfirmationEmailModal(caseRequests, emailType = 'confirmation', options = {}) {
+async function resolveEmailDeliveryPreview(preview) {
+  const response = await getEmailDeliveryPolicyCallable({});
+  const policy = response.data;
+  if (typeof policy?.development !== 'boolean') throw new Error('Unable to verify email routing. Do not send until the backend is available.');
+  if (policy.development) {
+    if (policy.redirectTo !== 'entrepot@as-colle.com') throw new Error('Unexpected dev email destination. Sending is blocked.');
+    return { ...preview, to: policy.redirectTo, cc: '', bcc: '', subject: String(preview.subject || '').startsWith('[DEV] ') ? preview.subject : `[DEV] ${preview.subject || ''}`, developmentEmailRedirect: true };
+  }
+  if (usingEmulators || isLocalHost) throw new Error('This local app is connected to a live email backend. Reconnect the emulators before sending.');
+  return { ...preview, developmentEmailRedirect: false };
+}
+
+function showEmailDeliveryWarning(elementId, preview) {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+  const redirected = Boolean(preview?.developmentEmailRedirect);
+  element.textContent = redirected ? 'DEV email: sent only to entrepot@as-colle.com. Customer To, CC and BCC recipients are suppressed. Subjects are marked [DEV].' : '';
+  element.classList.toggle('hidden', !redirected);
+}
+
+async function openStorageConfirmationEmailModal(caseRequests, emailType = 'confirmation', options = {}) {
   if (!storageConfirmationEmailModal) return;
+  const generation = ++emailPreviewGeneration;
+  clearStorageInvoicePdf();
   try {
     if (emailType === 'contract') {
       pendingStorageConfirmationEmail = buildStorageContractEmailPreview(caseRequests);
@@ -4505,6 +4618,9 @@ function openStorageConfirmationEmailModal(caseRequests, emailType = 'confirmati
     } else {
       pendingStorageConfirmationEmail = buildStorageConfirmationEmailPreview(caseRequests);
     }
+    const routedPreview = await resolveEmailDeliveryPreview(pendingStorageConfirmationEmail);
+    if (generation !== emailPreviewGeneration) return;
+    pendingStorageConfirmationEmail = routedPreview;
     const modalTitle = storageConfirmationEmailModal.querySelector('h3');
     if (modalTitle) {
       modalTitle.textContent =
@@ -4512,7 +4628,8 @@ function openStorageConfirmationEmailModal(caseRequests, emailType = 'confirmati
         (emailType === 'contract' ? 'Send Contract Email' : 'Send Confirmation e-mail');
     }
     if (storageConfirmationEmailTo) storageConfirmationEmailTo.textContent = pendingStorageConfirmationEmail.to;
-    if (storageConfirmationEmailCc) storageConfirmationEmailCc.textContent = pendingStorageConfirmationEmail.cc;
+    if (storageConfirmationEmailCc) storageConfirmationEmailCc.textContent = pendingStorageConfirmationEmail.cc || '—';
+    showEmailDeliveryWarning('storage-email-delivery-warning', pendingStorageConfirmationEmail);
     if (storageConfirmationEmailSubject) storageConfirmationEmailSubject.textContent = pendingStorageConfirmationEmail.subject || '—';
     if (storageConfirmationEmailPreview) storageConfirmationEmailPreview.srcdoc = pendingStorageConfirmationEmail.html;
     updateReceiptInteracReferenceField();
@@ -4528,13 +4645,95 @@ function openStorageConfirmationEmailModal(caseRequests, emailType = 'confirmati
 function closeStorageConfirmationEmailModal() {
   if (!storageConfirmationEmailModal || storageConfirmationEmailBusy) return;
   storageConfirmationEmailModal.classList.add('hidden');
+  emailPreviewGeneration += 1;
   pendingStorageConfirmationEmail = null;
+  clearStorageInvoicePdf();
+  showEmailDeliveryWarning('storage-email-delivery-warning', null);
   if (storageConfirmationEmailPreview) storageConfirmationEmailPreview.srcdoc = '';
   if (storageReceiptContractUploadList) storageReceiptContractUploadList.innerHTML = '';
   if (storageReceiptContractUploadSection) storageReceiptContractUploadSection.classList.add('hidden');
   if (storageReceiptInteracReferenceInput) storageReceiptInteracReferenceInput.value = '';
   if (storageReceiptInteracReferenceRow) storageReceiptInteracReferenceRow.classList.add('hidden');
   if (storageConfirmationEmailError) storageConfirmationEmailError.textContent = '';
+}
+
+function clearStorageInvoicePdf() {
+  if (storageInvoicePdfUrl) URL.revokeObjectURL(storageInvoicePdfUrl);
+  storageInvoicePdfUrl = null;
+  storageInvoicePdfSection?.classList.add('hidden');
+  storageInvoicePdfLink?.removeAttribute('href');
+}
+
+async function openSavedStorageInvoicePdf(invoiceId, paid = false) {
+  // Reserve the tab during the click so the asynchronous fetch is not blocked as a popup.
+  const pdfWindow = window.open('about:blank', '_blank');
+  if (!pdfWindow) throw new Error('Allow pop-ups for Tracker to view the invoice PDF.');
+  pdfWindow.opener = null;
+  try {
+    const response = await (paid ? getStoragePaymentCallable : getStorageInvoiceCallable)({ invoiceId });
+    if (!response.data?.pdfBase64) throw new Error('The saved invoice PDF is unavailable.');
+    const bytes = Uint8Array.from(atob(response.data.pdfBase64), (char) => char.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    pdfWindow.location.replace(url);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (error) {
+    pdfWindow.close();
+    throw error;
+  }
+}
+
+function showStorageInvoicePreview(preview, archived = false) {
+  if (!archived && (usingEmulators || isLocalHost) && !preview.developmentEmailRedirect) throw new Error('Dev invoice routing is not verified. Restart the emulators before sending.');
+  emailPreviewGeneration += 1;
+  clearStorageInvoicePdf();
+  pendingStorageConfirmationEmail = {
+    ...preview, emailType: preview.payment ? 'payment' : 'invoice', archived,
+    requestIds: preview.invoice.requestIds,
+    requiresInteracReference: false, contractUploadRequestIds: []
+  };
+  storageConfirmationEmailModal.querySelector('h3').textContent = archived ? `Invoice ${preview.invoiceId}` : preview.payment ? 'Confirm full payment and send receipt' : 'Mark stored and send invoice';
+  storageConfirmationEmailTo.textContent = preview.to;
+  storageConfirmationEmailCc.textContent = preview.cc || '—';
+  showEmailDeliveryWarning('storage-email-delivery-warning', preview);
+  storageConfirmationEmailSubject.textContent = preview.subject;
+  storageConfirmationEmailPreview.srcdoc = preview.html;
+  storageInvoicePdfUrl = URL.createObjectURL(new Blob([Uint8Array.from(atob(preview.pdfBase64), (char) => char.charCodeAt(0))], { type: 'application/pdf' }));
+  storageInvoicePdfLink.href = storageInvoicePdfUrl;
+  storageInvoicePdfSection.classList.remove('hidden');
+  document.getElementById('storage-invoice-preview-hint').textContent = archived
+    ? 'Saved invoice. This PDF is the copy attached to the email; it will not be sent again from this preview.'
+    : preview.alreadyAccepted ? `The mail server accepted this email. Complete the ${preview.payment ? 'Paid' : 'Stored'} status without sending another email.`
+    : preview.payment ? `Only confirm after receiving the full remaining balance of ${formatCurrency(preview.paymentAmountCents / 100)}. Sending records full payment, emails the stamped invoice PDF, and moves all vehicles to Paid.`
+    : 'Review the invoice and PDF before sending. Sending records the invoice and moves the vehicles to Stored. This does not record a balance payment as received.';
+  updateReceiptInteracReferenceField();
+  renderReceiptContractUploadSection();
+  storageConfirmationEmailError.textContent = '';
+  setStorageConfirmationEmailBusy(false);
+  storageConfirmationEmailModal.classList.remove('hidden');
+}
+
+async function openStorageInvoicePreview(caseRequests) {
+  if (storageInvoicePreparing) return;
+  storageInvoicePreparing = true;
+  try {
+    const response = await prepareStorageInvoiceCallable({ requestIds: caseRequests.map((request) => request.id) });
+    showStorageInvoicePreview(response.data, response.data.archived);
+  } finally {
+    storageInvoicePreparing = false;
+  }
+}
+
+async function openStoragePaymentPreview(caseRequests) {
+  const invoiceIds = [...new Set(caseRequests.map((request) => request.invoiceId).filter(Boolean))];
+  if (invoiceIds.length !== 1 || caseRequests.some((request) => !request.invoiceId)) throw new Error('This case needs one saved invoice covering every vehicle before confirming payment.');
+  if (storageInvoicePreparing) return;
+  storageInvoicePreparing = true;
+  try {
+    const response = await prepareStoragePaymentCallable({ invoiceId: invoiceIds[0] });
+    showStorageInvoicePreview(response.data, response.data.archived);
+  } finally {
+    storageInvoicePreparing = false;
+  }
 }
 
 function getContractTemplateUrl(lang = 'en') {
@@ -7215,7 +7414,7 @@ function renderEmailTemplateTable() {
       entry.templateId || entry.id || '—',
       entry.subject?.en || '—',
       entry.subject?.fr || '—',
-      formatEmailTemplateUpdatedAt(entry)
+      entry.builtIn ? 'Built-in default' : formatEmailTemplateUpdatedAt(entry)
     ];
     cells.forEach((value) => {
       const cell = document.createElement('td');
@@ -7239,7 +7438,7 @@ function renderEmailTemplateTable() {
     deleteButton.dataset.id = entry.id;
     deleteButton.setAttribute('aria-label', `Delete ${entry.templateId || 'email template'}`);
     deleteButton.innerHTML = '<img src="icons/trash.svg" alt="Delete email template" data-icon="trash" />';
-    actionCell.appendChild(deleteButton);
+    if (!entry.builtIn) actionCell.appendChild(deleteButton);
     row.appendChild(actionCell);
     emailTemplateTableBody.appendChild(row);
   });
@@ -7948,7 +8147,37 @@ function updateStorageClientOptions() {
   if (previousValue) {
     storageClientSelect.value = previousValue;
   }
+  updateStorageReferralOptions();
 }
+
+function normalizeReferralClientIds(value, tenantId = '') {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((id) => typeof id === 'string').map((id) => id.trim()).filter((id) => id && id !== tenantId))];
+}
+
+function updateStorageReferralOptions(selected = Array.from(storageReferredBySelect.selectedOptions, (option) => option.value)) {
+  const ids = normalizeReferralClientIds(selected, storageClientSelect.value);
+  const selectedIds = new Set(ids);
+  storageReferredBySelect.replaceChildren();
+  clients.filter((client) => client.id !== storageClientSelect.value)
+    .slice().sort((a, b) => String(a.name || a.email || '').localeCompare(String(b.name || b.email || '')))
+    .forEach((client) => {
+      const option = document.createElement('option');
+      option.value = client.id;
+      option.textContent = client.name || client.email || 'Unnamed client';
+      option.selected = selectedIds.has(client.id);
+      storageReferredBySelect.appendChild(option);
+    });
+  ids.filter((id) => !clientLookup.has(id)).forEach((id) => {
+    const option = document.createElement('option');
+    option.value = id;
+    option.textContent = `Unavailable client (${id})`;
+    option.selected = true;
+    storageReferredBySelect.appendChild(option);
+  });
+}
+
+storageClientSelect.addEventListener('change', () => updateStorageReferralOptions());
 
 function ensureLedgerAccountSelection() {
   const validIds = accounts.map((account) => account.id);
@@ -8898,17 +9127,23 @@ function showClientEmailStatus(message, type = 'success') {
 function renderClientEmailPreview() {
   if (!clientEmailPreview || !activeClientEmailClientId) return;
   const client = clientLookup.get(activeClientEmailClientId);
-  const subject = clientEmailSubjectInput?.value?.trim() || '';
+  const requestedSubject = clientEmailSubjectInput?.value?.trim() || '';
+  const subject = activeClientEmailDelivery?.developmentEmailRedirect && !requestedSubject.startsWith('[DEV] ') ? `[DEV] ${requestedSubject}` : requestedSubject;
   const body = clientEmailBodyInput?.value || '';
   clientEmailPreview.srcdoc = buildClientEmailHtml({ client, subject, body });
 }
 
-function openClientEmailModal(client) {
+async function openClientEmailModal(client) {
   if (!clientEmailModal || !client) return;
+  let delivery;
+  try { delivery = await resolveEmailDeliveryPreview({ to: client.email, cc: getStorageConfirmationCc(normalizeLanguageCode(client.preferredLanguage, getDefaultClientLanguage())), subject: '' }); }
+  catch (error) { alert(error.message || 'Unable to verify email routing.'); return; }
+  activeClientEmailDelivery = delivery;
   activeClientEmailClientId = client.id;
   if (clientEmailTitle) clientEmailTitle.textContent = `Email ${client.name || 'client'}`;
-  if (clientEmailTo) clientEmailTo.textContent = client.email || '—';
-  if (clientEmailCc) clientEmailCc.textContent = getStorageConfirmationCc(normalizeLanguageCode(client.preferredLanguage, getDefaultClientLanguage()));
+  if (clientEmailTo) clientEmailTo.textContent = delivery.to || '—';
+  if (clientEmailCc) clientEmailCc.textContent = delivery.cc || '—';
+  showEmailDeliveryWarning('client-email-delivery-warning', delivery);
   if (clientEmailSubjectInput) clientEmailSubjectInput.value = '';
   if (clientEmailBodyInput) clientEmailBodyInput.value = '';
   if (clientEmailError) clientEmailError.textContent = '';
@@ -8921,6 +9156,8 @@ function openClientEmailModal(client) {
 function closeClientEmailModal() {
   if (!clientEmailModal || clientEmailBusy) return;
   clientEmailModal.classList.add('hidden');
+  activeClientEmailDelivery = null;
+  showEmailDeliveryWarning('client-email-delivery-warning', null);
   activeClientEmailClientId = null;
   if (clientEmailForm) clientEmailForm.reset();
   if (clientEmailPreview) clientEmailPreview.srcdoc = '';
@@ -9370,6 +9607,7 @@ function buildStorageRequestDraftFromForm() {
   return {
     season: storageSeasonSelect.value,
     clientId: storageClientSelect.value,
+    referredByClientIds: normalizeReferralClientIds(Array.from(storageReferredBySelect.selectedOptions, (option) => option.value), storageClientSelect.value),
     storageLocation: storageLocationSelect?.value === 'outdoor' ? 'outdoor' : 'indoor',
     vehicle: {
       type: vehicleType,
@@ -9409,6 +9647,8 @@ function getStorageStatusTransitionError(currentStatus, nextStatus) {
   const current = String(currentStatus || 'new');
   const next = String(nextStatus || 'new');
   if (next === current) return '';
+  if (next === 'stored' && current !== 'scheduled') return 'Schedule the vehicle before marking it Stored and invoicing.';
+  if (next === 'paid' && current !== 'stored') return 'Mark the vehicle Stored and send its invoice before confirming full payment.';
   if (isStorageStatusLocked(next)) {
     return 'This status is controlled by the contract receipt workflow.';
   }
@@ -9467,6 +9707,7 @@ function resetStorageFormFields() {
   storageAmountManualOverride = false;
   storageSeasonSelect.value = '';
   storageClientSelect.value = '';
+  updateStorageReferralOptions([]);
   storageVehicleTypeSelect.value = '';
   if (storageLocationSelect) storageLocationSelect.value = 'indoor';
   storageVehicleProvinceSelect.value = '';
@@ -9491,6 +9732,7 @@ function populateStorageFormFields(request) {
     storageSeasonSelect.value = '';
   }
   storageClientSelect.value = request.clientId || '';
+  updateStorageReferralOptions(request.referredByClientIds || []);
   storageVehicleTypeSelect.value = request.vehicle?.type || '';
   if (storageLocationSelect) storageLocationSelect.value = getStorageLocation(request);
   storageVehicleBrandInput.value = request.vehicle?.brand || '';
@@ -10703,9 +10945,19 @@ function getStorageCaseRequests(caseId) {
 }
 
 async function updateStorageCaseStatus(caseRequests, targetStatus) {
+  if (targetStatus !== 'paid' && caseRequests.some((request) => request.paymentPendingId)) throw new Error('Payment receipt delivery is pending. Complete or reconcile it before changing status.');
+  if (targetStatus !== 'stored' && caseRequests.some((request) => request.invoicePendingId)) throw new Error('Invoice delivery is pending. Complete or reconcile it before changing storage status.');
   const invalid = caseRequests.find((request) => getStorageStatusTransitionError(request.status || 'new', targetStatus));
   if (invalid) {
     throw new Error(getStorageStatusTransitionError(invalid.status || 'new', targetStatus));
+  }
+  if (targetStatus === 'stored') {
+    await openStorageInvoicePreview(caseRequests);
+    return;
+  }
+  if (targetStatus === 'paid') {
+    await openStoragePaymentPreview(caseRequests);
+    return;
   }
   await Promise.all(
     caseRequests.map((request) =>
@@ -10730,6 +10982,18 @@ if (storageTableBody) {
     const caseRequests = getStorageCaseRequests(caseId);
     if (!caseRequests.length) {
       alert('Storage case not found.');
+      return;
+    }
+    if (selectedAction === 'schedule-no-deposit') {
+      if (!window.confirm('Schedule all vehicles in this case without a deposit? This approves the deposit exception only. No payment will be recorded, and the remaining amount will be invoiced when the vehicles are Stored.')) return;
+      actionSelect.disabled = true;
+      try {
+        await scheduleStorageWithoutDepositCallable({ requestIds: caseRequests.map((request) => request.id), confirmNoDeposit: true });
+      } catch (error) {
+        alert(error.message || 'Unable to schedule without a deposit.');
+      } finally {
+        actionSelect.disabled = false;
+      }
       return;
     }
     if (selectedAction === 'confirmation-email') {
@@ -10760,6 +11024,19 @@ if (storageTableBody) {
   });
 
   storageTableBody.addEventListener('click', async (event) => {
+    const paidButton = event.target.closest('[data-action="view-storage-paid"]');
+    if (paidButton) {
+      try { await openSavedStorageInvoicePdf(paidButton.dataset.invoiceId, true); }
+      catch (error) { alert(error.message || 'Unable to load paid receipt.'); }
+      return;
+    }
+    const invoiceButton = event.target.closest('[data-action="view-storage-invoice"]');
+    if (invoiceButton) {
+      try {
+        await openSavedStorageInvoicePdf(invoiceButton.dataset.invoiceId);
+      } catch (error) { alert(error.message || 'Unable to load invoice.'); }
+      return;
+    }
     const toggleButton = event.target.closest('button[data-action="toggle-storage-case"]');
     if (toggleButton) {
       const caseId = String(toggleButton.dataset.caseId || '');
@@ -10966,13 +11243,21 @@ if (sendStorageConfirmationEmailButton) {
         throw new Error('Enter the Interac reference number.');
       }
       const callable =
-        pendingStorageConfirmationEmail.emailType === 'contract'
+        pendingStorageConfirmationEmail.emailType === 'payment'
+          ? sendStoragePaymentCallable
+          : pendingStorageConfirmationEmail.emailType === 'invoice'
+          ? sendStorageInvoiceCallable
+          : pendingStorageConfirmationEmail.emailType === 'contract'
           ? sendStorageContractEmailCallable
           : pendingStorageConfirmationEmail.emailType === 'receipt'
             ? sendStorageReceiptEmailCallable
             : sendStorageConfirmationEmailCallable;
       const payload =
-        pendingStorageConfirmationEmail.emailType === 'receipt'
+        pendingStorageConfirmationEmail.emailType === 'payment'
+          ? { invoiceId: pendingStorageConfirmationEmail.invoiceId, fingerprint: pendingStorageConfirmationEmail.fingerprint, confirmFullPayment: true }
+          : pendingStorageConfirmationEmail.emailType === 'invoice'
+          ? { requestIds: pendingStorageConfirmationEmail.requestIds, fingerprint: pendingStorageConfirmationEmail.fingerprint }
+          : pendingStorageConfirmationEmail.emailType === 'receipt'
           ? {
               requestIds: pendingStorageConfirmationEmail.requestIds,
               receiptType: pendingStorageConfirmationEmail.receiptType,
@@ -11749,6 +12034,10 @@ clientForm.addEventListener('submit', async (event) => {
 storageForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   storageFormError.textContent = '';
+  if (editingStorageRequestId && (getStorageRequestById(editingStorageRequestId)?.invoicePendingId || getStorageRequestById(editingStorageRequestId)?.paymentPendingId)) {
+    storageFormError.textContent = 'Invoice delivery is pending. Complete or reconcile it before editing this request.';
+    return;
+  }
 
   const vehicleType = storageVehicleTypeSelect.value;
   const contractAmountValue = storageAmountInput?.value?.trim();
@@ -11796,7 +12085,9 @@ storageForm.addEventListener('submit', async (event) => {
       return;
     }
     const requestedContractReady = payload.status === 'contract_ready' && previousStatus !== 'contract_ready';
-    const payloadToSave = requestedContractReady
+    const requestedStored = payload.status === 'stored' && previousStatus !== 'stored';
+    const requestedPaid = payload.status === 'paid' && previousStatus !== 'paid';
+    const payloadToSave = requestedContractReady || requestedStored || requestedPaid
       ? { ...payload, status: previousStatus || 'new' }
       : payload;
     if (editingStorageRequestId) {
@@ -11820,6 +12111,17 @@ storageForm.addEventListener('submit', async (event) => {
       savedRequestId = created.id;
     }
     closeStorageModal();
+    if (requestedPaid && savedRequestId) {
+      const caseRequests = getStorageCaseRequests(resolveStorageCaseId({ id: savedRequestId, ...payloadToSave }));
+      try { await openStoragePaymentPreview(caseRequests); }
+      catch (error) { alert(error.message || 'Unable to prepare payment receipt. Vehicles remain Stored.'); }
+    }
+    if (requestedStored && savedRequestId) {
+      const saved = { id: savedRequestId, ...payloadToSave };
+      const caseRequests = getStorageCaseRequests(resolveStorageCaseId(saved)).map((request) => request.id === savedRequestId ? saved : request);
+      try { await openStorageInvoicePreview(caseRequests.length ? caseRequests : [saved]); }
+      catch (error) { alert(error.message || 'Unable to prepare invoice. The vehicles remain Scheduled.'); }
+    }
     if (requestedContractReady && savedRequestId) {
       const request = getStorageRequestById(savedRequestId) || { id: savedRequestId, ...payloadToSave };
       openStorageContractModal(request, { requireSignedUpload: true });
@@ -12981,6 +13283,22 @@ settingsNavButtons.forEach((button) => {
     setSettingsSection(target);
   });
 });
+
+if (storageBillingSettingsForm) {
+  storageBillingSettingsForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const value = Number(referralDiscountAmountInput.value);
+    if (!referralDiscountAmountInput.value.trim() || !Number.isFinite(value) || value < 0) {
+      storageBillingSettingsStatus.textContent = 'Enter a valid non-negative discount.';
+      return;
+    }
+    storageBillingSettingsStatus.textContent = 'Saving...';
+    try {
+      await patchAppSettings({ referralDiscountAmount: Math.round(value * 100) / 100 });
+      storageBillingSettingsStatus.textContent = 'Referral discount saved.';
+    } catch (error) { storageBillingSettingsStatus.textContent = error.message || 'Unable to save billing settings.'; }
+  });
+}
 
 if (defaultClientLanguageSelect) {
   defaultClientLanguageSelect.addEventListener('change', async () => {

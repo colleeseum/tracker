@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tracker Expenses</title>
-    <link rel="stylesheet" href="styles.css?v=20261011-template-notes" />
+    <link rel="stylesheet" href="styles.css?v=20261013-paid-flow" />
     <script data-app-version="__APP_VERSION__"></script>
   </head>
   <body>
@@ -642,6 +642,21 @@
                 </label>
                 <p class="hint" id="general-settings-status"></p>
               </div>
+              <div class="mileage-settings-section">
+                <div class="mileage-settings-header">
+                  <h3>Storage billing</h3>
+                  <p class="hint">A referring client earns one discount per referred customer, regardless of vehicle count. Used credits are tracked across invoices.</p>
+                </div>
+                <form id="storage-billing-settings-form">
+                  <label>
+                    Referral discount (CAD)
+                    <input id="referral-discount-amount" type="number" min="0" step="0.01" placeholder="25.00" required />
+                  </label>
+                  <small class="hint">Save the amount to enable new referral credits. Changing it affects newly awarded credits only; existing credits retain their original value.</small>
+                  <button type="submit">Save billing settings</button>
+                  <p id="storage-billing-settings-status" class="hint"></p>
+                </form>
+              </div>
             </div>
 
             <div id="mileage-view" class="card mileage-card hidden">
@@ -1190,6 +1205,11 @@
                   <option value="">Select client</option>
                 </select>
               </label>
+              <label class="wide">
+                Referred by (clients)
+                <select id="storage-referred-by" multiple size="5"></select>
+                <small class="hint">Optional. Select the clients who referred this customer. Use Ctrl or Command to select more than one; deselect a client to remove their referral.</small>
+              </label>
               <fieldset class="wide storage-fieldset-grid">
                 <legend>Vehicle details</legend>
                 <label>
@@ -1278,6 +1298,7 @@
                   <option value="reserved">Reserved</option>
                   <option value="scheduled">Scheduled</option>
                   <option value="stored">Stored</option>
+                  <option value="paid">Paid</option>
                   <option value="picked_up">Picked-Up</option>
                 </select>
               </label>
@@ -1347,6 +1368,7 @@
               <h3>Send Confirmation e-mail</h3>
               <button id="close-storage-confirmation-email-modal" type="button" class="link">Close</button>
             </div>
+            <p id="storage-email-delivery-warning" class="dev-email-warning hidden" role="status"></p>
             <div class="storage-email-meta">
               <div>
                 <strong>To</strong>
@@ -1366,6 +1388,10 @@
               class="email-template-preview-frame"
               title="Storage confirmation email preview"
             ></iframe>
+            <div id="storage-invoice-pdf-section" class="hidden">
+              <p id="storage-invoice-preview-hint" class="hint">Review the invoice and PDF before sending. Sending records the invoice and moves the vehicles to Stored. This does not record a balance payment as received.</p>
+              <a id="storage-invoice-pdf-link" target="_blank" rel="noopener">Open invoice PDF preview</a>
+            </div>
             <label id="storage-receipt-interac-reference-row" class="hidden">
               Interac reference number
               <input type="text" id="storage-receipt-interac-reference" autocomplete="off" />
@@ -1393,6 +1419,7 @@
               <button id="close-client-email-modal" type="button" class="link">Close</button>
             </div>
             <form id="client-email-form" class="grid-form">
+              <p id="client-email-delivery-warning" class="dev-email-warning wide hidden" role="status"></p>
               <div class="wide storage-email-meta">
                 <div>
                   <strong>To</strong>
@@ -2220,6 +2247,6 @@
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://unpkg.com/mustache@4.2.0/mustache.min.js"></script>
     <script type="module" src="firebase-config.js"></script>
-    <script type="module" src="app.js?v=20261011-template-notes"></script>
+    <script type="module" src="app.js?v=20261013-no-deposit"></script>
   </body>
 </html>

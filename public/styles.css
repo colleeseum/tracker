@@ -204,6 +204,13 @@ button.secondary {
   color: #991b1b;
 }
 
+.storage-case-invoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.25rem;
+}
+
 .storage-case-action-select {
   width: 100%;
   min-width: 10rem;
@@ -1796,6 +1803,15 @@ form {
 
 .modal-header h3 {
   margin: 0;
+}
+
+.dev-email-warning {
+  padding: 0.75rem 1rem;
+  border: 1px solid #fdba74;
+  border-radius: 0.5rem;
+  background: #fff7ed;
+  color: #9a3412;
+  font-weight: 600;
 }
 
 .table-header {
