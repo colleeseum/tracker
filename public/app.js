@@ -4703,7 +4703,7 @@ function showStorageInvoicePreview(preview, archived = false) {
   document.getElementById('storage-invoice-preview-hint').textContent = archived
     ? 'Saved invoice. This PDF is the copy attached to the email; it will not be sent again from this preview.'
     : preview.alreadyAccepted ? `The mail server accepted this email. Complete the ${preview.payment ? 'Paid' : 'Stored'} status without sending another email.`
-    : preview.payment ? `Only confirm after receiving the full remaining balance of ${formatCurrency(preview.paymentAmountCents / 100)}. Sending records full payment, emails the stamped invoice PDF, and moves all vehicles to Paid.`
+    : preview.payment ? `Only confirm after receiving the full remaining balance of ${formatCurrency(preview.paymentAmountCents / 100)}. Sending records full payment, posts the final payment to the ledger, emails the stamped invoice PDF, and moves all vehicles to Paid.`
     : 'Review the invoice and PDF before sending. Sending records the invoice and moves the vehicles to Stored. This does not record a balance payment as received.';
   updateReceiptInteracReferenceField();
   renderReceiptContractUploadSection();

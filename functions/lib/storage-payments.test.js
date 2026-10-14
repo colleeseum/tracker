@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument } from 'pdf-lib';
-import { createStoragePaymentService, stampPaidInvoicePdf } from './storage-payments.js';
+import { createStoragePaymentService, stampPaidInvoicePdf, storagePaymentLedgerId } from './storage-payments.js';
 import { renderInvoicePdf, digest } from './storage-invoices.js';
 import { DEFAULT_STORAGE_PAID_TEMPLATE } from './storage-invoice-template.js';
 import { createEmailSafetyPolicy, createSafeMailer } from './email-safety.js';
@@ -39,12 +39,14 @@ async function fixture(sender, locale = 'en') {
   const emails = [];
   const policy = createEmailSafetyPolicy({ FUNCTIONS_EMULATOR: 'true' });
   const mailer = createSafeMailer({ sendMail: async (message) => { emails.push(message); return sender ? sender(message) : { accepted: ['entrepot@as-colle.com'] }; } }, policy);
+  const ledgerAccounts = { cashAccount: { id: 'cash' }, entityAccount: { id: 'ferme-colle' } };
   const service = createStoragePaymentService({ db, fieldValue: { serverTimestamp: () => 'timestamp', delete: () => '__delete__' },
+    resolveLedgerAccounts: async () => ledgerAccounts,
     from: 'billing@as-colle.com', sendEmail: (message) => mailer.sendMail(message), routeEmail: policy.preview,
     resolveCaseId: (request) => `${request.clientId}|${request.season}`,
     renderEmail: async (invoice) => ({ subject: `${locale === 'fr' ? 'Paiement reçu' : 'Payment received'} ${invoice.invoiceId}`, html: `<p>${invoice.paymentAmountCents}</p>`, text: 'Paid in full', templateId: 'storage-paid' })
   });
-  return { service, records, emails, originalPdf, db };
+  return { service, records, emails, originalPdf, db, ledgerAccounts };
 }
 
 test('payment preview is read-only and preserves invoice amounts and pages in EN and FR', async () => {
@@ -82,6 +84,15 @@ test('full-payment confirmation sends exactly the preview PDF and marks the comp
   }
   const saved = records.get(`storageInvoices/${id}`);
   assert.equal(saved.payment.amountCents, 57500);
+  assert.equal(saved.payment.ledgerEntryId, storagePaymentLedgerId(id));
+  const ledger = records.get(`expenses/${storagePaymentLedgerId(id)}`);
+  assert.equal(ledger.amount, 575);
+  assert.equal(ledger.entryType, 'income');
+  assert.equal(ledger.accountId, 'cash');
+  assert.equal(ledger.entityId, 'ferme-colle');
+  assert.equal(ledger.storageInvoiceId, id);
+  assert.deepEqual(ledger.storageRequestIds, ['a', 'b']);
+  assert.equal(ledger.date, 'timestamp');
   assert.equal(saved.balanceRemainingCents, 0);
   assert.equal(saved.preview.pdfBase64, originalPdf);
   assert.equal(saved.invoice.balanceDueCents, 57500);
@@ -89,6 +100,7 @@ test('full-payment confirmation sends exactly the preview PDF and marks the comp
   assert.equal((await service.get(id)).pdfBase64, preview.pdfBase64);
   await service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin');
   assert.equal(emails.length, 1);
+  assert.equal([...records.keys()].filter((path) => path.startsWith('expenses/')).length, 1);
 });
 
 test('stale preview, unsent invoice and added case vehicles cannot be marked Paid', async () => {
@@ -110,6 +122,7 @@ test('definite rejection keeps Stored and allows reviewed retry; uncertain deliv
   await assert.rejects(service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin'), /rejected/);
   assert.equal(records.get('storageRequests/a').status, 'stored');
   assert.ok(!records.get('storageRequests/a').paymentPendingId);
+  assert.ok(!records.has(`expenses/${storagePaymentLedgerId(id)}`));
   rejected = false;
   preview = await service.prepare(id);
   await service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin');
@@ -120,13 +133,59 @@ test('definite rejection keeps Stored and allows reviewed retry; uncertain deliv
   await assert.rejects(uncertain.service.prepare(id), /reconciliation/);
   assert.equal(uncertain.records.get('storageRequests/a').status, 'stored');
   assert.equal(uncertain.emails.length, 1);
+  assert.ok(!uncertain.records.has(`expenses/${storagePaymentLedgerId(id)}`));
 });
 
-test('concurrent payment confirmations do not duplicate email', async () => {
-  const { service, emails } = await fixture();
+test('concurrent payment confirmations do not duplicate email or ledger entry', async () => {
+  const { service, emails, records } = await fixture();
   const preview = await service.prepare(id);
   await Promise.allSettled([1, 2].map(() => service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin')));
   assert.equal(emails.length, 1);
+  assert.equal([...records.keys()].filter((path) => path.startsWith('expenses/')).length, 1);
+});
+
+test('zero balance confirms Paid without fabricating cash income', async () => {
+  const { service, records, ledgerAccounts } = await fixture();
+  records.get(`storageInvoices/${id}`).invoice.balanceDueCents = 0;
+  ledgerAccounts.cashAccount.id = null;
+  const preview = await service.prepare(id);
+  await service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin');
+  assert.equal(records.get('storageRequests/a').status, 'paid');
+  assert.equal(records.get(`storageInvoices/${id}`).payment.ledgerEntryId, null);
+  assert.ok(!records.has(`expenses/${storagePaymentLedgerId(id)}`));
+});
+
+test('no-deposit final payment books the entire remaining invoice balance only', async () => {
+  const { service, records } = await fixture();
+  const invoice = records.get(`storageInvoices/${id}`).invoice;
+  invoice.depositCents = 0;
+  invoice.balanceDueCents = invoice.subtotalCents - invoice.referralDiscountCents;
+  const preview = await service.prepare(id);
+  await service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin', { email: 'admin@example.invalid', name: 'Admin' });
+  const ledger = records.get(`expenses/${storagePaymentLedgerId(id)}`);
+  assert.equal(ledger.amount, 675);
+  assert.equal(ledger.createdByEmail, 'admin@example.invalid');
+  assert.equal(ledger.createdByName, 'Admin');
+});
+
+test('missing ledger accounts and changed defaults fail before email is sent', async () => {
+  const { service, records, emails, ledgerAccounts } = await fixture();
+  const preview = await service.prepare(id);
+  ledgerAccounts.cashAccount.id = 'different-cash';
+  await assert.rejects(service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin'), /changed after preview/);
+  ledgerAccounts.cashAccount.id = null;
+  await assert.rejects(service.prepare(id), /default cash account/);
+  assert.equal(emails.length, 0);
+  assert.equal(records.get('storageRequests/a').status, 'stored');
+});
+
+test('existing ledger entry is never overwritten or emailed as another payment', async () => {
+  const { service, records, emails } = await fixture();
+  const path = `expenses/${storagePaymentLedgerId(id)}`;
+  records.set(path, { amount: 575, title: 'Existing payment' });
+  await assert.rejects(service.prepare(id), /ledger entry already exists/);
+  assert.deepEqual(records.get(path), { amount: 575, title: 'Existing payment' });
+  assert.equal(emails.length, 0);
 });
 
 test('accepted payment email completes status after a finalization failure without resending', async () => {
@@ -141,11 +200,13 @@ test('accepted payment email completes status after a finalization failure witho
   await assert.rejects(service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin'), /Finalization unavailable/);
   assert.equal(emails.length, 1);
   assert.equal(records.get('storageRequests/a').status, 'stored');
+  assert.ok(!records.has(`expenses/${storagePaymentLedgerId(id)}`));
   const recovery = await service.prepare(id);
   assert.equal(recovery.alreadyAccepted, true);
   await service.send({ invoiceId: id, fingerprint: recovery.fingerprint, confirmFullPayment: true }, 'admin');
   assert.equal(records.get('storageRequests/a').status, 'paid');
   assert.equal(emails.length, 1);
+  assert.equal(records.get(`expenses/${storagePaymentLedgerId(id)}`).amount, 575);
 });
 
 test('stamp applies to every page without rebuilding invoice content', async () => {

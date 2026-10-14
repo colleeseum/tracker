@@ -2298,7 +2298,8 @@ const storageInvoiceService = createStorageInvoiceService({
 const storagePaymentService = createStoragePaymentService({
   db, fieldValue: admin.firestore.FieldValue, sendEmail: (message) => transporter.sendMail(message),
   from: defaultFrom, renderEmail: (invoice) => renderStorageInvoiceEmail(invoice, true),
-  routeEmail: (message) => emailSafetyPolicy.preview(message), resolveCaseId: resolveEmailCaseId
+  routeEmail: (message) => emailSafetyPolicy.preview(message), resolveCaseId: resolveEmailCaseId,
+  resolveLedgerAccounts: resolveFermeColleLedgerAccounts
 });
 const storageNoDepositService = createStorageNoDepositService({ db, fieldValue: admin.firestore.FieldValue, resolveCaseId: resolveEmailCaseId });
 
@@ -2306,7 +2307,7 @@ function storageInvoiceCallable(handler) {
   return functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in to manage invoices.');
     if (!TRACKER_ADMIN_EMAILS.has(String(context.auth.token?.email || '').toLowerCase())) throw new functions.https.HttpsError('permission-denied', 'Not authorized to manage invoices.');
-    try { return await handler(data || {}, context.auth.uid); }
+    try { return await handler(data || {}, context.auth.uid, context.auth.token || {}); }
     catch (error) {
       const validCodes = ['invalid-argument', 'failed-precondition', 'not-found', 'permission-denied'];
       throw new functions.https.HttpsError(validCodes.includes(error.code) ? error.code : 'internal', error.message || 'Unable to process the storage invoice.');
@@ -2319,7 +2320,7 @@ export const getStorageInvoice = storageInvoiceCallable((data) => storageInvoice
 export const getDefaultStorageInvoiceEmailTemplate = storageInvoiceCallable(() => DEFAULT_STORAGE_INVOICE_TEMPLATE);
 export const getDefaultStoragePaidEmailTemplate = storageInvoiceCallable(() => DEFAULT_STORAGE_PAID_TEMPLATE);
 export const prepareStoragePayment = storageInvoiceCallable((data) => storagePaymentService.prepare(data.invoiceId));
-export const sendStoragePayment = storageInvoiceCallable((data, uid) => storagePaymentService.send(data, uid));
+export const sendStoragePayment = storageInvoiceCallable((data, uid, actor) => storagePaymentService.send(data, uid, actor));
 export const getStoragePayment = storageInvoiceCallable((data) => storagePaymentService.get(data.invoiceId));
 export const scheduleStorageWithoutDeposit = storageInvoiceCallable((data, uid) => storageNoDepositService.schedule(data, uid));
 export const getEmailDeliveryPolicy = storageInvoiceCallable(() => ({ development: emailSafetyPolicy.development, redirectTo: emailSafetyPolicy.redirectTo }));
