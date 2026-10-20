@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 import { digest, invoiceError, invoiceDate } from './storage-invoices.js';
+import { readSkipEmail } from './email-options.js';
 
 export async function stampPaidInvoicePdf(pdfBase64, locale) {
   const pdf = await PDFDocument.load(Buffer.from(pdfBase64, 'base64'));
@@ -28,7 +29,7 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     const snap = await refFor(invoiceId).get();
     const data = snap.data();
     if (!data || data.status !== 'sent') throw invoiceError('Send the original invoice before confirming payment.');
-    if (data.payment?.status === 'sent' || data.payment?.emailAcceptedAt) return { data, recovery: true };
+    if (data.payment?.status === 'sent' || data.payment?.emailAcceptedAt || data.payment?.emailSkippedAt) return { data, recovery: true };
     if (['sending', 'delivery_uncertain'].includes(data.payment?.status)) throw invoiceError('Payment email is pending or needs reconciliation. Do not send it twice.');
     const requests = await Promise.all(data.invoice.requestIds.map((id) => db.collection('storageRequests').doc(id).get()));
     if (requests.some((request) => !request.exists || request.data().status !== 'stored' || request.data().invoiceId !== invoiceId || request.data().invoicePendingId || request.data().paymentPendingId)) throw invoiceError('Every invoice vehicle must be Stored and free of pending delivery before confirming payment.');
@@ -61,7 +62,7 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
   }
   async function prepare(invoiceId) {
     const quote = await load(invoiceId);
-    if (quote.recovery) return { ...quote.data.payment.preview, archived: quote.data.payment.status === 'sent', alreadyAccepted: !!quote.data.payment.emailAcceptedAt };
+    if (quote.recovery) return { ...quote.data.payment.preview, archived: quote.data.payment.status === 'sent', alreadyAccepted: !!quote.data.payment.emailAcceptedAt, emailSkipped: !!quote.data.payment.emailSkippedAt, completionPending: quote.data.payment.status !== 'sent' };
     return { ...await serialize(invoiceId, quote), archived: false };
   }
   async function finalize(invoiceId, uid) {
@@ -70,7 +71,7 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
       const snap = await transaction.get(ref);
       const data = snap.data();
       if (data?.payment?.status === 'sent') return { success: true, invoiceId, alreadySent: true };
-      if (!data?.payment?.emailAcceptedAt) throw invoiceError('Payment receipt delivery has not been confirmed.');
+      if (!data?.payment?.emailAcceptedAt && !data?.payment?.emailSkippedAt) throw invoiceError('Payment receipt email must be accepted or explicitly skipped.');
       const requests = await Promise.all(data.invoice.requestIds.map((id) => transaction.get(db.collection('storageRequests').doc(id))));
       requests.forEach((request, index) => {
         if (request.data()?.paymentPendingId !== invoiceId || requestState(request.data() || {}) !== data.payment.requestStates[index].fingerprint) throw invoiceError('A vehicle changed after receipt delivery. Reconcile before completing Paid status.');
@@ -101,15 +102,16 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
         });
       }
       requests.forEach((request) => transaction.set(db.collection('storageRequests').doc(request.id), { status: 'paid', paidAt: timestamp, paidBy: uid, paidInvoiceId: invoiceId, paymentPendingId: fieldValue.delete(), updatedAt: timestamp, updatedBy: uid }, { merge: true }));
-      transaction.set(ref, { payment: { ...data.payment, status: 'sent', paidAt: timestamp, paidBy: uid, amountCents: data.invoice.balanceDueCents, ledgerEntryId }, balanceRemainingCents: 0 }, { merge: true });
+      transaction.set(ref, { payment: { ...data.payment, status: 'sent', paidAt: timestamp, paidBy: uid, amountCents: data.invoice.balanceDueCents, ledgerEntryId, emailDeliveryStatus: data.payment.emailSkippedAt ? 'skipped' : 'accepted' }, balanceRemainingCents: 0 }, { merge: true });
       return { success: true, invoiceId };
     });
   }
-  async function send({ invoiceId, fingerprint, confirmFullPayment }, uid, actor = {}) {
+  async function send({ invoiceId, fingerprint, confirmFullPayment, skipEmail: skipEmailValue }, uid, actor = {}) {
+    const skipEmail = readSkipEmail({ skipEmail: skipEmailValue });
     if (confirmFullPayment !== true) throw invoiceError('Confirm that the full invoice balance has been received.');
     const quote = await load(invoiceId);
     if (quote.recovery) return finalize(invoiceId, uid);
-    if (!from) throw invoiceError('SMTP default FROM is not configured.');
+    if (!from && !skipEmail) throw invoiceError('SMTP default FROM is not configured.');
     const preview = await serialize(invoiceId, quote);
     if (fingerprint !== preview.fingerprint) throw invoiceError('Payment receipt changed after preview. Reopen it before sending.');
     await db.runTransaction(async (transaction) => {
@@ -122,9 +124,11 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
         if (requestState(request.data() || {}) !== quote.states[index].fingerprint || request.data()?.paymentPendingId || request.data()?.invoicePendingId) throw invoiceError('A vehicle changed or delivery is pending. Reopen the payment preview.');
       });
       const timestamp = fieldValue.serverTimestamp();
-      transaction.set(ref, { payment: { status: 'sending', preview, requestStates: quote.states, confirmedAt: timestamp, confirmedBy: uid, confirmedByEmail: actor.email || null, confirmedByName: actor.name || null } }, { merge: true });
+      transaction.set(ref, { payment: { status: 'sending', preview, requestStates: quote.states, confirmedAt: timestamp, confirmedBy: uid, confirmedByEmail: actor.email || null, confirmedByName: actor.name || null,
+        ...(skipEmail ? { emailSkippedAt: timestamp, emailSkippedBy: uid, emailDeliveryStatus: 'skipped' } : {}) } }, { merge: true });
       requests.forEach((request) => transaction.set(db.collection('storageRequests').doc(request.id), { paymentPendingId: invoiceId }, { merge: true }));
     });
+    if (skipEmail) return finalize(invoiceId, uid);
     try {
       const result = await sendEmail({ from, to: preview.to, cc: preview.cc, subject: preview.subject, html: preview.html, text: preview.text,
         attachments: [{ filename: `${invoiceId}-${preview.invoice.locale === 'fr' ? 'paye' : 'paid'}.pdf`, content: Buffer.from(preview.pdfBase64, 'base64'), contentType: 'application/pdf' }] });

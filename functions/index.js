@@ -11,6 +11,7 @@ import { DEFAULT_STORAGE_INVOICE_TEMPLATE, DEFAULT_STORAGE_PAID_TEMPLATE } from 
 import { createStoragePaymentService } from './lib/storage-payments.js';
 import { createStorageNoDepositService } from './lib/storage-no-deposit.js';
 import { createEmailSafetyPolicy, createSafeMailer } from './lib/email-safety.js';
+import { readSkipEmail, workflowEmailAudit } from './lib/email-options.js';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
 const smtpPort = Number(process.env.SMTP2GO_PORT || 587);
@@ -1429,6 +1430,7 @@ async function loadEmailTemplateByIds(templateIds) {
 }
 
 export const sendStorageConfirmationEmail = functions.https.onCall(async (data, context) => {
+  const skipEmail = readSkipEmail(data);
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Sign in to send email.');
   }
@@ -1438,7 +1440,7 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
   if (!requestIds.length) {
     throw new functions.https.HttpsError('invalid-argument', 'At least one storage request is required.');
   }
-  if (!defaultFrom) {
+  if (!defaultFrom && !skipEmail) {
     throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
   }
 
@@ -1460,7 +1462,7 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
   }
   const client = clientSnap.data() || {};
   const to = String(client.email || '').trim();
-  if (!to) {
+  if (!to && !skipEmail) {
     throw new functions.https.HttpsError('failed-precondition', 'Tenant email is missing.');
   }
 
@@ -1486,7 +1488,7 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
   const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
 
   const delivery = emailSafetyPolicy.preview({ to, cc, subject });
-  await transporter.sendMail({
+  if (!skipEmail) await transporter.sendMail({
     from: defaultFrom,
     to,
     cc,
@@ -1501,11 +1503,7 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
     batch.set(
       db.collection('storageRequests').doc(request.id),
       {
-        confirmationEmailSentAt: timestamp,
-        confirmationEmailSentBy: context.auth.uid,
-        confirmationEmailSentTo: delivery.to,
-        confirmationEmailCc: delivery.cc,
-        confirmationEmailDevRedirect: delivery.developmentEmailRedirect,
+        ...workflowEmailAudit('confirmation', { skipEmail, timestamp, uid: context.auth.uid, delivery }),
         updatedAt: timestamp,
         updatedBy: context.auth.uid
       },
@@ -1514,7 +1512,7 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
   });
   await batch.commit();
 
-  return { success: true, ...delivery };
+  return { success: true, ...delivery, emailSkipped: skipEmail };
 });
 
 function buildContractDetailsHtml(requests, locale, pricingData) {
@@ -1546,6 +1544,7 @@ function buildContractDetailsHtml(requests, locale, pricingData) {
 }
 
 export const sendStorageContractEmail = functions.https.onCall(async (data, context) => {
+  const skipEmail = readSkipEmail(data);
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Sign in to send email.');
   }
@@ -1555,7 +1554,7 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
   if (!requestIds.length) {
     throw new functions.https.HttpsError('invalid-argument', 'At least one storage request is required.');
   }
-  if (!defaultFrom) {
+  if (!defaultFrom && !skipEmail) {
     throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
   }
 
@@ -1580,7 +1579,7 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
   }
   const client = clientSnap.data() || {};
   const to = String(client.email || '').trim();
-  if (!to) {
+  if (!to && !skipEmail) {
     throw new functions.https.HttpsError('failed-precondition', 'Tenant email is missing.');
   }
 
@@ -1626,7 +1625,7 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
   }
 
   const delivery = emailSafetyPolicy.preview({ to, cc, subject });
-  await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text, attachments });
+  if (!skipEmail) await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text, attachments });
 
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
   const batch = db.batch();
@@ -1635,11 +1634,7 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
       db.collection('storageRequests').doc(request.id),
       {
         status: 'waiting_contract_deposit',
-        contractEmailSentAt: timestamp,
-        contractEmailSentBy: context.auth.uid,
-        contractEmailSentTo: delivery.to,
-        contractEmailCc: delivery.cc,
-        contractEmailDevRedirect: delivery.developmentEmailRedirect,
+        ...workflowEmailAudit('contract', { skipEmail, timestamp, uid: context.auth.uid, delivery }),
         updatedAt: timestamp,
         updatedBy: context.auth.uid
       },
@@ -1648,10 +1643,11 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
   });
   await batch.commit();
 
-  return { success: true, ...delivery };
+  return { success: true, ...delivery, emailSkipped: skipEmail };
 });
 
 export const sendStorageReceiptEmail = functions.https.onCall(async (data, context) => {
+  const skipEmail = readSkipEmail(data);
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Sign in to send email.');
   }
@@ -1667,7 +1663,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   if (!requestIds.length) {
     throw new functions.https.HttpsError('invalid-argument', 'At least one storage request is required.');
   }
-  if (!defaultFrom) {
+  if (!defaultFrom && !skipEmail) {
     throw new functions.https.HttpsError('failed-precondition', 'SMTP default FROM is not configured.');
   }
 
@@ -1716,7 +1712,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   }
   const client = clientSnap.data() || {};
   const to = String(client.email || '').trim();
-  if (!to) {
+  if (!to && !skipEmail) {
     throw new functions.https.HttpsError('failed-precondition', 'Tenant email is missing.');
   }
 
@@ -1767,7 +1763,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
 
   const delivery = emailSafetyPolicy.preview({ to, cc, subject });
-  await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text });
+  if (!skipEmail) await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text });
 
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
   const batch = db.batch();
@@ -1789,10 +1785,12 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
       interacReference,
       ledgerEntryId,
       templateId,
-      sentAt: timestamp,
-      sentBy: context.auth.uid,
-      sentTo: delivery.to,
-      sentCc: delivery.cc,
+      sentAt: skipEmail ? null : timestamp,
+      sentBy: skipEmail ? null : context.auth.uid,
+      sentTo: skipEmail ? '' : delivery.to,
+      sentCc: skipEmail ? '' : delivery.cc,
+      emailDeliveryStatus: skipEmail ? 'skipped' : 'accepted',
+      ...(skipEmail ? { emailSkippedAt: timestamp, emailSkippedBy: context.auth.uid } : {}),
       developmentEmailRedirect: delivery.developmentEmailRedirect,
       statusFrom: currentStatus,
       statusTo: targetStatus,
@@ -1842,20 +1840,12 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
       updatedBy: context.auth.uid
     };
     if (workflow.changesStatus === false) {
-      requestUpdate.followUpEmailSentAt = timestamp;
-      requestUpdate.followUpEmailSentBy = context.auth.uid;
-      requestUpdate.followUpEmailSentTo = delivery.to;
-      requestUpdate.followUpEmailCc = delivery.cc;
-      requestUpdate.followUpEmailDevRedirect = delivery.developmentEmailRedirect;
+      Object.assign(requestUpdate, workflowEmailAudit('followUp', { skipEmail, timestamp, uid: context.auth.uid, delivery }));
       requestUpdate.followUpEmailTemplateId = templateId;
       requestUpdate.followUpEmailType = receiptType;
     } else {
       requestUpdate.status = targetStatus;
-      requestUpdate.receiptEmailSentAt = timestamp;
-      requestUpdate.receiptEmailSentBy = context.auth.uid;
-      requestUpdate.receiptEmailSentTo = delivery.to;
-      requestUpdate.receiptEmailCc = delivery.cc;
-      requestUpdate.receiptEmailDevRedirect = delivery.developmentEmailRedirect;
+      Object.assign(requestUpdate, workflowEmailAudit('receipt', { skipEmail, timestamp, uid: context.auth.uid, delivery }));
       requestUpdate.receiptEmailTemplateId = templateId;
       requestUpdate.receiptEmailType = receiptType;
     }
@@ -1867,7 +1857,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   });
   await batch.commit();
 
-  return { success: true, ...delivery, templateId, targetStatus, receiptId };
+  return { success: true, ...delivery, emailSkipped: skipEmail, templateId, targetStatus, receiptId };
 });
 
 export const sendClientEmail = functions.https.onCall(async (data, context) => {

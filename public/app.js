@@ -238,6 +238,7 @@ const referralDiscountAmountInput = document.getElementById('referral-discount-a
 const storageBillingSettingsForm = document.getElementById('storage-billing-settings-form');
 const storageBillingSettingsStatus = document.getElementById('storage-billing-settings-status');
 const storageInvoicePdfSection = document.getElementById('storage-invoice-pdf-section');
+const storageSkipEmailCheckbox = document.getElementById('storage-skip-email');
 const storageInvoicePdfLink = document.getElementById('storage-invoice-pdf-link');
 let storageInvoicePdfUrl = null;
 let storageInvoicePreparing = false;
@@ -4571,12 +4572,24 @@ function updateStorageConfirmationEmailButtons() {
     sendStorageConfirmationEmailButton.disabled =
       storageConfirmationEmailBusy || pendingStorageConfirmationEmail?.archived || !arePendingReceiptContractsUploaded() || !hasRequiredReceiptInteracReference();
     const payment = pendingStorageConfirmationEmail?.emailType === 'payment';
-    sendStorageConfirmationEmailButton.textContent = storageConfirmationEmailBusy ? 'Sending...' : pendingStorageConfirmationEmail?.alreadyAccepted ? `Complete ${payment ? 'Paid' : 'Stored'} status (email already sent)` : payment ? 'Confirm full payment & send receipt' : pendingStorageConfirmationEmail?.emailType === 'invoice' ? 'Send invoice & mark stored' : 'Send';
+    const skipped = Boolean(storageSkipEmailCheckbox?.checked);
+    const recovery = pendingStorageConfirmationEmail?.alreadyAccepted || pendingStorageConfirmationEmail?.completionPending;
+    sendStorageConfirmationEmailButton.textContent = storageConfirmationEmailBusy ? (skipped ? 'Saving...' : 'Sending...')
+      : recovery ? `Complete ${payment ? 'Paid' : 'Stored'} status (${pendingStorageConfirmationEmail?.emailSkipped ? 'email skipped' : 'email already sent'})`
+      : skipped ? payment ? 'Confirm full payment without email' : pendingStorageConfirmationEmail?.emailType === 'invoice' ? 'Save invoice & mark stored (no email)' : 'Complete without email'
+      : payment ? 'Confirm full payment & send receipt' : pendingStorageConfirmationEmail?.emailType === 'invoice' ? 'Send invoice & mark stored' : 'Send';
+    if (storageSkipEmailCheckbox) storageSkipEmailCheckbox.disabled = Boolean(storageConfirmationEmailBusy || pendingStorageConfirmationEmail?.archived || recovery);
   }
   if (cancelStorageConfirmationEmailButton) {
     cancelStorageConfirmationEmailButton.disabled = storageConfirmationEmailBusy;
   }
   updateReceiptContractUploadButton();
+}
+
+function resetStorageEmailOption(preview = null, archived = false) {
+  if (!storageSkipEmailCheckbox) return;
+  storageSkipEmailCheckbox.checked = Boolean(preview?.emailSkipped);
+  storageSkipEmailCheckbox.disabled = Boolean(archived || preview?.alreadyAccepted || preview?.completionPending);
 }
 
 function setStorageConfirmationEmailBusy(isBusy) {
@@ -4608,6 +4621,7 @@ async function openStorageConfirmationEmailModal(caseRequests, emailType = 'conf
   if (!storageConfirmationEmailModal) return;
   const generation = ++emailPreviewGeneration;
   clearStorageInvoicePdf();
+  resetStorageEmailOption();
   try {
     if (emailType === 'contract') {
       pendingStorageConfirmationEmail = buildStorageContractEmailPreview(caseRequests);
@@ -4684,6 +4698,7 @@ function showStorageInvoicePreview(preview, archived = false) {
   if (!archived && (usingEmulators || isLocalHost) && !preview.developmentEmailRedirect) throw new Error('Dev invoice routing is not verified. Restart the emulators before sending.');
   emailPreviewGeneration += 1;
   clearStorageInvoicePdf();
+  resetStorageEmailOption(preview, archived);
   pendingStorageConfirmationEmail = {
     ...preview, emailType: preview.payment ? 'payment' : 'invoice', archived,
     requestIds: preview.invoice.requestIds,
@@ -4700,7 +4715,7 @@ function showStorageInvoicePreview(preview, archived = false) {
   storageInvoicePdfSection.classList.remove('hidden');
   document.getElementById('storage-invoice-preview-hint').textContent = archived
     ? 'Saved invoice. This PDF is the copy attached to the email; it will not be sent again from this preview.'
-    : preview.alreadyAccepted ? `The mail server accepted this email. Complete the ${preview.payment ? 'Paid' : 'Stored'} status without sending another email.`
+    : preview.alreadyAccepted || preview.completionPending ? `Email was ${preview.emailSkipped ? 'explicitly skipped' : 'accepted'}. Complete the ${preview.payment ? 'Paid' : 'Stored'} status without sending another email.`
     : preview.payment ? `Only confirm after receiving the full remaining balance of ${formatCurrency(preview.paymentAmountCents / 100)}. Sending records full payment, posts the final payment to the ledger, emails the stamped invoice PDF, and moves all vehicles to Paid.`
     : 'Review the invoice and PDF before sending. Sending records the invoice and moves the vehicles to Stored. This does not record a balance payment as received.';
   updateReceiptInteracReferenceField();
@@ -11291,7 +11306,7 @@ if (sendStorageConfirmationEmailButton) {
               interacReference
             }
           : { requestIds: pendingStorageConfirmationEmail.requestIds };
-      await callable(payload);
+      await callable({ ...payload, skipEmail: Boolean(storageSkipEmailCheckbox?.checked) });
       setStorageConfirmationEmailBusy(false);
       closeStorageConfirmationEmailModal();
     } catch (error) {
@@ -11307,6 +11322,10 @@ if (storageReceiptInteracReferenceInput) {
   storageReceiptInteracReferenceInput.addEventListener('input', () => {
     updateStorageConfirmationEmailButtons();
   });
+}
+
+if (storageSkipEmailCheckbox) {
+  storageSkipEmailCheckbox.addEventListener('change', () => updateStorageConfirmationEmailButtons());
 }
 
 if (generateStorageContractButton) {

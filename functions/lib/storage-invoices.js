@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { readSkipEmail } from './email-options.js';
 
 export function invoiceError(message, code = 'failed-precondition') {
   return Object.assign(new Error(message), { code });
@@ -231,7 +232,7 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
     const ids = validateIds(values);
     const existing = await db.collection('storageInvoices').doc(invoiceIdForRequests(ids)).get();
     if (existing.exists && existing.data().status === 'sent') return { archived: true, existing: existing.data() };
-    if (existing.data()?.emailAcceptedAt) return { recoverable: true, existing: existing.data() };
+    if (existing.data()?.emailAcceptedAt || existing.data()?.emailSkippedAt) return { recoverable: true, existing: existing.data() };
     if (existing.exists && ['sending', 'delivery_uncertain'].includes(existing.data().status)) throw invoiceError('Invoice delivery is already in progress or needs reconciliation. It will not be sent twice.');
     const [requestSnap, clientSnap, receiptSnap, creditSnap, settingsSnap, pricing] = await Promise.all([
       db.collection('storageRequests').get(), db.collection('clients').get(), db.collection('storageReceipts').get(), db.collection('storageReferralCredits').get(), db.collection('admin').doc('appSettings').get(), loadPricing()
@@ -253,7 +254,7 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
   async function prepare(values) {
     const quote = await loadQuote(values);
     if (quote.archived) return { ...quote.existing.preview, archived: true };
-    if (quote.recoverable) return { ...quote.existing.preview, archived: false, alreadyAccepted: true };
+    if (quote.recoverable) return { ...quote.existing.preview, archived: false, alreadyAccepted: !!quote.existing.emailAcceptedAt, emailSkipped: !!quote.existing.emailSkippedAt, completionPending: true };
     return { ...await serialize(quote.invoice), archived: false };
   }
   async function finalize(invoiceId, uid) {
@@ -262,7 +263,7 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
       const snap = await transaction.get(ref);
       const data = snap.data();
       if (data?.status === 'sent') return { success: true, invoiceId, alreadySent: true };
-      if (!data?.emailAcceptedAt) throw invoiceError('Invoice email has not been confirmed by the mail server.');
+      if (!data?.emailAcceptedAt && !data?.emailSkippedAt) throw invoiceError('Invoice email must be accepted or explicitly skipped before completing Stored status.');
       const invoice = data.invoice;
       const requestSnaps = await Promise.all(invoice.requestIds.map((id) => transaction.get(db.collection('storageRequests').doc(id))));
       requestSnaps.forEach((request, index) => {
@@ -272,19 +273,24 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
       creditSnaps.forEach((creditSnap) => { if (creditSnap.data()?.reservedInvoiceId !== invoiceId) throw invoiceError('Referral credit reservation needs reconciliation.'); });
       const timestamp = fieldValue.serverTimestamp();
       invoice.creditAllocations.forEach((credit) => transaction.set(db.collection('storageReferralCredits').doc(credit.id), { usedCents: credit.beforeUsedCents + credit.appliedCents, reservedInvoiceId: fieldValue.delete(), reservedCents: fieldValue.delete(), updatedAt: timestamp }, { merge: true }));
-      invoice.requestIds.forEach((id) => transaction.set(db.collection('storageRequests').doc(id), { status: 'stored', storedAt: timestamp, invoiceId, invoiceSentAt: timestamp, invoicePendingId: fieldValue.delete(), updatedAt: timestamp, updatedBy: uid }, { merge: true }));
-      transaction.set(ref, { status: 'sent', sentAt: timestamp, sentBy: uid }, { merge: true });
+      invoice.requestIds.forEach((id) => transaction.set(db.collection('storageRequests').doc(id), { status: 'stored', storedAt: timestamp, invoiceId,
+        ...(data.emailSkippedAt ? { invoiceEmailDeliveryStatus: 'skipped', invoiceEmailSkippedAt: data.emailSkippedAt, invoiceEmailSkippedBy: data.emailSkippedBy } : { invoiceSentAt: timestamp, invoiceEmailDeliveryStatus: 'accepted' }),
+        invoicePendingId: fieldValue.delete(), updatedAt: timestamp, updatedBy: uid }, { merge: true }));
+      // status remains the legacy workflow-completion marker, not proof of email delivery.
+      transaction.set(ref, { status: 'sent', completedAt: timestamp, completedBy: uid,
+        ...(data.emailSkippedAt ? { emailDeliveryStatus: 'skipped' } : { sentAt: timestamp, sentBy: uid, emailDeliveryStatus: 'accepted' }) }, { merge: true });
       return { success: true, invoiceId };
     });
   }
-  async function send({ requestIds, fingerprint }, uid) {
+  async function send({ requestIds, fingerprint, skipEmail: skipEmailValue }, uid) {
+    const skipEmail = readSkipEmail({ skipEmail: skipEmailValue });
     const ids = validateIds(requestIds);
     const invoiceId = invoiceIdForRequests(ids);
     const invoiceRef = db.collection('storageInvoices').doc(invoiceId);
     const previous = await invoiceRef.get();
     if (previous.data()?.status === 'sent') return { success: true, invoiceId, alreadySent: true };
-    if (previous.data()?.emailAcceptedAt) return finalize(invoiceId, uid);
-    if (!from) throw invoiceError('SMTP default FROM is not configured.');
+    if (previous.data()?.emailAcceptedAt || previous.data()?.emailSkippedAt) return finalize(invoiceId, uid);
+    if (!from && !skipEmail) throw invoiceError('SMTP default FROM is not configured.');
     const quote = await loadQuote(ids);
     const preview = await serialize(quote.invoice);
     if (fingerprint !== preview.fingerprint) throw invoiceError('Invoice details changed after preview. Reopen the preview before sending.');
@@ -302,12 +308,14 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
         if (snap.data()?.reservedInvoiceId || (snap.data()?.usedCents || 0) !== credit.beforeUsedCents || (snap.exists && snap.data().amountCents !== credit.amountCents)) throw invoiceError('A referral credit changed. Reopen the preview.');
       });
       const timestamp = fieldValue.serverTimestamp();
-      transaction.set(invoiceRef, { invoice: quote.invoice, requestStates: quote.states, status: 'sending', preview, createdAt: snap.data()?.createdAt || timestamp, createdBy: uid, attemptAt: timestamp });
+      transaction.set(invoiceRef, { invoice: quote.invoice, requestStates: quote.states, status: 'sending', preview, createdAt: snap.data()?.createdAt || timestamp, createdBy: uid, attemptAt: timestamp,
+        ...(skipEmail ? { emailSkippedAt: timestamp, emailSkippedBy: uid, emailDeliveryStatus: 'skipped' } : {}) });
       quote.invoice.creditAllocations.forEach((credit) => transaction.set(db.collection('storageReferralCredits').doc(credit.id), { referrerClientId: credit.referrerClientId, referredClientId: credit.referredClientId, amountCents: credit.amountCents, usedCents: credit.beforeUsedCents, reservedInvoiceId: invoiceId, reservedCents: credit.appliedCents, updatedAt: timestamp }, { merge: true }));
       ids.forEach((id) => transaction.set(db.collection('storageRequests').doc(id), { invoicePendingId: invoiceId }, { merge: true }));
       return true;
     });
     if (!claimed) return { success: true, invoiceId, alreadySent: true };
+    if (skipEmail) return finalize(invoiceId, uid);
     try {
       const result = await sendEmail({ from, to: preview.to, cc: preview.cc, subject: preview.subject, html: preview.html, text: preview.text || invoiceTextLines(quote.invoice).join('\n'), attachments: [{ filename: `${invoiceId}.pdf`, content: Buffer.from(preview.pdfBase64, 'base64'), contentType: 'application/pdf' }] });
       if (Array.isArray(result?.accepted) && !result.accepted.some((address) => String(address).toLowerCase() === preview.to.toLowerCase())) throw invoiceError('Recipient delivery could not be confirmed.');

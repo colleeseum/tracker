@@ -172,6 +172,35 @@ test('stale preview and partial-case selection cannot send or mark stored', asyn
   assert.equal(emails.length, 0);
   assert.equal(db.records.get(`storageRequests/${ids[0]}`).status, 'scheduled');
 });
+test('skipping invoice email saves PDF, consumes credits once and marks Stored without claiming delivery', async () => {
+  const { service, db, emails, ids } = serviceFixture(() => { throw new Error('SMTP must not be called'); });
+  const preview = await service.prepare(ids);
+  await service.send({ requestIds: ids, fingerprint: preview.fingerprint, skipEmail: true }, 'admin');
+  assert.equal(emails.length, 0);
+  const saved = db.records.get(`storageInvoices/${preview.invoiceId}`);
+  assert.equal(saved.emailDeliveryStatus, 'skipped');
+  assert.equal(saved.emailSkippedBy, 'admin');
+  assert.ok(saved.emailSkippedAt);
+  assert.ok(!saved.emailAcceptedAt && !saved.sentAt);
+  assert.equal(saved.preview.pdfBase64, preview.pdfBase64);
+  for (const id of ids) {
+    const request = db.records.get(`storageRequests/${id}`);
+    assert.equal(request.status, 'stored');
+    assert.equal(request.invoiceEmailDeliveryStatus, 'skipped');
+    assert.ok(!request.invoiceSentAt);
+  }
+  assert.equal(db.records.get(`storageReferralCredits/${referralCreditId('referrer', 'new-customer')}`).usedCents, 2500);
+  await service.send({ requestIds: ids, fingerprint: preview.fingerprint }, 'admin');
+  assert.equal(emails.length, 0);
+});
+
+test('uncertain invoice delivery cannot be bypassed by selecting skip email', async () => {
+  const { service, emails, ids } = serviceFixture(() => { throw new Error('Timeout'); });
+  const preview = await service.prepare(ids);
+  await assert.rejects(service.send({ requestIds: ids, fingerprint: preview.fingerprint }, 'admin'), /uncertain/);
+  await assert.rejects(service.send({ requestIds: ids, fingerprint: preview.fingerprint, skipEmail: true }, 'admin'), /reconciliation/);
+  assert.equal(emails.length, 1);
+});
 test('no-deposit Scheduled case can send its invoice and become Stored without inventing a deposit', async () => {
   const { service, db, emails, ids } = serviceFixture();
   db.records.delete('storageReceipts/paid-deposit');

@@ -215,3 +215,40 @@ test('stamp applies to every page without rebuilding invoice content', async () 
   const result = await stampPaidInvoicePdf(Buffer.from(await pdf.save()).toString('base64'), 'fr');
   assert.equal((await PDFDocument.load(result)).getPageCount(), 2);
 });
+
+test('skip payment email still saves paid PDF, Paid status and one final-payment ledger entry', async () => {
+  const { service, records, emails } = await fixture(() => { throw new Error('SMTP must not be called'); });
+  const preview = await service.prepare(id);
+  const payload = { invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true, skipEmail: true };
+  await Promise.allSettled([1, 2].map(() => service.send(payload, 'admin')));
+  const payment = records.get(`storageInvoices/${id}`).payment;
+  assert.equal(payment.status, 'sent');
+  assert.equal(payment.emailDeliveryStatus, 'skipped');
+  assert.equal(payment.emailSkippedBy, 'admin');
+  assert.ok(!payment.emailAcceptedAt);
+  assert.equal(payment.preview.pdfBase64, preview.pdfBase64);
+  assert.equal(records.get('storageRequests/a').status, 'paid');
+  assert.equal(records.get(`expenses/${storagePaymentLedgerId(id)}`).amount, 575);
+  assert.equal([...records.keys()].filter((path) => path.startsWith('expenses/')).length, 1);
+  await service.send({ ...payload, skipEmail: false }, 'admin');
+  assert.equal(emails.length, 0);
+});
+
+test('skip payment recovery completes status and ledger after failure without ever sending email', async () => {
+  const { service, records, emails, db } = await fixture();
+  const preview = await service.prepare(id);
+  const run = db.runTransaction.bind(db);
+  let count = 0;
+  db.runTransaction = (handler) => ++count === 2 ? Promise.reject(new Error('Temporarily unavailable')) : run(handler);
+  const payload = { invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true, skipEmail: true };
+  await assert.rejects(service.send(payload, 'admin'), /Temporarily unavailable/);
+  assert.equal(records.get('storageRequests/a').status, 'stored');
+  const recovery = await service.prepare(id);
+  assert.equal(recovery.emailSkipped, true);
+  assert.equal(recovery.completionPending, true);
+  assert.equal(recovery.alreadyAccepted, false);
+  await service.send(payload, 'admin');
+  assert.equal(records.get('storageRequests/a').status, 'paid');
+  assert.equal(records.get(`expenses/${storagePaymentLedgerId(id)}`).amount, 575);
+  assert.equal(emails.length, 0);
+});
