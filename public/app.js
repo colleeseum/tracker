@@ -1127,14 +1127,6 @@ const PRICING_PANEL_ACTIONS = {
   }
 };
 
-const VEHICLE_TYPE_OPTIONS = [
-  { value: 'rv', label: 'RV / Motorhome' },
-  { value: 'boat', label: 'Boat' },
-  { value: 'trailer', label: 'Trailer' },
-  { value: 'car', label: 'Car' },
-  { value: 'other', label: 'Other' }
-];
-
 const DEFAULT_VEHICLE_TYPE_LABELS = {
   rv: { en: 'RV / Motorhome', fr: 'VR / motorisé' },
   boat: { en: 'Boat', fr: 'Bateau' },
@@ -1217,6 +1209,7 @@ function cleanSeasonsData() {
 function cleanVehicleTypesData() {
   vehicleTypes = [];
   vehicleTypeLookup = new Map();
+  updateStorageVehicleTypeOptions('');
   editingVehicleTypeId = null;
   renderVehicleTypeTable();
   closeVehicleTypeModal();
@@ -1555,12 +1548,17 @@ function subscribeToSeasons() {
 function subscribeToVehicleTypes() {
   cleanVehicleTypeSubscription();
   const ref = collection(db, 'vehicleTypes');
-  const q = query(ref, orderBy('order'));
+  // orderBy would omit older vehicle types that have no order field.
+  const q = ref;
   unsubscribeVehicleTypes = onSnapshot(
     q,
     (snapshot) => {
-      vehicleTypes = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      vehicleTypes = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })).sort((a, b) =>
+        (Number.isFinite(a.order) ? a.order : Number.MAX_SAFE_INTEGER) - (Number.isFinite(b.order) ? b.order : Number.MAX_SAFE_INTEGER)
+        || String(a.labels?.en || a.value || a.id).localeCompare(String(b.labels?.en || b.value || b.id))
+      );
       vehicleTypeLookup = new Map(vehicleTypes.map((type) => [type.id, type]));
+      updateStorageVehicleTypeOptions();
       updateOfferVehicleTypes();
       renderVehicleTypeTable();
       renderStorageTable();
@@ -9224,6 +9222,34 @@ function getVehicleTypeCandidates(identifier) {
   return Array.from(candidates).filter(Boolean);
 }
 
+function updateStorageVehicleTypeOptions(selected = storageVehicleTypeSelect?.value || '') {
+  if (!storageVehicleTypeSelect) return;
+  storageVehicleTypeSelect.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select type';
+  storageVehicleTypeSelect.appendChild(placeholder);
+  let matched = false;
+  vehicleTypes.forEach((type) => {
+    const option = document.createElement('option');
+    const matchesSelection = !matched && selected && getVehicleTypeCandidates(type.id).includes(selected);
+    // Retain a saved slug/legacy value when editing, instead of silently rewriting it.
+    option.value = matchesSelection ? selected : type.id;
+    option.textContent = getVehicleTypeDisplayLabel(type.id, 'en');
+    option.selected = Boolean(matchesSelection);
+    if (matchesSelection) matched = true;
+    storageVehicleTypeSelect.appendChild(option);
+  });
+  if (selected && !matched) {
+    const option = document.createElement('option');
+    option.value = selected;
+    option.textContent = `${getVehicleTypeDisplayLabel(selected, 'en')} (existing type)`;
+    option.selected = true;
+    storageVehicleTypeSelect.appendChild(option);
+  }
+  storageVehicleTypeSelect.value = selected;
+}
+
 function offerSupportsVehicleTypeForRequest(offer, vehicleTypeId) {
   if (!offer) return false;
   const supportedTypes = getOfferVehicleTypes(offer);
@@ -9611,7 +9637,7 @@ function buildStorageRequestDraftFromForm() {
     storageLocation: storageLocationSelect?.value === 'outdoor' ? 'outdoor' : 'indoor',
     vehicle: {
       type: vehicleType,
-      typeLabel: VEHICLE_TYPE_OPTIONS.find((option) => option.value === vehicleType)?.label || vehicleType || '—',
+      typeLabel: getVehicleTypeDisplayLabel(vehicleType, 'en') || '—',
       brand: storageVehicleBrandInput.value.trim(),
       model: storageVehicleModelInput.value.trim(),
       colour: storageVehicleColourInput.value.trim(),
@@ -9704,6 +9730,7 @@ function setStorageFormReadOnly(readOnly) {
 
 function resetStorageFormFields() {
   storageForm.reset();
+  updateStorageVehicleTypeOptions('');
   storageAmountManualOverride = false;
   storageSeasonSelect.value = '';
   storageClientSelect.value = '';
@@ -9733,7 +9760,7 @@ function populateStorageFormFields(request) {
   }
   storageClientSelect.value = request.clientId || '';
   updateStorageReferralOptions(request.referredByClientIds || []);
-  storageVehicleTypeSelect.value = request.vehicle?.type || '';
+  updateStorageVehicleTypeOptions(request.vehicle?.type || '');
   if (storageLocationSelect) storageLocationSelect.value = getStorageLocation(request);
   storageVehicleBrandInput.value = request.vehicle?.brand || '';
   storageVehicleModelInput.value = request.vehicle?.model || '';
