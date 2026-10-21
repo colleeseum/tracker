@@ -49,7 +49,8 @@ test('shared invoice appears once on the case row, never on vehicle rows', () =>
   assert.equal(invoices(rows[0].children[6]).length, 0);
   assert.ok(rows.slice(1).every((row) => invoices(row).length === 0));
   assert.equal(rows[0].children[5].textContent, '$200');
-  assert.ok(rows.slice(1).every((row) => row.children[6].children.length === 2));
+  assert.ok(rows.slice(1).every((row) => row.children[6].children.length === 3));
+  assert.ok(rows.slice(1).every((row) => row.children[6].children.some((button) => button.dataset.action === 'storage-request-contract')));
 });
 
 test('distinct historical invoices remain accessible at case level', () => {

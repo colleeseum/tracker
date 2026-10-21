@@ -21,6 +21,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -2479,14 +2480,15 @@ function renderStorageTable() {
       viewButton.innerHTML = '<img src="icons/eye.svg" alt="View storage request" />';
       actionCell.appendChild(viewButton);
 
-      if (['new', 'contract_ready'].includes(normalizedStatus)) {
+      {
         const contractButton = document.createElement('button');
         contractButton.type = 'button';
         contractButton.className = 'icon-button';
         contractButton.dataset.action = 'storage-request-contract';
         contractButton.dataset.id = request.id;
-        contractButton.setAttribute('aria-label', `Generate contract for ${tenantDisplay}`);
-        contractButton.innerHTML = '<img src="icons/download.svg" alt="Generate contract" />';
+        contractButton.setAttribute('aria-label', `Manage contract for ${tenantDisplay}`);
+        contractButton.title = 'Regenerate PDF or replace uploaded contract';
+        contractButton.innerHTML = '<img src="icons/download.svg" alt="Manage contract" />';
         actionCell.appendChild(contractButton);
       }
 
@@ -3789,7 +3791,7 @@ async function deleteReceiptAtPath(path) {
 function buildStorageContractPath(requestId, kind, fileName, contractId = '') {
   const safeName = sanitizeFileName(fileName || `${kind}.pdf`);
   const contractToken = sanitizeFileName(contractId || 'contract');
-  return `storage-contracts/${requestId}/${kind}/${contractToken}/${Date.now()}_${safeName}`;
+  return `storage-contracts/${requestId}/${kind}/${contractToken}/${Date.now()}_${crypto.randomUUID()}_${safeName}`;
 }
 
 async function uploadStorageContractFile(requestId, kind, file, options = {}) {
@@ -3799,7 +3801,7 @@ async function uploadStorageContractFile(requestId, kind, file, options = {}) {
   const ref = storageRef(storage, path);
   await uploadBytes(ref, file, { contentType });
   const url = await getDownloadURL(ref);
-  return { url, path, contentType };
+  return { url, path, contentType, contractId: options.contractId || '' };
 }
 
 async function deleteStorageContractAtPath(path) {
@@ -3815,6 +3817,41 @@ async function deleteStorageContractAtPath(path) {
 
 function getExpectedStorageContractId(request) {
   return String(request?.contractId || resolveStorageContractId(request) || '').trim();
+}
+
+async function saveUploadedStorageContract(request, upload, { markContractReady = false } = {}) {
+  if (!upload?.path || !upload?.url) throw new Error('The contract upload did not complete. The existing contract was not replaced.');
+  const requestRef = doc(db, 'storageRequests', request.id);
+  const revisionRef = doc(collection(requestRef, 'contractRevisions'));
+  return runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(requestRef);
+    if (!snap.exists()) throw new Error('Storage request no longer exists.');
+    const current = snap.data();
+    if (current.invoicePendingId || current.paymentPendingId) throw new Error('Complete or reconcile pending invoice/payment delivery before replacing the contract.');
+    if ((current.signedContractPath || '') !== (request.signedContractPath || '') || (current.signedContractUrl || '') !== (request.signedContractUrl || '') || (current.status || 'new') !== (request.status || 'new') || (current.contractId || '') !== (request.contractId || '')) {
+      throw new Error('The request or contract changed while uploading. Reopen the contract controls before replacing it.');
+    }
+    const timestamp = serverTimestamp();
+    const uid = auth.currentUser?.uid || null;
+    const contractId = upload.contractId || getExpectedStorageContractId({ ...current, id: request.id });
+    if (current.signedContractPath || current.signedContractUrl) {
+      transaction.set(revisionRef, {
+        contractId: current.contractId || null, signedContractPath: current.signedContractPath || null,
+        signedContractUrl: current.signedContractUrl || null, signedContractUploadedAt: current.signedContractUploadedAt || null,
+        signedContractUploadedBy: current.signedContractUploadedBy || null,
+        replacedAt: timestamp, replacedBy: uid
+      });
+    }
+    const patch = {
+      caseId: resolveStorageCaseId({ ...current, id: request.id }), contractId,
+      signedContractUrl: upload.url, signedContractPath: upload.path,
+      signedContractUploadedAt: timestamp, signedContractUploadedBy: uid,
+      updatedAt: timestamp, updatedBy: uid
+    };
+    if (markContractReady && ['new', 'contract_ready'].includes(String(current.status || 'new'))) patch.status = 'contract_ready';
+    transaction.update(requestRef, patch);
+    return patch;
+  });
 }
 
 function openSelectedContractFile(file) {
@@ -3838,15 +3875,30 @@ function renderStorageContractLinks(targetElement, request) {
   if (!targetElement) return;
   targetElement.innerHTML = '';
   const hasSigned = Boolean(request?.signedContractUrl);
+  const canManage = targetElement === storageContractLinks && Boolean(request?.id);
   const fieldset = targetElement.closest('fieldset');
-  if (fieldset) fieldset.hidden = !hasSigned;
-  if (!hasSigned) return;
-  const signedLink = document.createElement('a');
-  signedLink.href = request.signedContractUrl;
-  signedLink.target = '_blank';
-  signedLink.rel = 'noopener';
-  signedLink.textContent = 'View/download signed contract';
-  targetElement.appendChild(signedLink);
+  if (fieldset) fieldset.hidden = !hasSigned && !canManage;
+  if (hasSigned) {
+    const signedLink = document.createElement('a');
+    signedLink.href = request.signedContractUrl;
+    signedLink.target = '_blank';
+    signedLink.rel = 'noopener';
+    signedLink.textContent = 'View/download signed contract';
+    targetElement.appendChild(signedLink);
+  }
+  if (canManage) {
+    const manageButton = document.createElement('button');
+    manageButton.type = 'button';
+    manageButton.className = 'secondary';
+    manageButton.textContent = 'Manage contract';
+    manageButton.title = 'Regenerate PDF or replace uploaded contract';
+    manageButton.addEventListener('click', () => openStorageContractModal(getStorageRequestById(request.id) || request));
+    targetElement.appendChild(manageButton);
+    const hint = document.createElement('small');
+    hint.className = 'hint';
+    hint.textContent = 'Regenerate the PDF or replace the uploaded copy. Save request changes first; the workflow status will not be reset.';
+    targetElement.appendChild(hint);
+  }
 }
 
 function formatStorageContractDateInput(value) {
@@ -4544,18 +4596,7 @@ async function uploadPendingReceiptContracts() {
     if (viewButton) viewButton.disabled = true;
     const resolvedContractId = getExpectedStorageContractId(request);
     const upload = await uploadStorageContractFile(request.id, 'signed', file, { contractId: resolvedContractId });
-    if (request.signedContractPath && request.signedContractPath !== upload?.path) {
-      await deleteStorageContractAtPath(request.signedContractPath);
-    }
-    await updateDoc(doc(db, 'storageRequests', request.id), {
-      caseId: resolveStorageCaseId(request),
-      contractId: resolvedContractId,
-      signedContractUrl: upload?.url || null,
-      signedContractPath: upload?.path || null,
-      signedContractUploadedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      updatedBy: auth.currentUser?.uid || null
-    });
+    await saveUploadedStorageContract(request, upload);
     request.signedContractUrl = upload?.url || null;
     request.signedContractPath = upload?.path || null;
     if (input) {
@@ -9801,11 +9842,14 @@ function populateStorageFormFields(request) {
 }
 
 function updateStorageContractButtons() {
+  const request = getStorageRequestById(activeStorageContractRequestId);
   if (generateStorageContractButton) {
     generateStorageContractButton.disabled = storageContractBusy;
+    generateStorageContractButton.textContent = request?.signedContractUrl || request?.signedContractPath ? 'Regenerate PDF' : 'Generate PDF';
   }
   if (uploadStorageSignedContractButton) {
-    uploadStorageSignedContractButton.disabled = storageContractBusy;
+    uploadStorageSignedContractButton.disabled = storageContractBusy || !storageSignedContractFileInput?.files?.[0];
+    uploadStorageSignedContractButton.textContent = request?.signedContractUrl || request?.signedContractPath ? 'Replace uploaded contract' : 'Upload signed contract';
   }
   if (viewStorageSignedContractFileButton) {
     viewStorageSignedContractFileButton.disabled = storageContractBusy || !storageSignedContractFileInput?.files?.[0];
@@ -9813,6 +9857,7 @@ function updateStorageContractButtons() {
 }
 
 function closeStorageContractModal() {
+  if (storageContractBusy) return;
   const requestIdForRollback = storageContractRequiresSignedUpload ? activeStorageContractRequestId : null;
   if (generatedStorageContractUrl) {
     URL.revokeObjectURL(generatedStorageContractUrl);
@@ -9851,9 +9896,13 @@ function openStorageContractModal(request, options = {}) {
   const { requireSignedUpload = false } = options;
   activeStorageContractRequestId = request.id;
   storageContractRequiresSignedUpload = Boolean(requireSignedUpload);
+  if (storageSignedContractFileInput) storageSignedContractFileInput.value = '';
+  if (generatedStorageContractUrl) URL.revokeObjectURL(generatedStorageContractUrl);
+  generatedStorageContractBlob = null;
+  generatedStorageContractUrl = null;
   if (storageContractModalSummary) {
     const clientName = clientLookup.get(request.clientId)?.name || 'client';
-    storageContractModalSummary.textContent = `Generate a contract for ${clientName}, review/sign it outside Tracker, then upload the signed copy.`;
+    storageContractModalSummary.textContent = `Generate or regenerate a PDF for ${clientName} using the saved request details. Review/sign it outside Tracker, then upload the signed copy. Replacing an existing upload keeps the current workflow status and retains the previous file as a revision.`;
   }
   renderStorageContractLinks(storageContractModalLinks, request);
   if (storageContractModalError) {
@@ -9874,7 +9923,7 @@ async function generateAndDownloadStorageDraftContract({ autoDownload = true } =
   if (storageContractModalError) storageContractModalError.textContent = '';
   updateStorageContractButtons();
   try {
-    const resolvedContractId = String(resolveStorageContractId(request));
+    const resolvedContractId = getExpectedStorageContractId(request);
     if (request.contractId !== resolvedContractId) {
       await updateDoc(doc(db, 'storageRequests', request.id), {
         caseId: resolveStorageCaseId(request),
@@ -11358,40 +11407,21 @@ if (uploadStorageSignedContractButton) {
       if (storageContractModalError) storageContractModalError.textContent = 'Select the signed contract file first.';
       return;
     }
+    if ((request.signedContractPath || request.signedContractUrl) && !window.confirm('Replace the uploaded signed contract? The previous file will be retained as a revision. The workflow status, invoices and payments will not change.')) return;
     storageContractBusy = true;
     if (storageContractModalError) storageContractModalError.textContent = '';
     updateStorageContractButtons();
     try {
       const resolvedContractId = getExpectedStorageContractId(request);
-      if (request.contractId !== resolvedContractId) {
-        await updateDoc(doc(db, 'storageRequests', request.id), {
-          caseId: resolveStorageCaseId(request),
-          contractId: resolvedContractId,
-          updatedAt: serverTimestamp(),
-          updatedBy: auth.currentUser?.uid || null
-        });
-      }
       const upload = await uploadStorageContractFile(request.id, 'signed', file, { contractId: resolvedContractId });
-      if (request.signedContractPath && request.signedContractPath !== upload?.path) {
-        await deleteStorageContractAtPath(request.signedContractPath);
-      }
-      await updateDoc(doc(db, 'storageRequests', request.id), {
-        caseId: resolveStorageCaseId(request),
-        contractId: resolvedContractId,
-        status: 'contract_ready',
-        contractDraftUrl: deleteField(),
-        contractDraftPath: deleteField(),
-        contractDraftUploadedAt: deleteField(),
-        signedContractUrl: upload?.url || null,
-        signedContractPath: upload?.path || null,
-        signedContractUploadedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        updatedBy: auth.currentUser?.uid || null
-      });
+      const patch = await saveUploadedStorageContract(request, upload, { markContractReady: true });
+      Object.assign(request, patch);
+      renderStorageContractLinks(storageContractLinks, request);
       storageContractRequiresSignedUpload = false;
       if (storageSignedContractFileInput) {
         storageSignedContractFileInput.value = '';
       }
+      storageContractBusy = false;
       closeStorageContractModal();
     } catch (error) {
       if (storageContractModalError) storageContractModalError.textContent = error.message || 'Unable to upload signed contract.';
