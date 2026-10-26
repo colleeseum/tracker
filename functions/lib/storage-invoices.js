@@ -81,36 +81,48 @@ export function buildInvoiceModel({ requests, allRequests, client, clients, rece
   };
 }
 
+// Presentation only: the stored subtotal remains net of cancellation credits.
+function invoiceDisplayLines(invoice) {
+  const charges = invoice.lineItems.filter((line) => !line.cancellationAdjustment);
+  const adjustments = invoice.lineItems.filter((line) => line.cancellationAdjustment);
+  const contractTotalCents = invoice.subtotalCents - adjustments.reduce((sum, line) => sum + line.amountCents, 0);
+  return { charges, adjustments, contractTotalCents };
+}
+
 export function invoiceTextLines(invoice) {
   const fr = invoice.locale === 'fr';
+  const { charges, adjustments, contractTotalCents } = invoiceDisplayLines(invoice);
   return [
     'Ferme Colle', `${fr ? 'Facture' : 'Invoice'} ${invoice.invoiceId}`, `${fr ? 'Date' : 'Date'}: ${invoice.date}`,
     invoice.replacesInvoiceId ? `${fr ? 'Remplace la facture' : 'Replaces invoice'}: ${invoice.replacesInvoiceId}` : '',
     invoice.client.name, invoice.client.address, [invoice.client.city, invoice.client.province, invoice.client.postalCode].filter(Boolean).join(' '),
     `${fr ? 'Saison' : 'Season'}: ${invoice.seasonLabel || invoice.seasonId}`,
-    ...invoice.lineItems.map((line) => `${line.description}: ${money(line.amountCents, invoice.locale)}`),
-    `${fr ? 'Total du contrat' : 'Contract total'}: ${money(invoice.subtotalCents, invoice.locale)}`,
+    ...charges.map((line) => `${line.description}: ${money(line.amountCents, invoice.locale)}`),
+    `${fr ? 'Total du contrat' : 'Contract total'}: ${money(contractTotalCents, invoice.locale)}`,
     `${fr ? 'Dépôt reçu' : 'Deposit received'}: -${money(invoice.depositCents, invoice.locale)}`,
     ...invoice.creditAllocations.map((credit) => `${fr ? 'Rabais de recommandation' : 'Referral discount'} (${credit.referredClientName}): -${money(credit.appliedCents, invoice.locale)}`),
     ...(Number.isSafeInteger(invoice.paymentAmountCents) && invoice.paymentAmountCents >= 0
       ? [`${fr ? 'Paiement reçu' : 'Payment received'}${invoice.paidDate ? ` (${invoice.paidDate})` : ''}: -${money(invoice.paymentAmountCents, invoice.locale)}`]
       : []),
+    ...adjustments.map((line) => `${line.description}: ${money(line.amountCents, invoice.locale)}`),
     `${fr ? 'Solde à payer' : 'Balance due'}: ${money(invoice.balanceDueCents, invoice.locale)}`,
     fr ? 'Aucun calcul de taxe supplémentaire. Le total utilise le montant convenu au contrat.' : 'No additional tax calculation. The total uses the agreed contract amount.'
   ].filter(Boolean);
 }
 export function renderInvoiceHtml(invoice) {
   const fr = invoice.locale === 'fr';
+  const { charges, adjustments, contractTotalCents } = invoiceDisplayLines(invoice);
   const cell = 'padding:10px 12px;border-bottom:1px solid #e2e8f0;';
   const amount = `${cell}text-align:right;white-space:nowrap;`;
-  const rows = invoice.lineItems.map((line) => `<tr><td style="${cell}">${escape(line.description)}</td><td style="${amount}">${money(line.amountCents, invoice.locale)}</td></tr>`).join('');
+  const rows = charges.map((line) => `<tr><td style="${cell}">${escape(line.description)}</td><td style="${amount}">${money(line.amountCents, invoice.locale)}</td></tr>`).join('');
   const summary = [
-    [fr ? 'Total du contrat' : 'Contract total', money(invoice.subtotalCents, invoice.locale)],
+    [fr ? 'Total du contrat' : 'Contract total', money(contractTotalCents, invoice.locale)],
     [fr ? 'Dépôt reçu' : 'Deposit received', `-${money(invoice.depositCents, invoice.locale)}`],
     ...invoice.creditAllocations.map((credit) => [`${fr ? 'Rabais de recommandation' : 'Referral discount'} - ${credit.referredClientName}`, `-${money(credit.appliedCents, invoice.locale)}`]),
     ...(Number.isSafeInteger(invoice.paymentAmountCents) && invoice.paymentAmountCents >= 0
       ? [[`${fr ? 'Paiement reçu' : 'Payment received'}${invoice.paidDate ? ` (${invoice.paidDate})` : ''}`, `-${money(invoice.paymentAmountCents, invoice.locale)}`]]
-      : [])
+      : []),
+    ...adjustments.map((line) => [line.description, money(line.amountCents, invoice.locale)])
   ].map(([label, value]) => `<tr><td style="${cell}">${escape(label)}</td><td style="${amount}">${value}</td></tr>`).join('');
   return `<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin:16px 0;">
     <div style="background:#f8fafc;padding:16px 12px;"><strong>${fr ? 'FACTURE' : 'INVOICE'} ${escape(invoice.invoiceId)}</strong><br>${fr ? 'Date de facturation' : 'Invoice date'}: ${escape(invoice.date)}<br>${fr ? 'Saison' : 'Season'}: ${escape(invoice.seasonLabel || invoice.seasonId)}${invoice.replacesInvoiceId ? `<br>${fr ? 'Remplace la facture' : 'Replaces invoice'}: ${escape(invoice.replacesInvoiceId)}` : ''}</div>
@@ -119,6 +131,7 @@ export function renderInvoiceHtml(invoice) {
   </div>`;
 }
 export async function renderInvoicePdf(invoice) {
+  const { charges, adjustments, contractTotalCents } = invoiceDisplayLines(invoice);
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -214,11 +227,12 @@ export async function renderInvoicePdf(invoice) {
       y -= height;
     }
   };
-  invoice.lineItems.forEach((line, index) => row(line.description, money(line.amountCents, invoice.locale), { table: true, shade: index % 2 === 0 }));
+  charges.forEach((line, index) => row(line.description, money(line.amountCents, invoice.locale), { table: true, shade: index % 2 === 0 }));
   y -= 18;
-  row(fr ? 'Total du contrat' : 'Contract total', money(invoice.subtotalCents, invoice.locale), { heading: true });
+  row(fr ? 'Total du contrat' : 'Contract total', money(contractTotalCents, invoice.locale), { heading: true });
   row(fr ? 'Dépôt reçu' : 'Deposit received', `-${money(invoice.depositCents, invoice.locale)}`);
   invoice.creditAllocations.forEach((credit) => row(`${fr ? 'Rabais de recommandation' : 'Referral discount'} - ${credit.referredClientName}`, `-${money(credit.appliedCents, invoice.locale)}`));
+  adjustments.forEach((line) => row(line.description, money(line.amountCents, invoice.locale)));
   y -= 12;
   row(fr ? 'SOLDE À PAYER' : 'BALANCE DUE', money(invoice.balanceDueCents, invoice.locale), { heading: true, shade: true });
   y -= 22;

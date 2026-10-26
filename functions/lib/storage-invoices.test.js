@@ -92,6 +92,39 @@ test('original vehicle line stays unchanged; only the adjustment explains cancel
     assert.ok(!renderInvoiceHtml(invoice).includes('(Cancelled)'));
   }
 });
+test('cancellation follows deposits and discounts immediately before the balance in both languages', () => {
+  for (const locale of ['en', 'fr']) {
+    const data = fixture();
+    data.client.preferredLanguage = locale;
+    data.requests[0].contractAmount = 460;
+    data.requests[1].status = 'cancelled';
+    data.requests[1].contractAmount = 180;
+    data.requests[1].cancellation = { originalAmountCents: 18000, retainedDepositCents: 5000, creditCents: 13000 };
+    data.receipts[0].amount = 150;
+    data.referralDiscountAmount = 0;
+    const invoice = buildInvoiceModel(data);
+    const before = structuredClone(invoice);
+    const labels = locale === 'fr'
+      ? ['Total du contrat', 'Dépôt reçu', 'Annulation', 'SOLDE À PAYER']
+      : ['Contract total', 'Deposit received', 'Cancellation adjustment', 'BALANCE DUE'];
+    const html = renderInvoiceHtml(invoice);
+    const text = invoiceTextLines(invoice).join('\n');
+    for (const output of [html, text].map((value) => value.toUpperCase())) {
+      const positions = labels.map((label) => output.indexOf(label.toUpperCase()));
+      assert.ok(positions.every((position, index) => position >= 0 && (!index || position > positions[index - 1])));
+      assert.equal((output.match(/ANNULATION|CANCELLATION ADJUSTMENT/g) || []).length, 1);
+    }
+    assert.ok(html.includes(money(64000, locale)));
+    assert.equal(invoice.subtotalCents, 51000);
+    assert.equal(invoice.balanceDueCents, 36000);
+    assert.deepEqual(invoice, before);
+
+    const adjustment = invoice.lineItems.find((line) => line.cancellationAdjustment);
+    const discounted = { ...invoice, creditAllocations: [{ referredClientName: 'Referral client', appliedCents: 2500 }], balanceDueCents: 33500 };
+    assert.ok(renderInvoiceHtml(discounted).indexOf('Referral client') < renderInvoiceHtml(discounted).indexOf(adjustment.description));
+    assert.ok(invoiceTextLines(discounted).findIndex((line) => line.includes('Referral client')) < invoiceTextLines(discounted).findIndex((line) => line.includes(adjustment.description)));
+  }
+});
 test('localized invoice HTML escapes user content and PDF is valid in both languages', async () => {
   for (const language of ['en', 'fr']) {
     const data = fixture();
