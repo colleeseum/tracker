@@ -361,6 +361,33 @@ form {
   max-width: 680px;
 }
 
+#client-modal .modal-content {
+  max-width: 760px;
+}
+
+.client-phone-field {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.client-phone-field > label:not(.checkbox) {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.client-phone-field input:not([type="checkbox"]) {
+  width: 100%;
+}
+
+.client-phone-field > .checkbox {
+  width: auto;
+  padding-bottom: 0.6rem;
+  white-space: nowrap;
+}
+
 #storage-confirmation-email-modal {
   padding: 2vh 1rem;
 }

@@ -1126,25 +1126,36 @@
                   <option value="fr">French</option>
                 </select>
               </label>
-              <label>
-                Phone
-                <input
-                  type="text"
-                  id="client-phone"
-                  name="client_phone_entry"
-                  placeholder="+1 555-555-5555"
-                  autocomplete="off"
-                />
-              </label>
-              <label>
-                Email
-                <input type="email" id="client-email" name="client_email_entry" required autocomplete="off" />
-              </label>
-              <label>
-                CC email (optional)
-                <input type="email" id="client-email-cc-address" name="client_email_cc_entry" autocomplete="off" />
-                <span class="hint">Copy this address on emails sent to this client.</span>
-              </label>
+              <div class="form-row">
+                <div class="client-phone-field">
+                  <label>
+                    Phone
+                    <input type="text" id="client-phone" name="client_phone_entry" placeholder="+1 555-555-5555" autocomplete="off" />
+                  </label>
+                  <label class="checkbox">
+                    <input type="checkbox" id="client-phone-whatsapp" aria-label="Primary phone has WhatsApp" /> WhatsApp
+                  </label>
+                </div>
+                <div class="client-phone-field">
+                  <label>
+                    Second phone (optional)
+                    <input type="tel" id="client-phone-secondary" name="client_phone_secondary_entry" placeholder="555-555-5555" autocomplete="off" />
+                  </label>
+                  <label class="checkbox">
+                    <input type="checkbox" id="client-phone-secondary-whatsapp" aria-label="Second phone has WhatsApp" /> WhatsApp
+                  </label>
+                </div>
+              </div>
+              <div class="form-row">
+                <label>
+                  Email
+                  <input type="email" id="client-email" name="client_email_entry" required autocomplete="off" />
+                </label>
+                <label>
+                  CC email (optional)
+                  <input type="email" id="client-email-cc-address" name="client_email_cc_entry" autocomplete="off" />
+                </label>
+              </div>
               <label class="wide">
                 Mailing address
                 <textarea id="client-address" name="client_address_entry" rows="2" required autocomplete="off"></textarea>

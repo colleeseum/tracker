@@ -319,6 +319,9 @@ const clientFormTitle = document.getElementById('client-form-title');
 const clientNameInput = document.getElementById('client-name');
 const clientLanguageSelect = document.getElementById('client-language');
 const clientPhoneInput = document.getElementById('client-phone');
+const clientPhoneSecondaryInput = document.getElementById('client-phone-secondary');
+const clientPhoneWhatsAppInput = document.getElementById('client-phone-whatsapp');
+const clientPhoneSecondaryWhatsAppInput = document.getElementById('client-phone-secondary-whatsapp');
 const clientEmailInput = document.getElementById('client-email');
 const clientEmailCcInput = document.getElementById('client-email-cc-address');
 const clientAddressInput = document.getElementById('client-address');
@@ -2168,7 +2171,16 @@ function renderClientTable() {
     row.appendChild(languageCell);
 
     const phoneCell = document.createElement('td');
-    phoneCell.textContent = client.phone || '—';
+    const phoneNumbers = [
+      { phone: client.phone, whatsApp: client.phoneWhatsApp === true },
+      { phone: client.phoneSecondary, whatsApp: client.phoneSecondaryWhatsApp === true }
+    ].filter((contact) => contact.phone);
+    phoneNumbers.forEach(({ phone, whatsApp }) => {
+      const number = document.createElement('div');
+      number.textContent = `${phone}${whatsApp ? ' (WhatsApp)' : ''}`;
+      phoneCell.appendChild(number);
+    });
+    if (!phoneNumbers.length) phoneCell.textContent = '—';
     row.appendChild(phoneCell);
 
     const emailCell = document.createElement('td');
@@ -9133,6 +9145,9 @@ function openClientModal(mode, client = null) {
       clientLanguageSelect.value = client.preferredLanguage === 'fr' ? 'fr' : 'en';
     }
     clientPhoneInput.value = client.phone || '';
+    clientPhoneSecondaryInput.value = client.phoneSecondary || '';
+    clientPhoneWhatsAppInput.checked = client.phoneWhatsApp === true;
+    clientPhoneSecondaryWhatsAppInput.checked = client.phoneSecondaryWhatsApp === true;
     clientEmailInput.value = client.email || '';
     clientEmailCcInput.value = client.emailCc || '';
     clientAddressInput.value = client.address || '';
@@ -12102,6 +12117,7 @@ clientForm.addEventListener('submit', async (event) => {
   const name = clientNameInput.value.trim();
   const preferredLanguage = clientLanguageSelect?.value === 'fr' ? 'fr' : 'en';
   const rawPhone = clientPhoneInput.value.trim();
+  const rawPhoneSecondary = clientPhoneSecondaryInput.value.trim();
   const email = clientEmailInput.value.trim();
   const emailCc = clientEmailCcInput.value.trim();
   const address = clientAddressInput.value.trim();
@@ -12141,6 +12157,9 @@ clientForm.addEventListener('submit', async (event) => {
     name,
     preferredLanguage,
     phone: formatClientPhone(rawPhone),
+    phoneSecondary: formatClientPhone(rawPhoneSecondary),
+    phoneWhatsApp: Boolean(formatClientPhone(rawPhone) && clientPhoneWhatsAppInput.checked),
+    phoneSecondaryWhatsApp: Boolean(formatClientPhone(rawPhoneSecondary) && clientPhoneSecondaryWhatsAppInput.checked),
     email,
     emailCc,
     address,
