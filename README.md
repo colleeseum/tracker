@@ -77,6 +77,61 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 node functions/scripts/test-local-client-
 
 No real emails are sent by this test; its own temporary records are cleaned up afterwards.
 
+## Permanent report snapshots
+
+In **Reports**, choose the report type, entity and year, then **Open / generate**.
+Review the displayed report and choose **Lock report**. Confirmation permanently
+freezes that report type/entity/year. There is no unlock or overwrite operation.
+Ledger entries remain editable; later changes do not alter the saved report.
+
+A locked report opens as a static, script-disabled page without calling the live
+report calculations. Its HTML and CSS, expanded transaction details, source ledger
+inputs, category mappings, mileage rates/settings and CCA inputs are captured at
+lock time. The server records the locking administrator/time and a SHA-256 checksum.
+Missing or damaged snapshots produce an error, never an automatic regeneration.
+
+To reopen a locked report, select its type, entity and year and click **Open / generate**.
+The saved version opens automatically with a prominent **LOCKED REPORT** notice and
+lock date, including inside the static report and downloaded copy. Archived entities
+remain selectable in the normal Entity dropdown. Use **Download static report** to keep
+a self-contained HTML copy. Tax reference or
+formatting changes in future app versions do not rebuild the saved page. Existing
+reports remain live until explicitly locked. A snapshot records the reviewed client
+calculation, not an independent server verification of tax arithmetic.
+
+Snapshots are stored atomically under `lockedReports/{key}` with protected content
+chunks to avoid Firestore's per-document limit. Direct client create/update/delete
+is denied for this namespace, including for administrators. A report over the 4 MB
+snapshot limit fails without saving a partial lock.
+
+Local persistence and access-control check using disposable fixtures:
+
+```bash
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 node functions/scripts/test-local-locked-reports.mjs
+```
+
+## Unpaid invoice reminders
+
+On a Stored storage case, choose **Payment reminder** in its action menu. Review the
+friendly English/French email and the original saved invoice PDF, then choose **Send
+payment reminder**. The same action is available for picked-up cases with an unpaid
+invoice. Paid, superseded, zero-balance and pending-payment invoices are rejected by
+the backend, including when payment occurs after opening the preview.
+
+The `storage-invoice-reminder` template is editable in **Email templates**. Delivery
+uses the current client email/CC and the normal banner/footer. The PDF is attached
+byte-for-byte from the saved invoice, not regenerated. Reminder audits live under
+`storageInvoices/{invoiceId}/reminders`; reminders do not change vehicle statuses,
+invoice amounts, payments or ledger entries. Skipping email records only a skipped
+reminder. Reusing the same preview cannot resend a completed reminder; uncertain
+delivery requires provider review. Dev messages go only to `entrepot@as-colle.com`.
+
+Local integration check with a mocked sender and disposable records:
+
+```bash
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 node functions/scripts/test-local-invoice-reminders.mjs
+```
+
 ## Run the Firebase emulators
 
 From the repository root run:

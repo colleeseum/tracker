@@ -105,7 +105,9 @@ test('storage checkbox resets for each action and button labels reflect skip and
   const app = readFileSync(new URL('../../public/app.js', import.meta.url), 'utf8');
   const checkbox = { checked: true, disabled: false };
   const button = { disabled: false, textContent: '' };
+  const hint = { textContent: '' };
   const context = vm.createContext({
+    document: { getElementById: () => hint },
     storageSkipEmailCheckbox: checkbox, sendStorageConfirmationEmailButton: button,
     cancelStorageConfirmationEmailButton: null, storageConfirmationEmailBusy: false,
     pendingStorageConfirmationEmail: { emailType: 'invoice' },
@@ -133,4 +135,12 @@ test('storage checkbox resets for each action and button labels reflect skip and
   assert.equal(checkbox.checked, true);
   assert.equal(checkbox.disabled, true);
   assert.match(button.textContent, /email skipped/);
+  context.pendingStorageConfirmationEmail = { emailType: 'reminder', reminder: true };
+  context.resetStorageEmailOption(context.pendingStorageConfirmationEmail);
+  context.updateStorageConfirmationEmailButtons();
+  assert.equal(button.textContent, 'Send payment reminder');
+  assert.match(hint.textContent, /No invoice, payment, vehicle status or ledger changes/);
+  checkbox.checked = true;
+  context.updateStorageConfirmationEmailButtons();
+  assert.equal(button.textContent, 'Record reminder without email');
 });

@@ -42,6 +42,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
 import { firebaseConfig, emulatorConfig } from './firebase-config.js';
 import { initializeClientMailing } from './client-mailing.js';
+import { createReportLockController } from './locked-reports.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -57,6 +58,10 @@ const prepareStorageInvoiceCallable = httpsCallable(functionsApp, 'prepareStorag
 const sendStorageInvoiceCallable = httpsCallable(functionsApp, 'sendStorageInvoice');
 const getStorageInvoiceCallable = httpsCallable(functionsApp, 'getStorageInvoice');
 const prepareStoragePaymentCallable = httpsCallable(functionsApp, 'prepareStoragePayment');
+const prepareStorageInvoiceReminderCallable = httpsCallable(functionsApp, 'prepareStorageInvoiceReminder');
+const sendStorageInvoiceReminderCallable = httpsCallable(functionsApp, 'sendStorageInvoiceReminder');
+const getDefaultStorageInvoiceReminderEmailTemplateCallable = httpsCallable(functionsApp, 'getDefaultStorageInvoiceReminderEmailTemplate');
+let defaultStorageInvoiceReminderEmailTemplate = null;
 const sendStoragePaymentCallable = httpsCallable(functionsApp, 'sendStoragePayment');
 const getStoragePaymentCallable = httpsCallable(functionsApp, 'getStoragePayment');
 const scheduleStorageWithoutDepositCallable = httpsCallable(functionsApp, 'scheduleStorageWithoutDeposit');
@@ -967,6 +972,8 @@ if (initialReportLinkParams) {
 }
 let reportGeneratedOnce = false;
 let reportDrilldownLookup = new Map();
+let reportLockController = null;
+let lockedReportMetadata = [];
 let reportDrilldownCounter = 1;
 let reportDetailRowCounter = 1;
 
@@ -1734,6 +1741,18 @@ function subscribeToEmailTemplates() {
         defaultStorageInvoiceEmailTemplate = response.data;
         addDefaultInvoiceTemplate();
       }).catch((error) => { console.error('Unable to load default invoice email template:', error); });
+      const addDefaultReminderTemplate = () => {
+        if (defaultStorageInvoiceReminderEmailTemplate && auth.currentUser && !emailTemplates.some((template) => template.templateId === 'storage-invoice-reminder' || template.id === 'storage-invoice-reminder')) {
+          emailTemplates.push({ ...defaultStorageInvoiceReminderEmailTemplate, id: 'storage-invoice-reminder', builtIn: true });
+          emailTemplates.sort((a, b) => String(a.templateId || a.id).localeCompare(String(b.templateId || b.id)));
+          renderEmailTemplateTable();
+        }
+      };
+      if (defaultStorageInvoiceReminderEmailTemplate) addDefaultReminderTemplate();
+      else getDefaultStorageInvoiceReminderEmailTemplateCallable({}).then((response) => {
+        defaultStorageInvoiceReminderEmailTemplate = response.data;
+        addDefaultReminderTemplate();
+      }).catch((error) => { console.error('Unable to load payment reminder template:', error); });
       renderEmailTemplateTable();
       updateLatestContentTimestamp();
     },
@@ -2423,12 +2442,15 @@ function renderStorageTable() {
       addCaseActionSelect([{ value: 'status:stored', label: 'Mark stored & invoice', title: 'Preview the invoice and PDF before emailing and moving this case to Stored' }]);
     } else if (allStored) {
       addCaseActionSelect([
+        { value: 'invoice-reminder', label: 'Payment reminder', title: 'Preview a friendly unpaid-invoice reminder with a copy of the original invoice PDF' },
         { value: 'reopen-invoice', label: 'Correct unpaid invoice', title: 'Preserve the old invoice and return active vehicles to Scheduled for a corrected invoice' },
         { value: 'status:paid', label: 'Mark paid & receipt', title: 'Confirm full payment, preview the email and stamped PDF, then mark this case Paid' },
         { value: 'status:picked_up', label: 'Mark picked up', title: 'Move this case to Picked-Up' }
       ]);
     } else if (allPaid) {
       addCaseActionSelect([{ value: 'status:picked_up', label: 'Mark picked up', title: 'Move this case to Picked-Up' }]);
+    } else if (caseRequests.some((request) => request.status === 'picked_up') && caseRequests.every((request) => ['picked_up', 'cancelled'].includes(request.status) && request.invoiceId && !request.paidInvoiceId)) {
+      addCaseActionSelect([{ value: 'invoice-reminder', label: 'Payment reminder', title: 'Preview a reminder for an unpaid saved invoice; the backend checks payment before sending' }]);
     }
     const invoiceIds = [...new Set(caseRequests.map((request) => request.invoiceId || request.previousInvoiceId).filter(Boolean))];
     const invoiceLinks = document.createElement('div');
@@ -4666,9 +4688,11 @@ function updateStorageConfirmationEmailButtons() {
     sendStorageConfirmationEmailButton.disabled =
       storageConfirmationEmailBusy || pendingStorageConfirmationEmail?.archived || !arePendingReceiptContractsUploaded() || !hasRequiredReceiptInteracReference();
     const payment = pendingStorageConfirmationEmail?.emailType === 'payment';
+    const reminder = pendingStorageConfirmationEmail?.emailType === 'reminder';
     const skipped = Boolean(storageSkipEmailCheckbox?.checked);
     const recovery = pendingStorageConfirmationEmail?.alreadyAccepted || pendingStorageConfirmationEmail?.completionPending;
     sendStorageConfirmationEmailButton.textContent = storageConfirmationEmailBusy ? (skipped ? 'Saving...' : 'Sending...')
+      : reminder ? (skipped ? 'Record reminder without email' : 'Send payment reminder')
       : recovery ? `Complete ${payment ? 'Paid' : 'Stored'} status (${pendingStorageConfirmationEmail?.emailSkipped ? 'email skipped' : 'email already sent'})`
       : skipped ? payment ? 'Confirm full payment without email' : pendingStorageConfirmationEmail?.emailType === 'invoice' ? 'Save invoice & mark stored (no email)' : 'Complete without email'
       : payment ? 'Confirm full payment & send receipt' : pendingStorageConfirmationEmail?.emailType === 'invoice' ? 'Send invoice & mark stored' : 'Send';
@@ -4684,6 +4708,10 @@ function resetStorageEmailOption(preview = null, archived = false) {
   if (!storageSkipEmailCheckbox) return;
   storageSkipEmailCheckbox.checked = Boolean(preview?.emailSkipped);
   storageSkipEmailCheckbox.disabled = Boolean(archived || preview?.alreadyAccepted || preview?.completionPending);
+  const hint = document.getElementById('storage-skip-email-hint');
+  if (hint) hint.textContent = preview?.reminder
+    ? 'Optional: record a skipped reminder without sending email. No invoice, payment, vehicle status or ledger changes are made.'
+    : 'Optional: complete this step without emailing the customer. PDFs and required workflow/payment records will still be saved.';
 }
 
 function setStorageConfirmationEmailBusy(isBusy) {
@@ -4794,11 +4822,11 @@ function showStorageInvoicePreview(preview, archived = false) {
   clearStorageInvoicePdf();
   resetStorageEmailOption(preview, archived);
   pendingStorageConfirmationEmail = {
-    ...preview, emailType: preview.payment ? 'payment' : 'invoice', archived,
+    ...preview, emailType: preview.reminder ? 'reminder' : preview.payment ? 'payment' : 'invoice', archived,
     requestIds: preview.invoice.requestIds,
     requiresInteracReference: false, contractUploadRequestIds: []
   };
-  storageConfirmationEmailModal.querySelector('h3').textContent = archived ? `Invoice ${preview.invoiceId}` : preview.payment ? 'Confirm full payment and send receipt' : 'Mark stored and send invoice';
+  storageConfirmationEmailModal.querySelector('h3').textContent = archived ? `Invoice ${preview.invoiceId}` : preview.reminder ? 'Friendly payment reminder' : preview.payment ? 'Confirm full payment and send receipt' : 'Mark stored and send invoice';
   storageConfirmationEmailTo.textContent = preview.to;
   storageConfirmationEmailCc.textContent = preview.cc || '—';
   showEmailDeliveryWarning('storage-email-delivery-warning', preview);
@@ -4809,6 +4837,7 @@ function showStorageInvoicePreview(preview, archived = false) {
   storageInvoicePdfSection.classList.remove('hidden');
   document.getElementById('storage-invoice-preview-hint').textContent = archived
     ? 'Saved invoice. This PDF is the copy attached to the email; it will not be sent again from this preview.'
+    : preview.reminder ? 'The original saved invoice PDF is attached unchanged. This reminder does not change the invoice, vehicle status, payments or ledger. If email is skipped, only a skipped-reminder audit is recorded.'
     : preview.alreadyAccepted || preview.completionPending ? `Email was ${preview.emailSkipped ? 'explicitly skipped' : 'accepted'}. Complete the ${preview.payment ? 'Paid' : 'Stored'} status without sending another email.`
     : preview.payment ? `Only confirm after receiving the full remaining balance of ${formatCurrency(preview.paymentAmountCents / 100)}. Sending records full payment, posts the final payment to the ledger, emails the stamped invoice PDF, and moves all vehicles to Paid.`
     : 'Review the invoice and PDF before sending. Sending records the invoice and moves the vehicles to Stored. This does not record a balance payment as received.';
@@ -4841,6 +4870,17 @@ async function openStoragePaymentPreview(caseRequests) {
   } finally {
     storageInvoicePreparing = false;
   }
+}
+
+async function openStorageInvoiceReminderPreview(caseRequests) {
+  const ids = [...new Set(caseRequests.map((request) => request.invoiceId).filter(Boolean))];
+  if (ids.length !== 1 || caseRequests.some((request) => !request.invoiceId)) throw new Error('Select a case with one saved unpaid invoice.');
+  if (storageInvoicePreparing) return;
+  storageInvoicePreparing = true;
+  try {
+    const response = await prepareStorageInvoiceReminderCallable({ invoiceId: ids[0] });
+    showStorageInvoicePreview(response.data);
+  } finally { storageInvoicePreparing = false; }
 }
 
 function getContractTemplateUrl(lang = 'en') {
@@ -6655,6 +6695,10 @@ function buildCcaReportSection(entityId, year) {
 }
 
 function renderReports() {
+  reportLockController?.render();
+}
+
+function renderLiveReports() {
   if (!reportsOutput) return;
   reportsOutput.innerHTML = '';
   reportDrilldownLookup.clear();
@@ -6968,6 +7012,10 @@ function renderTagReport() {
 
 function populateReportControls() {
   if (!reportEntitySelect || !reportYearSelect || !reportTypeSelect) return;
+  const reportEntities = [...entityAccounts];
+  lockedReportMetadata.forEach((report) => {
+    if (!reportEntities.some((entity) => entity.id === report.entityId)) reportEntities.push({ id: report.entityId, name: `${report.entityName} (archived)` });
+  });
   if (pendingReportLinkParams) {
     reportFilters.type = pendingReportLinkParams.type;
     reportFilters.year = pendingReportLinkParams.year;
@@ -6978,7 +7026,7 @@ function populateReportControls() {
   }
   const previousEntity = pendingReportLinkParams?.entityId || reportFilters.entityId;
   reportEntitySelect.innerHTML = '';
-  if (!entityAccounts.length) {
+  if (!reportEntities.length) {
     const option = document.createElement('option');
     option.value = '';
     option.textContent = 'No entity accounts available';
@@ -6988,15 +7036,15 @@ function populateReportControls() {
     if (generateReportButton) generateReportButton.disabled = true;
   } else {
     const defaultEntityId = getDefaultEntityAccountId();
-    const defaultExists = defaultEntityId && entityAccounts.some((account) => account.id === defaultEntityId);
-    entityAccounts.forEach((account) => {
+    const defaultExists = defaultEntityId && reportEntities.some((account) => account.id === defaultEntityId);
+    reportEntities.forEach((account) => {
       const option = document.createElement('option');
       option.value = account.id;
       option.textContent = account.name;
       reportEntitySelect.appendChild(option);
     });
-    const hasPrevious = previousEntity && entityAccounts.some((account) => account.id === previousEntity);
-    const fallbackEntityId = defaultExists ? defaultEntityId : entityAccounts[0].id;
+    const hasPrevious = previousEntity && reportEntities.some((account) => account.id === previousEntity);
+    const fallbackEntityId = defaultExists ? defaultEntityId : reportEntities[0].id;
     reportFilters.entityId = hasPrevious ? previousEntity : fallbackEntityId;
     reportEntitySelect.disabled = false;
     reportEntitySelect.value = reportFilters.entityId;
@@ -7004,7 +7052,7 @@ function populateReportControls() {
     if (
       pendingReportLinkParams &&
       pendingReportLinkParams.entityId &&
-      entityAccounts.some((account) => account.id === pendingReportLinkParams.entityId)
+      reportEntities.some((account) => account.id === pendingReportLinkParams.entityId)
     ) {
       reportGeneratedOnce = true;
       pendingReportLinkParams = null;
@@ -11156,6 +11204,11 @@ if (storageTableBody) {
       catch (error) { alert(error.message || 'Unable to reopen invoice.'); }
       return;
     }
+    if (selectedAction === 'invoice-reminder') {
+      try { await openStorageInvoiceReminderPreview(caseRequests); }
+      catch (error) { alert(error.message || 'Unable to prepare payment reminder.'); }
+      return;
+    }
     if (selectedAction === 'confirmation-email') {
       openStorageConfirmationEmailModal(caseRequests, 'confirmation');
       return;
@@ -11421,7 +11474,9 @@ if (sendStorageConfirmationEmailButton) {
         throw new Error('Enter the Interac reference number.');
       }
       const callable =
-        pendingStorageConfirmationEmail.emailType === 'payment'
+        pendingStorageConfirmationEmail.emailType === 'reminder'
+          ? sendStorageInvoiceReminderCallable
+          : pendingStorageConfirmationEmail.emailType === 'payment'
           ? sendStoragePaymentCallable
           : pendingStorageConfirmationEmail.emailType === 'invoice'
           ? sendStorageInvoiceCallable
@@ -11431,7 +11486,9 @@ if (sendStorageConfirmationEmailButton) {
             ? sendStorageReceiptEmailCallable
             : sendStorageConfirmationEmailCallable;
       const payload =
-        pendingStorageConfirmationEmail.emailType === 'payment'
+        pendingStorageConfirmationEmail.emailType === 'reminder'
+          ? { invoiceId: pendingStorageConfirmationEmail.invoiceId, reminderId: pendingStorageConfirmationEmail.reminderId, fingerprint: pendingStorageConfirmationEmail.fingerprint }
+          : pendingStorageConfirmationEmail.emailType === 'payment'
           ? { invoiceId: pendingStorageConfirmationEmail.invoiceId, fingerprint: pendingStorageConfirmationEmail.fingerprint, confirmFullPayment: true }
           : pendingStorageConfirmationEmail.emailType === 'invoice'
           ? { requestIds: pendingStorageConfirmationEmail.requestIds, fingerprint: pendingStorageConfirmationEmail.fingerprint }
@@ -11442,7 +11499,8 @@ if (sendStorageConfirmationEmailButton) {
               interacReference
             }
           : { requestIds: pendingStorageConfirmationEmail.requestIds };
-      await callable({ ...payload, skipEmail: Boolean(storageSkipEmailCheckbox?.checked) });
+      const response = await callable({ ...payload, skipEmail: Boolean(storageSkipEmailCheckbox?.checked) });
+      if (response.data?.warning) alert(response.data.warning);
       setStorageConfirmationEmailBusy(false);
       closeStorageConfirmationEmailModal();
     } catch (error) {
@@ -13158,6 +13216,7 @@ if (reportDetailModal) {
 if (reportFilterForm) {
   reportFilterForm.addEventListener('submit', (event) => {
     event.preventDefault();
+    reportLockController?.clearSelection();
     if (applyReportFilterControls()) {
       updateCurrentShareUrl();
       renderReports();
@@ -16013,4 +16072,60 @@ initializeClientMailing({
   load: async (data) => (await httpsCallable(functionsApp, 'getClientEmailBatch')(data)).data,
   send: async (data) => (await httpsCallable(functionsApp, 'sendClientEmailBatchRecipient')(data)).data,
   verifyRouting: resolveEmailDeliveryPreview
+});
+
+function captureReportInputs() {
+  const { entityId, year } = reportFilters;
+  const beforeEnd = (value) => { const date = toDateObject(value); return date && date < new Date(year + 1, 0, 1); };
+  const details = [...reportDrilldownLookup.values()].map((group) => ({
+    label: group.label,
+    entries: group.entryIds.map((id) => expenseLookup.get(id)).filter(Boolean).map((entry) => ({
+      date: formatDate(entry.date), description: entry.description || entry.category || '',
+      account: accountLookup.get(entry.accountId)?.name || '', amount: formatCurrency(getEntryDelta(entry))
+    }))
+  }));
+  return {
+    version: 1, reportLogicVersion: '2026-10-26', filters: { ...reportFilters }, entityName: accountLookup.get(entityId)?.name || entityId,
+    capturedAt: new Date().toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    accounts, categories, appSettings, mileageSettings, mileageRates,
+    ledgerEntries: expenses.filter((entry) => entry.entityId === entityId && beforeEnd(entry.date)),
+    mileageLogs: mileageLogs.filter((log) => beforeEnd(log.date)),
+    ccaPools: ccaPools.filter((pool) => pool.entityId === entityId),
+    ccaRecords: ccaRecords.filter((record) => record.entityId === entityId && Number(record.year) <= year),
+    resolvedMileage: { kilometres: getMileageKilometresForYear(year), rate: getMileageRateForYear(year), entityId: getResolvedMileageEntityId(), t2042Code: MOTOR_VEHICLE_T2042_CODE },
+    resolvedCca: getCcaPoolsForEntity(entityId).map((pool) => ({ poolId: pool.id, ...resolveCcaValuesForPool(pool, year) })),
+    ccaT2042Code: CCA_T2042_CODE, details
+  };
+}
+
+let reportCssPromise = null;
+reportLockController = createReportLockController({
+  getFilters: () => reportFilters,
+  isGenerated: () => reportGeneratedOnce,
+  isVisible: () => currentView === 'reports',
+  canLock: () => entityAccounts.some((account) => account.id === reportFilters.entityId) && Boolean(reportsOutput.querySelector('.report-entity-card, .tag-report-table')),
+  renderLive: renderLiveReports, captureInputs: captureReportInputs,
+  getSaved: async (data) => (await httpsCallable(functionsApp, 'getLockedReport')(data)).data,
+  save: async (data) => (await httpsCallable(functionsApp, 'lockReport')(data)).data,
+  output: reportsOutput, status: document.getElementById('report-lock-status'),
+  lockButton: document.getElementById('lock-report'), downloadButton: document.getElementById('download-locked-report'),
+  getCss: () => {
+    if (!reportCssPromise) reportCssPromise = fetch(new URL('./styles.css', import.meta.url)).then((response) => {
+      if (!response.ok) throw new Error('Unable to freeze report styles. No lock was saved.');
+      return response.text();
+    }).catch((error) => { reportCssPromise = null; throw error; });
+    return reportCssPromise;
+  }
+});
+let unsubscribeLockedReports = null;
+onAuthStateChanged(auth, (user) => {
+  if (unsubscribeLockedReports) unsubscribeLockedReports();
+  unsubscribeLockedReports = null;
+  reportLockController.reset();
+  lockedReportMetadata = [];
+  if (user) unsubscribeLockedReports = onSnapshot(collection(db, 'lockedReports'), (snapshot) => {
+    lockedReportMetadata = snapshot.docs.map((snap) => ({ id: snap.id, ...snap.data() }));
+    populateReportControls();
+    reportLockController.updateLocks();
+  }, (error) => reportLockController.fail(error));
 });

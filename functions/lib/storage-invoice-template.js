@@ -11,6 +11,15 @@ export const DEFAULT_STORAGE_INVOICE_TEMPLATE = {
   }
 };
 
+export const DEFAULT_STORAGE_INVOICE_REMINDER_TEMPLATE = {
+  templateId: 'storage-invoice-reminder', category: 'Storage invoice reminder',
+  subject: { en: 'Friendly reminder - invoice {{invoice_id}} - {{saison}}', fr: 'Petit rappel amical - facture {{invoice_id}} - {{saison}}' },
+  body: {
+    en: 'Hello {{tenant}},\n\nThis is a friendly reminder that our records show an outstanding balance of {{balance_due}} on your storage invoice {{invoice_id}} for {{saison}}. A copy of your original invoice is attached for your convenience.\n\n{{invoice_details}}\n\nWhen you have a moment, please send your payment by e-Transfer to warehouse@as-colle.com. If you have already paid, thank you! Please disregard this reminder and let us know so we can update our records. If you have any questions, simply reply to this email.\n\nThank you,\nThe Ferme Colle team.',
+    fr: 'Bonjour {{tenant}},\n\nUn petit rappel amical : selon nos dossiers, un solde de {{balance_due}} reste à payer sur votre facture d’entreposage {{invoice_id}} pour la saison « {{saison}} ». Une copie de votre facture originale est jointe pour votre commodité.\n\n{{invoice_details}}\n\nLorsque vous aurez un moment, merci d’effectuer votre paiement par virement Interac à entrepot@as-colle.com. Si vous avez déjà payé, merci ! Veuillez ignorer ce rappel et nous en informer afin que nous puissions mettre nos dossiers à jour. Pour toute question, il suffit de répondre à ce courriel.\n\nMerci,\nL’équipe de la Ferme Colle.'
+  }
+};
+
 export const DEFAULT_STORAGE_PAID_TEMPLATE = {
   templateId: 'storage-paid', category: 'Storage payment receipt',
   subject: { en: 'Payment received - invoice {{invoice_id}} - {{saison}}', fr: 'Paiement reçu - facture {{invoice_id}} - {{saison}}' },

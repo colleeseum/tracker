@@ -52,7 +52,7 @@ export function createStorageCancellationService({ db, fieldValue, resolveCaseId
       const snap = await transaction.get(ref);
       const data = snap.data();
       if (data?.status === 'superseded') return { success: true, alreadyReopened: true, replacementInvoiceId: data.replacementInvoiceId };
-      if (data?.status !== 'sent' || data.payment || !data.invoice?.requestIds?.length) throw invoiceError('Only a completed, unpaid invoice with no payment receipt can be reopened.');
+      if (data?.status !== 'sent' || data.payment || data.reminderPendingId || !data.invoice?.requestIds?.length) throw invoiceError('Only a completed, unpaid invoice with no payment receipt or pending reminder can be reopened.');
       const [allSnap, ledgerSnap] = await Promise.all([transaction.get(db.collection('storageRequests')), transaction.get(db.collection('expenses'))]);
       if (ledgerSnap.docs.some((entry) => entry.data().storageInvoiceId === invoiceId || entry.id === `storage-payment-${invoiceId}`)) throw invoiceError('A ledger payment exists. Reconcile the payment before reopening this invoice.');
       const all = allSnap.docs.map((item) => ({ ...item.data(), id: item.id }));

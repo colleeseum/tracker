@@ -29,6 +29,7 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     const snap = await refFor(invoiceId).get();
     const data = snap.data();
     if (!data || data.status !== 'sent') throw invoiceError('Send the original invoice before confirming payment.');
+    if (data.reminderPendingId) throw invoiceError('An invoice reminder is sending. Wait for it to finish before confirming payment.');
     if (data.payment?.status === 'sent' || data.payment?.emailAcceptedAt || data.payment?.emailSkippedAt) return { data, recovery: true };
     if (['sending', 'delivery_uncertain'].includes(data.payment?.status)) throw invoiceError('Payment email is pending or needs reconciliation. Do not send it twice.');
     const requests = await Promise.all(data.invoice.requestIds.map((id) => db.collection('storageRequests').doc(id).get()));
@@ -121,6 +122,7 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     await db.runTransaction(async (transaction) => {
       const ref = refFor(invoiceId);
       const current = (await transaction.get(ref)).data();
+      if (current?.reminderPendingId) throw invoiceError('An invoice reminder is sending. Wait for it to finish before confirming payment.');
       if (['sent', 'sending', 'delivery_uncertain'].includes(current?.payment?.status) || current?.payment?.emailAcceptedAt) throw invoiceError('Payment receipt is already sent or pending reconciliation.');
       if (digest(current.invoice) !== digest(quote.data.invoice) || digest(current.preview) !== digest(quote.data.preview)) throw invoiceError('Invoice changed. Reopen the payment preview.');
       const requests = await Promise.all(quote.states.map((state) => transaction.get(db.collection('storageRequests').doc(state.requestId))));

@@ -34,8 +34,11 @@ service cloud.firestore {
       );
     }
 
-    match /{document=**} {
-      allow read, write: if isAuthorizedUser();
+    // Locked snapshots are written only by the admin callable, never by a client.
+    // Exclude them from the catch-all: Firestore allow rules are additive.
+    match /{collection}/{document=**} {
+      allow read: if isAuthorizedUser();
+      allow write: if isAuthorizedUser() && collection != 'lockedReports';
     }
   }
 }

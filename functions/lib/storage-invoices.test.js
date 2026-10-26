@@ -220,6 +220,15 @@ test('invoice previews and sends copy the client CC, and reject a stale preview 
   assert.equal(emails[0].cc, 'office@example.invalid, updated@example.invalid');
 });
 
+test('invoice correction cannot supersede an invoice while a reminder is sending', async () => {
+  const { service, db, ids } = serviceFixture();
+  const preview = await service.prepare(ids);
+  await service.send({ requestIds: ids, fingerprint: preview.fingerprint }, 'admin');
+  db.records.get(`storageInvoices/${preview.invoiceId}`).reminderPendingId = 'pending';
+  await assert.rejects(cancellationService(db).reopen({ invoiceId: preview.invoiceId, reason: 'Correction', confirmReopen: true }, 'admin'), /pending reminder/);
+  assert.equal(db.records.get(`storageInvoices/${preview.invoiceId}`).status, 'sent');
+});
+
 test('unpaid RV/motorcycle case reopens, retains deposits and produces a new invoice with -130 cancellation, 360 due', async () => {
   const { service, db, emails, ids } = serviceFixture();
   db.records.delete('storageRequests/referred-1'); db.records.delete('storageRequests/referred-2');

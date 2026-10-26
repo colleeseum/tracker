@@ -67,6 +67,18 @@ test('paid receipt uses current client CC even for an older invoice, with dev su
   }
 });
 
+test('payment preview and send cannot race a pending invoice reminder', async () => {
+  const { service, records, emails, db } = await fixture();
+  records.get(`storageInvoices/${id}`).reminderPendingId = 'pending';
+  await assert.rejects(service.prepare(id), /reminder is sending/);
+  delete records.get(`storageInvoices/${id}`).reminderPendingId;
+  const preview = await service.prepare(id);
+  const transaction = db.runTransaction.bind(db);
+  db.runTransaction = (handler) => { records.get(`storageInvoices/${id}`).reminderPendingId = 'pending'; return transaction(handler); };
+  await assert.rejects(service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin'), /reminder is sending/);
+  assert.equal(emails.length, 0);
+});
+
 test('payment preview is read-only and preserves invoice amounts and pages in EN and FR', async () => {
   for (const locale of ['en', 'fr']) {
     const { service, records, emails, originalPdf } = await fixture(undefined, locale);

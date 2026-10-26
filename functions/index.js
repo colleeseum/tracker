@@ -7,7 +7,8 @@ import { getOfferStorageLocation, getOfferVehicleTypes, getSelectedOfferForWebsi
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { inheritedOfferNotes } from './lib/offer-notes.js';
 import { createStorageInvoiceService, renderInvoiceHtml, invoiceTextLines, money as formatInvoiceMoney } from './lib/storage-invoices.js';
-import { DEFAULT_STORAGE_INVOICE_TEMPLATE, DEFAULT_STORAGE_PAID_TEMPLATE } from './lib/storage-invoice-template.js';
+import { DEFAULT_STORAGE_INVOICE_TEMPLATE, DEFAULT_STORAGE_PAID_TEMPLATE, DEFAULT_STORAGE_INVOICE_REMINDER_TEMPLATE } from './lib/storage-invoice-template.js';
+import { createStorageInvoiceReminderService } from './lib/storage-invoice-reminders.js';
 import { createStoragePaymentService } from './lib/storage-payments.js';
 import { createStorageNoDepositService } from './lib/storage-no-deposit.js';
 import { createStorageCancellationService } from './lib/storage-cancellations.js';
@@ -15,6 +16,7 @@ import { createEmailSafetyPolicy, createSafeMailer } from './lib/email-safety.js
 import { readSkipEmail, workflowEmailAudit } from './lib/email-options.js';
 import { mergeClientEmailCc } from './lib/client-email-cc.js';
 import { createClientEmailBatchService } from './lib/client-email-batches.js';
+import { createLockedReportService } from './lib/locked-reports.js';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
 const smtpPort = Number(process.env.SMTP2GO_PORT || 587);
@@ -2275,9 +2277,9 @@ function normalizeOffer(offer, templateLookup) {
   };
 }
 
-async function renderStorageInvoiceEmail(invoice, paid = false) {
-  const templateId = paid ? 'storage-paid' : 'storage-invoice';
-  const template = await loadEmailTemplate(templateId) || (paid ? DEFAULT_STORAGE_PAID_TEMPLATE : DEFAULT_STORAGE_INVOICE_TEMPLATE);
+async function renderStorageInvoiceEmail(invoice, paid = false, reminder = false) {
+  const templateId = reminder ? 'storage-invoice-reminder' : paid ? 'storage-paid' : 'storage-invoice';
+  const template = await loadEmailTemplate(templateId) || (reminder ? DEFAULT_STORAGE_INVOICE_REMINDER_TEMPLATE : paid ? DEFAULT_STORAGE_PAID_TEMPLATE : DEFAULT_STORAGE_INVOICE_TEMPLATE);
   const displayedInvoice = paid ? { ...invoice, balanceDueCents: 0 } : invoice;
   const context = {
     tenant: invoice.client.name, tenant_name: invoice.client.name,
@@ -2320,6 +2322,12 @@ const storagePaymentService = createStoragePaymentService({
   resolveLedgerAccounts: resolveFermeColleLedgerAccounts
 });
 const storageNoDepositService = createStorageNoDepositService({ db, fieldValue: admin.firestore.FieldValue, resolveCaseId: resolveEmailCaseId });
+const storageInvoiceReminderService = createStorageInvoiceReminderService({
+  db, fieldValue: admin.firestore.FieldValue, from: defaultFrom,
+  renderEmail: (invoice) => renderStorageInvoiceEmail(invoice, false, true),
+  ccForLocale: getStorageConfirmationCc, routeEmail: (message) => emailSafetyPolicy.preview(message),
+  sendEmail: (message) => transporter.sendMail(message)
+});
 const storageCancellationService = createStorageCancellationService({
   db, fieldValue: admin.firestore.FieldValue, resolveCaseId: resolveEmailCaseId, loadPricing: loadStoragePricingData,
   resolveAmount: resolveRequestAmountForEmail, estimateDeposit: estimateDepositForAmount
@@ -2339,8 +2347,14 @@ function storageInvoiceCallable(handler) {
 export const prepareStorageInvoice = storageInvoiceCallable((data) => storageInvoiceService.prepare(data.requestIds));
 export const sendStorageInvoice = storageInvoiceCallable((data, uid) => storageInvoiceService.send(data, uid));
 export const getStorageInvoice = storageInvoiceCallable((data) => storageInvoiceService.get(data.invoiceId));
+const lockedReportService = createLockedReportService({ db, fieldValue: admin.firestore.FieldValue });
+export const getLockedReport = storageInvoiceCallable((data) => lockedReportService.get(data));
+export const lockReport = storageInvoiceCallable((data, uid, actor) => lockedReportService.lock(data, { uid, email: actor.email }));
 export const getDefaultStorageInvoiceEmailTemplate = storageInvoiceCallable(() => DEFAULT_STORAGE_INVOICE_TEMPLATE);
 export const getDefaultStoragePaidEmailTemplate = storageInvoiceCallable(() => DEFAULT_STORAGE_PAID_TEMPLATE);
+export const getDefaultStorageInvoiceReminderEmailTemplate = storageInvoiceCallable(() => DEFAULT_STORAGE_INVOICE_REMINDER_TEMPLATE);
+export const prepareStorageInvoiceReminder = storageInvoiceCallable((data) => storageInvoiceReminderService.prepare(data.invoiceId));
+export const sendStorageInvoiceReminder = storageInvoiceCallable((data, uid) => storageInvoiceReminderService.send(data, uid));
 export const prepareStoragePayment = storageInvoiceCallable((data) => storagePaymentService.prepare(data.invoiceId));
 export const sendStoragePayment = storageInvoiceCallable((data, uid, actor) => storagePaymentService.send(data, uid, actor));
 export const getStoragePayment = storageInvoiceCallable((data) => storagePaymentService.get(data.invoiceId));

@@ -931,9 +931,12 @@
                     <select id="report-year-select"></select>
                   </div>
                   <div class="report-filter-actions">
-                    <button type="submit" id="generate-report">Generate</button>
+                    <button type="submit" id="generate-report">Open / generate</button>
+                    <button type="button" id="lock-report" class="secondary" disabled>Lock report</button>
+                    <button type="button" id="download-locked-report" class="secondary hidden">Download static report</button>
                   </div>
                 </form>
+                <p id="report-lock-status" class="hint" role="status" aria-live="polite"></p>
               </section>
               <div id="reports-output" class="report-entity-container">
                 <section class="card">

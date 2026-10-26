@@ -463,6 +463,23 @@ form {
   border-radius: 8px;
 }
 
+.locked-report-frame {
+  width: 100%;
+  min-height: 75vh;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: white;
+}
+
+#report-lock-status.report-lock-notice {
+  padding: 0.85rem 1rem;
+  border: 2px solid #166534;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #14532d;
+  font-weight: 600;
+}
+
 #client-mailing-review {
   display: grid;
   gap: 1rem;
