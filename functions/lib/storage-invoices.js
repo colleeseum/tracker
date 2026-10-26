@@ -39,7 +39,7 @@ export function buildInvoiceModel({ requests, allRequests, client, clients, rece
     if (!cancellation || ![cancellation.originalAmountCents, cancellation.retainedDepositCents, cancellation.creditCents].every((value) => Number.isSafeInteger(value) && value >= 0)
       || cancellation.retainedDepositCents + cancellation.creditCents !== cancellation.originalAmountCents) throw invoiceError('Cancelled vehicle has an invalid cancellation adjustment.');
     return [
-      { requestId: request.id, description: `${description} (${locale === 'fr' ? 'Annulé' : 'Cancelled'})`, amountCents: cancellation.originalAmountCents },
+      { requestId: request.id, description, amountCents: cancellation.originalAmountCents },
       { requestId: request.id, description: `${locale === 'fr' ? 'Annulation' : 'Cancellation adjustment'} - ${description} (${locale === 'fr' ? 'dépôt conservé' : 'deposit retained'} ${money(cancellation.retainedDepositCents, locale)})`, amountCents: -cancellation.creditCents, cancellationAdjustment: true }
     ];
   });

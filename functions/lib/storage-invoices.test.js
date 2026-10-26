@@ -73,6 +73,25 @@ test('cancelled referrals, invalid amounts, partial-deposit cases and wrong stat
   data.requests[0].status = 'new';
   assert.throws(() => buildInvoiceModel(data), /Scheduled/);
 });
+
+test('original vehicle line stays unchanged; only the adjustment explains cancellation in both languages', () => {
+  for (const locale of ['en', 'fr']) {
+    const data = fixture();
+    data.client.preferredLanguage = locale;
+    data.requests[1].vehicle = { typeLabel: 'Motorcycle', brand: 'Kawasaki', model: 'Vulcan', plate: '20367F' };
+    data.requests[1].status = 'cancelled';
+    data.requests[1].cancellation = { originalAmountCents: 18000, retainedDepositCents: 5000, creditCents: 13000 };
+    const invoice = buildInvoiceModel(data);
+    const original = invoice.lineItems.find((line) => line.requestId === data.requests[1].id && !line.cancellationAdjustment);
+    assert.equal(original.description, 'Motorcycle Kawasaki Vulcan 20367F');
+    assert.equal(original.amountCents, 18000);
+    const adjustment = invoice.lineItems.find((line) => line.cancellationAdjustment);
+    assert.equal(adjustment.amountCents, -13000);
+    assert.match(adjustment.description, locale === 'fr' ? /^Annulation/ : /^Cancellation adjustment/);
+    assert.ok(!renderInvoiceHtml(invoice).includes('(Annulé)'));
+    assert.ok(!renderInvoiceHtml(invoice).includes('(Cancelled)'));
+  }
+});
 test('localized invoice HTML escapes user content and PDF is valid in both languages', async () => {
   for (const language of ['en', 'fr']) {
     const data = fixture();
