@@ -99,6 +99,7 @@
                 <button id="new-account" type="button" class="hidden">New account</button>
                 <span id="client-email-status" class="client-email-status hidden" aria-live="polite"></span>
                 <button id="new-client" type="button" class="hidden">New client</button>
+                <button id="email-clients" type="button" class="hidden secondary">Send email to clients</button>
                 <button id="new-storage-request" type="button" class="hidden">New storage request</button>
                 <button id="pricing-primary-action" type="button" class="hidden">Add item</button>
                 <button id="pricing-secondary-action" type="button" class="hidden secondary">
@@ -1457,6 +1458,49 @@
                 <button id="client-email-send" type="submit">Send</button>
               </div>
               <p class="error wide" id="client-email-error"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="client-mailing-modal" class="modal hidden">
+          <div class="modal-content card">
+            <div class="modal-header">
+              <h3>Email clients</h3>
+              <button id="client-mailing-close" type="button" class="link">Close</button>
+            </div>
+            <button id="client-mailing-resume" type="button" class="secondary hidden">Resume last mailing</button>
+            <p class="hint">Each client receives a separate email with their own CC. The subject and message are shared; the banner and footer follow each client's language and client type. Maximum 100 clients.</p>
+            <form id="client-mailing-form">
+              <fieldset id="client-mailing-editor">
+                <legend>Recipients and message</legend>
+                <div class="form-row client-mailing-filters">
+                  <label>Search clients<input id="client-mailing-search" type="search" placeholder="Name or email" /></label>
+                  <label>Season<select id="client-mailing-season"><option value="">All seasons</option></select></label>
+                  <label>Storage status<select id="client-mailing-status"><option value="">All statuses</option></select></label>
+                </div>
+                <div class="modal-actions">
+                  <button id="client-mailing-select" type="button" class="secondary">Select visible</button>
+                  <button id="client-mailing-clear" type="button" class="secondary">Clear selection</button>
+                  <span id="client-mailing-count" role="status">0 selected</span>
+                </div>
+                <div id="client-mailing-clients" class="client-mailing-client-list"></div>
+                <label>Subject<input id="client-mailing-subject" type="text" maxlength="200" required /></label>
+                <label>Message<textarea id="client-mailing-body" rows="12" maxlength="10000" required></textarea></label>
+              </fieldset>
+              <p id="client-mailing-warning" class="dev-email-warning hidden" role="status"></p>
+              <div id="client-mailing-review" class="hidden">
+                <h4>Review recipients and delivery</h4>
+                <div class="table-wrapper"><table class="ledger-table"><thead><tr><th>Client</th><th>To</th><th>CC</th><th>Result</th></tr></thead><tbody id="client-mailing-results"></tbody></table></div>
+                <label>Preview for<select id="client-mailing-preview-client"></select></label>
+                <iframe id="client-mailing-preview" class="email-template-preview-frame" title="Client mailing preview" sandbox=""></iframe>
+              </div>
+              <p id="client-mailing-progress" role="status" aria-live="polite"></p>
+              <p id="client-mailing-error" class="error" role="alert"></p>
+              <div class="modal-actions">
+                <button id="client-mailing-edit" type="button" class="secondary hidden">Edit draft</button>
+                <button id="client-mailing-prepare" type="submit">Review email</button>
+                <button id="client-mailing-send" type="button" class="hidden">Send</button>
+              </div>
             </form>
           </div>
         </div>

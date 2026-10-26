@@ -52,6 +52,31 @@ FIREBASE_PROFILE=prod node functions/scripts/export-site-data.mjs
 
 When the active profile enables emulators, the helper sets `FIRESTORE_EMULATOR_HOST` before Firebase Admin initialises, so the scripts and the admin UI always hit the same backend.
 
+## Email several clients
+
+On **Clients**, choose **Send email to clients**. Search or filter by storage season/status,
+select up to 100 clients, enter a shared subject/message, and choose **Review email**.
+The saved review shows each client's effective To/CC and an exact server-generated preview.
+The banner/footer follow the client's language and storage/non-storage type; the message
+itself is not translated. Each client receives a separate message with their own optional
+CC plus the existing office copy. Clients sharing the same primary email must not both be
+selected in the same mailing.
+
+Choose **Send to X clients** only after review. Results are saved in `clientEmailBatches`
+and `clientEmails`. **Resume last mailing** reloads results after closing or interruption.
+Confirmed successes are never retried within that mailing. Definite SMTP rejections can
+be retried; timeouts, partial acceptance, and interrupted finalization require delivery
+review before any manual resend. Preparing/reviewing sends no email. Dev routing continues
+to suppress all customer To/CC recipients and sends only to `entrepot@as-colle.com`.
+
+For a local Firestore integration test with disposable records and a mocked sender:
+
+```bash
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 node functions/scripts/test-local-client-mailing.mjs
+```
+
+No real emails are sent by this test; its own temporary records are cleaned up afterwards.
+
 ## Run the Firebase emulators
 
 From the repository root run:

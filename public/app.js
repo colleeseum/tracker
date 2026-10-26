@@ -41,6 +41,7 @@ import {
   uploadBytes
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
 import { firebaseConfig, emulatorConfig } from './firebase-config.js';
+import { initializeClientMailing } from './client-mailing.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -13580,6 +13581,7 @@ function setView(view) {
     }
   }
   newClientButton.classList.toggle('hidden', !showingClients);
+  document.getElementById('email-clients').classList.toggle('hidden', !showingClients);
   if (clientEmailStatus && currentView !== 'clients') {
     clientEmailStatus.classList.add('hidden');
   }
@@ -16000,3 +16002,15 @@ async function ignoreMissingMileageSuggestion(expenseId) {
     window.alert(`Unable to ignore suggestion: ${error.message}`);
   }
 }
+
+initializeClientMailing({
+  getClients: () => clients,
+  getRequests: () => storageRequests,
+  getSeasons: () => seasons,
+  getStatuses: () => STORAGE_STATUS_OPTIONS,
+  getStorageKey: () => `tracker-client-mailing:${firebaseConfig.projectId}:${usingEmulators || isLocalHost ? 'dev' : 'prod'}:${auth.currentUser?.uid || ''}`,
+  prepare: async (data) => (await httpsCallable(functionsApp, 'prepareClientEmailBatch')(data)).data,
+  load: async (data) => (await httpsCallable(functionsApp, 'getClientEmailBatch')(data)).data,
+  send: async (data) => (await httpsCallable(functionsApp, 'sendClientEmailBatchRecipient')(data)).data,
+  verifyRouting: resolveEmailDeliveryPreview
+});

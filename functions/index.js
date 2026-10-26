@@ -14,6 +14,7 @@ import { createStorageCancellationService } from './lib/storage-cancellations.js
 import { createEmailSafetyPolicy, createSafeMailer } from './lib/email-safety.js';
 import { readSkipEmail, workflowEmailAudit } from './lib/email-options.js';
 import { mergeClientEmailCc } from './lib/client-email-cc.js';
+import { createClientEmailBatchService } from './lib/client-email-batches.js';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
 const smtpPort = Number(process.env.SMTP2GO_PORT || 587);
@@ -1940,6 +1941,22 @@ export const sendClientEmail = functions.https.onCall(async (data, context) => {
 
   return { success: true, ...delivery };
 });
+
+const clientEmailBatchService = createClientEmailBatchService({
+  db, fieldValue: admin.firestore.FieldValue, renderEmail: wrapClientEmailHtml,
+  routeEmail: (message) => emailSafetyPolicy.preview(message),
+  sendEmail: (message) => transporter.sendMail(message), from: defaultFrom
+});
+function clientEmailBatchCallable(handler) {
+  return functions.https.onCall(async (data, context) => {
+    if (!context.auth || !TRACKER_ADMIN_EMAILS.has(String(context.auth.token?.email || '').toLowerCase())) throw new functions.https.HttpsError('permission-denied', 'Sign in as a Tracker administrator to send client mailings.');
+    try { return await handler(data || {}, context.auth.uid); }
+    catch (error) { throw new functions.https.HttpsError(['invalid-argument', 'not-found', 'failed-precondition'].includes(error.code) ? error.code : 'internal', error.message || 'Unable to process client mailing.'); }
+  });
+}
+export const prepareClientEmailBatch = clientEmailBatchCallable((data, uid) => clientEmailBatchService.prepare(data, uid));
+export const getClientEmailBatch = clientEmailBatchCallable((data) => clientEmailBatchService.get(data.batchId));
+export const sendClientEmailBatchRecipient = clientEmailBatchCallable((data, uid) => clientEmailBatchService.send(data, uid));
 
 function parseAttachmentContent(rawContent) {
   let contentType;

@@ -437,6 +437,41 @@ form {
   min-height: 540px;
 }
 
+#client-mailing-modal .modal-content {
+  max-width: 1120px;
+}
+
+#client-mailing-editor {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.client-mailing-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.client-mailing-client-list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+#client-mailing-review {
+  display: grid;
+  gap: 1rem;
+}
+
+#client-mailing-review.hidden {
+  display: none;
+}
+
 .storage-email-meta > div {
   display: grid;
   grid-template-columns: 80px minmax(0, 1fr);
