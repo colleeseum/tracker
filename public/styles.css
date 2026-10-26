@@ -385,6 +385,31 @@ form {
   background: #f8fafc;
 }
 
+#client-email-modal {
+  padding: 2vh 1rem;
+}
+
+#client-email-modal .modal-content {
+  width: min(1120px, calc(100vw - 2rem));
+  max-width: 1120px;
+  max-height: 96vh;
+}
+
+#client-email-form {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#client-email-body {
+  width: 100%;
+  min-height: 18rem;
+  line-height: 1.6;
+}
+
+#client-email-preview {
+  min-width: 0;
+  min-height: 540px;
+}
+
 .storage-email-meta > div {
   display: grid;
   grid-template-columns: 80px minmax(0, 1fr);

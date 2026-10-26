@@ -320,6 +320,7 @@ const clientNameInput = document.getElementById('client-name');
 const clientLanguageSelect = document.getElementById('client-language');
 const clientPhoneInput = document.getElementById('client-phone');
 const clientEmailInput = document.getElementById('client-email');
+const clientEmailCcInput = document.getElementById('client-email-cc-address');
 const clientAddressInput = document.getElementById('client-address');
 const clientCityInput = document.getElementById('client-city');
 const clientProvinceSelect = document.getElementById('client-province');
@@ -2201,7 +2202,7 @@ function renderClientTable() {
     emailButton.dataset.action = 'email-client';
     emailButton.dataset.id = client.id;
     emailButton.setAttribute('aria-label', `Email ${client.name || 'client'}`);
-    emailButton.innerHTML = `<img src="icons/mail.svg" alt="Email ${client.name || 'client'}" />`;
+    emailButton.innerHTML = '<img src="icons/email.png" alt="" />';
     actionCell.appendChild(emailButton);
 
     const button = document.createElement('button');
@@ -3984,8 +3985,23 @@ function getClientLanguage(client, request) {
   return normalizeLanguageCode(client?.preferredLanguage || request?.sourceLanguage || getDefaultClientLanguage(), 'fr');
 }
 
-function getStorageConfirmationCc(lang) {
-  return lang === 'fr' ? 'entrepot@as-colle.com' : 'warehouse@as-colle.com';
+// A client may have one optional CC address. Keep the existing office copy.
+function mergeClientEmailCc(officeCc, client = {}) {
+  const raw = client.emailCc;
+  if (raw != null && typeof raw !== 'string') throw new Error('Client CC must be one valid email address.');
+  const emailCc = (raw || '').trim();
+  if (emailCc && !/^[^\s@,;<>]+@[^\s@,;<>]+$/.test(emailCc)) throw new Error('Client CC must be one valid email address.');
+  const seen = new Set([String(client.email || '').trim().toLowerCase()]);
+  return [officeCc, emailCc].filter((address) => {
+    const key = String(address || '').trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map((address) => address.trim()).join(', ');
+}
+
+function getStorageConfirmationCc(lang, client = {}) {
+  return mergeClientEmailCc(lang === 'fr' ? 'entrepot@as-colle.com' : 'warehouse@as-colle.com', client);
 }
 
 function getEmailTemplateByTemplateId(templateId) {
@@ -4284,7 +4300,7 @@ function buildStorageConfirmationEmailPreview(caseRequests) {
     requestIds: caseRequests.map((request) => request.id),
     lang,
     to,
-    cc: getStorageConfirmationCc(lang),
+    cc: getStorageConfirmationCc(lang, client),
     subject,
     html
   };
@@ -4338,37 +4354,36 @@ function buildStorageEmailHtml({ lang, subject, bodyHtml, attachments = [] }) {
 }
 
 function buildClientEmailHtml({ client, subject, body }) {
-  const lang = normalizeLanguageCode(client?.preferredLanguage, getDefaultClientLanguage());
+  const locale = normalizeLanguageCode(client?.preferredLanguage, getDefaultClientLanguage());
   const isStorageClient = client?.nonStorageClient !== true;
+  const footerContact = locale === 'fr'
+    ? '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | entrepot@as-colle.com'
+    : '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | warehouse@as-colle.com';
   const bodyHtml = escapeEmailTemplateHtml(body).replace(/\n/g, '<br>');
-  if (isStorageClient) {
-    return buildStorageEmailHtml({ lang, subject, bodyHtml });
-  }
   return `<!doctype html>
-<html lang="${lang}">
+<html lang="${locale}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body { margin:0; background:#f1f5f9; font-family: Inter, Arial, sans-serif; color:#0f172a; }
-    .shell { max-width:1040px; margin:24px auto; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; }
-    .banner { background:#0f172a; color:#fff; padding:20px 24px; }
-    .brand { font-size:20px; font-weight:700; }
-    .content { padding:24px; }
-    .subject { font-size:22px; font-weight:700; margin:0 0 16px; color:#111827; }
-    .body { font-size:15px; line-height:1.6; color:#1f2937; }
-  </style>
 </head>
-<body>
-  <div class="shell">
-    <div class="banner">
-      <div class="brand">Ferme Colle</div>
-    </div>
-    <div class="content">
-      <h1 class="subject">${escapeEmailTemplateHtml(subject)}</h1>
-      <div class="body">${bodyHtml}</div>
-    </div>
-  </div>
+<body style="margin:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
+    <tr><td align="center" style="padding:24px 0;">
+      <!--[if mso]><table role="presentation" width="1040" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:1040px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+        <tr><td bgcolor="#0f172a" style="background:#0f172a;color:#ffffff;padding:20px 24px;">
+          <div style="font-size:20px;font-weight:700;">${isStorageClient ? 'Entrepot Ferme Colle' : 'Ferme Colle'}</div>
+          ${isStorageClient ? `<div style="margin-top:4px;font-size:12px;color:#cbd5e1;text-transform:uppercase;letter-spacing:0.08em;">${locale === 'fr' ? 'ENTREPOSAGE SAISONNIER DE VEHICULES' : 'SEASONAL VEHICLE STORAGE'}</div>` : ''}
+        </td></tr>
+        <tr><td style="padding:24px;overflow-wrap:anywhere;word-break:break-word;">
+          <h1 style="font-size:22px;font-weight:700;margin:0 0 16px;color:#111827;">${escapeEmailTemplateHtml(subject)}</h1>
+          <div style="font-size:15px;line-height:1.6;color:#1f2937;">${bodyHtml}</div>
+        </td></tr>
+        ${isStorageClient ? `<tr><td bgcolor="#0f172a" style="background:#0f172a;color:#94a3b8;padding:16px 24px;font-size:12px;">${footerContact}</td></tr>` : ''}
+      </table>
+      <!--[if mso]></td></tr></table><![endif]-->
+    </td></tr>
+  </table>
 </body>
 </html>`;
 }
@@ -4434,7 +4449,7 @@ function buildStorageContractEmailPreview(caseRequests) {
     requestIds: caseRequests.map((r) => r.id),
     lang,
     to,
-    cc: getStorageConfirmationCc(lang),
+    cc: getStorageConfirmationCc(lang, client),
     subject,
     html
   };
@@ -4487,7 +4502,7 @@ function buildStorageReceiptEmailPreview(caseRequests, receiptType) {
     requiresInteracReference: Boolean(workflow.createsReceipt),
     lang,
     to,
-    cc: getStorageConfirmationCc(lang),
+    cc: getStorageConfirmationCc(lang, client),
     subject,
     html,
     title: workflow.title,
@@ -9119,6 +9134,7 @@ function openClientModal(mode, client = null) {
     }
     clientPhoneInput.value = client.phone || '';
     clientEmailInput.value = client.email || '';
+    clientEmailCcInput.value = client.emailCc || '';
     clientAddressInput.value = client.address || '';
     clientCityInput.value = client.city || '';
     clientProvinceSelect.value = client.province || '';
@@ -9208,14 +9224,14 @@ function renderClientEmailPreview() {
   const client = clientLookup.get(activeClientEmailClientId);
   const requestedSubject = clientEmailSubjectInput?.value?.trim() || '';
   const subject = activeClientEmailDelivery?.developmentEmailRedirect && !requestedSubject.startsWith('[DEV] ') ? `[DEV] ${requestedSubject}` : requestedSubject;
-  const body = clientEmailBodyInput?.value || '';
+  const body = clientEmailBodyInput?.value?.trim() || '';
   clientEmailPreview.srcdoc = buildClientEmailHtml({ client, subject, body });
 }
 
 async function openClientEmailModal(client) {
   if (!clientEmailModal || !client) return;
   let delivery;
-  try { delivery = await resolveEmailDeliveryPreview({ to: client.email, cc: getStorageConfirmationCc(normalizeLanguageCode(client.preferredLanguage, getDefaultClientLanguage())), subject: '' }); }
+  try { delivery = await resolveEmailDeliveryPreview({ to: client.email, cc: getStorageConfirmationCc(normalizeLanguageCode(client.preferredLanguage, getDefaultClientLanguage()), client), subject: '' }); }
   catch (error) { alert(error.message || 'Unable to verify email routing.'); return; }
   activeClientEmailDelivery = delivery;
   activeClientEmailClientId = client.id;
@@ -12087,6 +12103,7 @@ clientForm.addEventListener('submit', async (event) => {
   const preferredLanguage = clientLanguageSelect?.value === 'fr' ? 'fr' : 'en';
   const rawPhone = clientPhoneInput.value.trim();
   const email = clientEmailInput.value.trim();
+  const emailCc = clientEmailCcInput.value.trim();
   const address = clientAddressInput.value.trim();
   const city = clientCityInput.value.trim();
   const province = clientProvinceSelect.value;
@@ -12125,6 +12142,7 @@ clientForm.addEventListener('submit', async (event) => {
     preferredLanguage,
     phone: formatClientPhone(rawPhone),
     email,
+    emailCc,
     address,
     city,
     province,

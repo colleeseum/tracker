@@ -13,6 +13,7 @@ import { createStorageNoDepositService } from './lib/storage-no-deposit.js';
 import { createStorageCancellationService } from './lib/storage-cancellations.js';
 import { createEmailSafetyPolicy, createSafeMailer } from './lib/email-safety.js';
 import { readSkipEmail, workflowEmailAudit } from './lib/email-options.js';
+import { mergeClientEmailCc } from './lib/client-email-cc.js';
 
 const smtpHost = process.env.SMTP2GO_HOST || 'mail.smtp2go.com';
 const smtpPort = Number(process.env.SMTP2GO_PORT || 587);
@@ -834,8 +835,8 @@ function shortIdToken(value, length = 6, fallback = 'XXXXXX') {
   return normalized.slice(0, length).padEnd(length, 'X');
 }
 
-function getStorageConfirmationCc(locale) {
-  return locale === 'fr' ? 'entrepot@as-colle.com' : 'warehouse@as-colle.com';
+function getStorageConfirmationCc(locale, client = {}) {
+  return mergeClientEmailCc(locale === 'fr' ? 'entrepot@as-colle.com' : 'warehouse@as-colle.com', client);
 }
 
 function escapeHtml(value) {
@@ -1385,9 +1386,9 @@ function wrapTrackerEmailHtml({ locale, subject, body, bodyHtml: renderedBodyHtm
 }
 
 function wrapClientEmailHtml({ locale, subject, body, isStorageClient }) {
-  if (isStorageClient) {
-    return wrapTrackerEmailHtml({ locale, subject, body });
-  }
+  const footerContact = locale === 'fr'
+    ? '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | entrepot@as-colle.com'
+    : '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | warehouse@as-colle.com';
   const bodyHtml = escapeHtml(body).replace(/\n/g, '<br>');
   return `<!doctype html>
 <html lang="${locale}">
@@ -1396,15 +1397,23 @@ function wrapClientEmailHtml({ locale, subject, body, isStorageClient }) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
 <body style="margin:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
-  <div style="max-width:1040px;margin:24px auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
-    <div style="background:#0f172a;color:#ffffff;padding:20px 24px;">
-      <div style="font-size:20px;font-weight:700;">Ferme Colle</div>
-    </div>
-    <div style="padding:24px;">
-      <h1 style="font-size:22px;font-weight:700;margin:0 0 16px;color:#111827;">${escapeHtml(subject)}</h1>
-      <div style="font-size:15px;line-height:1.6;color:#1f2937;">${bodyHtml}</div>
-    </div>
-  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
+    <tr><td align="center" style="padding:24px 0;">
+      <!--[if mso]><table role="presentation" width="1040" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:1040px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+        <tr><td bgcolor="#0f172a" style="background:#0f172a;color:#ffffff;padding:20px 24px;">
+          <div style="font-size:20px;font-weight:700;">${isStorageClient ? 'Entrepot Ferme Colle' : 'Ferme Colle'}</div>
+          ${isStorageClient ? `<div style="margin-top:4px;font-size:12px;color:#cbd5e1;text-transform:uppercase;letter-spacing:0.08em;">${locale === 'fr' ? 'ENTREPOSAGE SAISONNIER DE VEHICULES' : 'SEASONAL VEHICLE STORAGE'}</div>` : ''}
+        </td></tr>
+        <tr><td style="padding:24px;overflow-wrap:anywhere;word-break:break-word;">
+          <h1 style="font-size:22px;font-weight:700;margin:0 0 16px;color:#111827;">${escapeHtml(subject)}</h1>
+          <div style="font-size:15px;line-height:1.6;color:#1f2937;">${bodyHtml}</div>
+        </td></tr>
+        ${isStorageClient ? `<tr><td bgcolor="#0f172a" style="background:#0f172a;color:#94a3b8;padding:16px 24px;font-size:12px;">${footerContact}</td></tr>` : ''}
+      </table>
+      <!--[if mso]></td></tr></table><![endif]-->
+    </td></tr>
+  </table>
 </body>
 </html>`;
 }
@@ -1481,7 +1490,7 @@ export const sendStorageConfirmationEmail = functions.https.onCall(async (data, 
   if (!subject || !text) {
     throw new functions.https.HttpsError('failed-precondition', 'Email template subject or body is empty.');
   }
-  const cc = getStorageConfirmationCc(locale);
+  const cc = getStorageConfirmationCc(locale, client);
   const bodyHtml = fillTemplateHtml(rawBody, contextValues, {
     vehicleInfo: contextValues.vehicleInfoHtml,
     vehicle_info: contextValues.vehicle_info_html
@@ -1607,7 +1616,7 @@ export const sendStorageContractEmail = functions.https.onCall(async (data, cont
   if (!subject || !text) {
     throw new functions.https.HttpsError('failed-precondition', 'Email template subject or body is empty.');
   }
-  const cc = getStorageConfirmationCc(locale);
+  const cc = getStorageConfirmationCc(locale, client);
   const bodyHtml = fillTemplateHtml(rawBody, contextValues, { details: detailsHtml });
   const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
 
@@ -1759,7 +1768,7 @@ export const sendStorageReceiptEmail = functions.https.onCall(async (data, conte
   if (!subject || !text) {
     throw new functions.https.HttpsError('failed-precondition', 'Email template subject or body is empty.');
   }
-  const cc = getStorageConfirmationCc(locale);
+  const cc = getStorageConfirmationCc(locale, client);
   const bodyHtml = fillTemplateHtml(rawBody, contextValues, { details: detailsHtml });
   const html = wrapTrackerEmailHtml({ locale, subject, body: text, bodyHtml });
 
@@ -1893,7 +1902,7 @@ export const sendClientEmail = functions.https.onCall(async (data, context) => {
 
   const locale = normalizeLanguage(client.preferredLanguage);
   const isStorageClient = client.nonStorageClient !== true;
-  const cc = getStorageConfirmationCc(locale);
+  const cc = getStorageConfirmationCc(locale, client);
   const html = wrapClientEmailHtml({ locale, subject, body, isStorageClient });
   const delivery = emailSafetyPolicy.preview({ to, cc, subject });
   await transporter.sendMail({ from: defaultFrom, to, cc, subject, html, text: body });
@@ -2289,6 +2298,7 @@ const storageInvoiceService = createStorageInvoiceService({
 const storagePaymentService = createStoragePaymentService({
   db, fieldValue: admin.firestore.FieldValue, sendEmail: (message) => transporter.sendMail(message),
   from: defaultFrom, renderEmail: (invoice) => renderStorageInvoiceEmail(invoice, true),
+  ccForLocale: getStorageConfirmationCc,
   routeEmail: (message) => emailSafetyPolicy.preview(message), resolveCaseId: resolveEmailCaseId,
   resolveLedgerAccounts: resolveFermeColleLedgerAccounts
 });

@@ -207,6 +207,19 @@ function cancellationService(db) {
     resolveAmount: (request) => request.contractAmount, estimateDeposit: (amount) => amount > 400 ? 100 : 50 });
 }
 
+test('invoice previews and sends copy the client CC, and reject a stale preview after CC changes', async () => {
+  const { service, db, emails, ids } = serviceFixture();
+  db.records.get('clients/referrer').emailCc = 'partner@example.invalid';
+  const preview = await service.prepare(ids);
+  assert.equal(preview.cc, 'office@example.invalid, partner@example.invalid');
+  db.records.get('clients/referrer').emailCc = 'updated@example.invalid';
+  await assert.rejects(service.send({ requestIds: ids, fingerprint: preview.fingerprint }, 'admin'), /changed|preview/i);
+  assert.equal(emails.length, 0);
+  const updated = await service.prepare(ids);
+  await service.send({ requestIds: ids, fingerprint: updated.fingerprint }, 'admin');
+  assert.equal(emails[0].cc, 'office@example.invalid, updated@example.invalid');
+});
+
 test('unpaid RV/motorcycle case reopens, retains deposits and produces a new invoice with -130 cancellation, 360 due', async () => {
   const { service, db, emails, ids } = serviceFixture();
   db.records.delete('storageRequests/referred-1'); db.records.delete('storageRequests/referred-2');

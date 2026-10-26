@@ -1140,6 +1140,11 @@
                 Email
                 <input type="email" id="client-email" name="client_email_entry" required autocomplete="off" />
               </label>
+              <label>
+                CC email (optional)
+                <input type="email" id="client-email-cc-address" name="client_email_cc_entry" autocomplete="off" />
+                <span class="hint">Copy this address on emails sent to this client.</span>
+              </label>
               <label class="wide">
                 Mailing address
                 <textarea id="client-address" name="client_address_entry" rows="2" required autocomplete="off"></textarea>
@@ -1433,9 +1438,9 @@
               </label>
               <label class="wide">
                 Body
-                <textarea id="client-email-body" rows="8" required></textarea>
+                <textarea id="client-email-body" rows="14" required></textarea>
               </label>
-              <iframe id="client-email-preview" class="email-template-preview-frame" title="Client email preview"></iframe>
+              <iframe id="client-email-preview" class="email-template-preview-frame wide" title="Client email preview" sandbox=""></iframe>
               <div class="modal-actions wide">
                 <button id="client-email-cancel" type="button" class="secondary">Cancel</button>
                 <button id="client-email-send" type="submit">Send</button>

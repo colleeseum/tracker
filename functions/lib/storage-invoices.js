@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { readSkipEmail } from './email-options.js';
+import { mergeClientEmailCc } from './client-email-cc.js';
 
 export function invoiceError(message, code = 'failed-precondition') {
   return Object.assign(new Error(message), { code });
@@ -73,7 +74,7 @@ export function buildInvoiceModel({ requests, allRequests, client, clients, rece
     invoiceId: invoiceIdForRequests(ids, invoiceRevisionForRequests(requests)), billingRevision: invoiceRevisionForRequests(requests),
     replacesInvoiceId: first.previousInvoiceId || null, cancelledRequestIds: requests.filter((request) => request.status === 'cancelled').map((request) => request.id),
     date, locale, currency: 'CAD', clientId: first.clientId,
-    client: { name: client.name || '', email: client.email.trim(), address: client.address || '', city: client.city || '', province: client.province || '', postalCode: client.postalCode || '' },
+    client: { name: client.name || '', email: client.email.trim(), emailCc: client.emailCc || '', address: client.address || '', city: client.city || '', province: client.province || '', postalCode: client.postalCode || '' },
     seasonId: first.season, seasonLabel: seasonLabel || first.season, requestIds: ids, lineItems, subtotalCents, depositCents,
     depositReceiptIds: matchingReceipts.map((receipt) => receipt.id).sort(),
     creditAllocations, referralDiscountCents: creditAllocations.reduce((sum, credit) => sum + credit.appliedCents, 0),
@@ -253,7 +254,7 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
   const stateOfRequest = (request) => digest({ clientId: request.clientId, season: request.season, status: request.status, vehicle: request.vehicle, addons: request.addons, contractAmount: request.contractAmount, estimate: request.estimate, invoiceId: request.invoiceId, billingRevision: request.billingRevision, previousInvoiceId: request.previousInvoiceId, cancellation: request.cancellation });
   const serialize = async (invoice) => {
     const email = renderEmail ? await renderEmail(invoice) : { subject: `${invoice.locale === 'fr' ? 'Facture' : 'Invoice'} ${invoice.invoiceId} - Ferme Colle`, html: renderInvoiceHtml(invoice), text: invoiceTextLines(invoice).join('\n'), templateId: 'storage-invoice' };
-    const requestedDelivery = { to: invoice.client.email, cc: ccForLocale(invoice.locale), subject: email.subject };
+    const requestedDelivery = { to: invoice.client.email, cc: mergeClientEmailCc(ccForLocale(invoice.locale), invoice.client), subject: email.subject };
     const delivery = routeEmail ? routeEmail(requestedDelivery) : requestedDelivery;
     const preview = { invoice, invoiceId: invoice.invoiceId, fingerprint: digest({ invoice, email, delivery, layoutVersion: '20261013' }), ...email, ...delivery, pdfBase64: (await renderInvoicePdf(invoice)).toString('base64') };
     if (Buffer.byteLength(JSON.stringify({ invoice, preview })) > 900000) throw invoiceError('Invoice exceeds the document size limit. Shorten its descriptions before invoicing.');

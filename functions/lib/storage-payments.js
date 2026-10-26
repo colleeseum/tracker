@@ -19,7 +19,7 @@ export async function stampPaidInvoicePdf(pdfBase64, locale) {
 
 export const storagePaymentLedgerId = (invoiceId) => `storage-payment-${invoiceId}`;
 
-export function createStoragePaymentService({ db, fieldValue, sendEmail, from, renderEmail, routeEmail, resolveCaseId, resolveLedgerAccounts }) {
+export function createStoragePaymentService({ db, fieldValue, sendEmail, from, renderEmail, routeEmail, resolveCaseId, resolveLedgerAccounts, ccForLocale }) {
   const refFor = (invoiceId) => {
     if (typeof invoiceId !== 'string' || !/^INV-[A-F0-9]{18}$/.test(invoiceId)) throw invoiceError('Select a valid saved invoice.', 'invalid-argument');
     return db.collection('storageInvoices').doc(invoiceId);
@@ -51,7 +51,11 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     const invoice = quote.data.invoice;
     const paidDate = invoiceDate();
     const email = await renderEmail({ ...invoice, paidDate, paymentAmountCents: invoice.balanceDueCents });
-    const requested = { to: invoice.client.email, cc: quote.data.preview.cc || '', subject: email.subject };
+    // Use the current client CC, including changes made after issuing the invoice.
+    const clientSnap = ccForLocale ? await db.collection('clients').doc(invoice.clientId).get() : null;
+    const client = clientSnap?.exists ? clientSnap.data() : invoice.client;
+    const cc = ccForLocale ? ccForLocale(invoice.locale, { ...client, email: invoice.client.email }) : quote.data.preview.cc || '';
+    const requested = { to: invoice.client.email, cc, subject: email.subject };
     const delivery = routeEmail ? routeEmail(requested) : requested;
     const pdfBase64 = (await stampPaidInvoicePdf(quote.data.preview.pdfBase64, invoice.locale)).toString('base64');
     const preview = { invoice, invoiceId, paidDate, paymentAmountCents: invoice.balanceDueCents, ledgerAccounts: quote.ledgerAccounts, ...email, ...delivery, pdfBase64, payment: true,

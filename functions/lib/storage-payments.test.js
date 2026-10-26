@@ -5,9 +5,10 @@ import { createStoragePaymentService, stampPaidInvoicePdf, storagePaymentLedgerI
 import { renderInvoicePdf, digest } from './storage-invoices.js';
 import { DEFAULT_STORAGE_PAID_TEMPLATE } from './storage-invoice-template.js';
 import { createEmailSafetyPolicy, createSafeMailer } from './email-safety.js';
+import { mergeClientEmailCc } from './client-email-cc.js';
 
 const id = 'INV-123456789012345678';
-async function fixture(sender, locale = 'en') {
+async function fixture(sender, locale = 'en', options = {}) {
   const invoice = { invoiceId: id, date: '2026-10-13', locale, clientId: 'client', client: { name: 'Test client', email: 'customer@example.invalid' }, seasonId: 'winter', requestIds: ['a', 'b'], lineItems: [{ description: 'RV', amountCents: 30000 }, { description: 'Car', amountCents: 40000 }], subtotalCents: 70000, depositCents: 10000, referralDiscountCents: 2500, creditAllocations: [{ referredClientName: 'Referral', appliedCents: 2500 }], balanceDueCents: 57500 };
   const originalPdf = (await renderInvoicePdf(invoice)).toString('base64');
   const records = new Map([
@@ -42,12 +43,29 @@ async function fixture(sender, locale = 'en') {
   const ledgerAccounts = { cashAccount: { id: 'cash' }, entityAccount: { id: 'ferme-colle' } };
   const service = createStoragePaymentService({ db, fieldValue: { serverTimestamp: () => 'timestamp', delete: () => '__delete__' },
     resolveLedgerAccounts: async () => ledgerAccounts,
-    from: 'billing@as-colle.com', sendEmail: (message) => mailer.sendMail(message), routeEmail: policy.preview,
+    from: 'billing@as-colle.com', sendEmail: (message) => mailer.sendMail(message), routeEmail: options.routeEmail || policy.preview,
+    ccForLocale: options.ccForLocale,
     resolveCaseId: (request) => `${request.clientId}|${request.season}`,
     renderEmail: async (invoice) => ({ subject: `${locale === 'fr' ? 'Paiement reçu' : 'Payment received'} ${invoice.invoiceId}`, html: `<p>${invoice.paymentAmountCents}</p>`, text: 'Paid in full', templateId: 'storage-paid' })
   });
   return { service, records, emails, originalPdf, db, ledgerAccounts };
 }
+
+test('paid receipt uses current client CC even for an older invoice, with dev suppression intact', async () => {
+  for (const development of [false, true]) {
+    const { service, records } = await fixture(undefined, 'en', {
+      ccForLocale: (_locale, client) => mergeClientEmailCc('office@example.invalid', client),
+      routeEmail: createEmailSafetyPolicy(development ? { FUNCTIONS_EMULATOR: 'true' } : {}).preview
+    });
+    records.set('clients/client', { email: 'customer@example.invalid', emailCc: 'partner@example.invalid' });
+    const preview = await service.prepare(id);
+    assert.equal(preview.cc, development ? '' : 'office@example.invalid, partner@example.invalid');
+    records.get('clients/client').emailCc = '';
+    const cleared = await service.prepare(id);
+    assert.equal(cleared.cc, development ? '' : 'office@example.invalid');
+    if (!development) assert.notEqual(cleared.fingerprint, preview.fingerprint);
+  }
+});
 
 test('payment preview is read-only and preserves invoice amounts and pages in EN and FR', async () => {
   for (const locale of ['en', 'fr']) {
