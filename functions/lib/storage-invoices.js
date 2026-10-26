@@ -7,7 +7,13 @@ export function invoiceError(message, code = 'failed-precondition') {
 }
 export const digest = (value) => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const referralCreditId = (referrer, customer) => digest([referrer, customer]);
-export const invoiceIdForRequests = (ids) => `INV-${digest([...new Set(ids)].sort()).slice(0, 18).toUpperCase()}`;
+export const invoiceIdForRequests = (ids, revision = 0) => `INV-${digest(revision ? { requestIds: [...new Set(ids)].sort(), revision } : [...new Set(ids)].sort()).slice(0, 18).toUpperCase()}`;
+export function invoiceRevisionForRequests(requests) {
+  const revisions = requests.map((request) => request.billingRevision ?? 0);
+  if (revisions.some((value) => !Number.isSafeInteger(value) || value < 0 || value !== revisions[0])) throw invoiceError('Invoice revision differs between vehicles. Review the complete case before invoicing.');
+  if (revisions[0] && requests.some((request) => !request.previousInvoiceId || request.previousInvoiceId !== requests[0].previousInvoiceId)) throw invoiceError('Replacement invoice references differ between vehicles. Review the complete case.');
+  return revisions[0] || 0;
+}
 export const invoiceDate = (date = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 export function cents(value) {
   if (value == null || value === '' || typeof value === 'boolean' || !Number.isFinite(Number(value)) || Number(value) < 0) throw invoiceError('A valid non-negative billing amount is required.');
@@ -19,18 +25,24 @@ const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '
 export const money = (amount, locale) => new Intl.NumberFormat(locale === 'fr' ? 'fr-CA' : 'en-CA', { style: 'currency', currency: 'CAD' }).format(amount / 100);
 
 export function buildInvoiceModel({ requests, allRequests, client, clients, receipts, credits, referralDiscountAmount, amountForRequest, seasonLabel, date = invoiceDate() }) {
-  if (!requests.length || requests.some((request) => request.status !== 'scheduled')) throw invoiceError('Every vehicle must be Scheduled before invoicing and marking it Stored.');
+  if (!requests.length || !requests.some((request) => request.status === 'scheduled') || requests.some((request) => !['scheduled', 'cancelled'].includes(request.status))) throw invoiceError('Every active vehicle must be Scheduled before invoicing; cancelled vehicles remain cancelled.');
   const first = requests[0];
   if (!first.clientId || !first.season) throw invoiceError('A client and season are required for invoicing.');
   if (requests.some((request) => request.clientId !== first.clientId || request.season !== first.season)) throw invoiceError('Invoice requests must belong to the same client and season.');
   if (!client?.email?.trim()) throw invoiceError('The client needs an email address before invoicing.');
   const locale = (client.preferredLanguage || first.sourceLanguage) === 'en' ? 'en' : 'fr';
   const ids = requests.map((request) => request.id).sort();
-  const lineItems = requests.slice().sort((a, b) => a.id.localeCompare(b.id)).map((request) => ({
-    requestId: request.id,
-    description: [request.vehicle?.typeLabel || request.vehicle?.type, request.vehicle?.brand, request.vehicle?.model, request.vehicle?.plate].filter(Boolean).join(' ') || request.id,
-    amountCents: cents(amountForRequest(request))
-  }));
+  const lineItems = requests.slice().sort((a, b) => a.id.localeCompare(b.id)).flatMap((request) => {
+    const description = [request.vehicle?.typeLabel || request.vehicle?.type, request.vehicle?.brand, request.vehicle?.model, request.vehicle?.plate].filter(Boolean).join(' ') || request.id;
+    if (request.status !== 'cancelled') return [{ requestId: request.id, description, amountCents: cents(amountForRequest(request)) }];
+    const cancellation = request.cancellation;
+    if (!cancellation || ![cancellation.originalAmountCents, cancellation.retainedDepositCents, cancellation.creditCents].every((value) => Number.isSafeInteger(value) && value >= 0)
+      || cancellation.retainedDepositCents + cancellation.creditCents !== cancellation.originalAmountCents) throw invoiceError('Cancelled vehicle has an invalid cancellation adjustment.');
+    return [
+      { requestId: request.id, description: `${description} (${locale === 'fr' ? 'Annulé' : 'Cancelled'})`, amountCents: cancellation.originalAmountCents },
+      { requestId: request.id, description: `${locale === 'fr' ? 'Annulation' : 'Cancellation adjustment'} - ${description} (${locale === 'fr' ? 'dépôt conservé' : 'deposit retained'} ${money(cancellation.retainedDepositCents, locale)})`, amountCents: -cancellation.creditCents, cancellationAdjustment: true }
+    ];
+  });
   const subtotalCents = lineItems.reduce((sum, line) => sum + line.amountCents, 0);
   if (!Number.isSafeInteger(subtotalCents)) throw invoiceError('Invoice total is out of range.');
   const matchingReceipts = receipts.filter((receipt) => receipt.receiptType === 'deposit' && !['void', 'cancelled'].includes(receipt.status) && receipt.requestIds?.some((id) => ids.includes(id)));
@@ -38,6 +50,8 @@ export function buildInvoiceModel({ requests, allRequests, client, clients, rece
   const depositCents = matchingReceipts.reduce((sum, receipt) => sum + cents(receipt.amount), 0);
   if (!Number.isSafeInteger(depositCents)) throw invoiceError('Deposit total is out of range.');
   if (depositCents > subtotalCents) throw invoiceError('Recorded deposits exceed the contract total. Review the payments before invoicing.');
+  const retainedDepositCents = requests.filter((request) => request.status === 'cancelled').reduce((sum, request) => sum + request.cancellation.retainedDepositCents, 0);
+  if (retainedDepositCents > depositCents) throw invoiceError('Retained cancellation deposits exceed the actual recorded deposits.');
   const referredIds = [...new Set(allRequests.filter((request) => request.clientId && request.clientId !== first.clientId && !['cancelled', 'rejected'].includes(request.status) && Array.isArray(request.referredByClientIds) && request.referredByClientIds.includes(first.clientId)).map((request) => request.clientId))].sort();
   let remainingCents = subtotalCents - depositCents;
   const creditAllocations = [];
@@ -56,7 +70,9 @@ export function buildInvoiceModel({ requests, allRequests, client, clients, rece
     remainingCents -= appliedCents;
   }
   return {
-    invoiceId: invoiceIdForRequests(ids), date, locale, currency: 'CAD', clientId: first.clientId,
+    invoiceId: invoiceIdForRequests(ids, invoiceRevisionForRequests(requests)), billingRevision: invoiceRevisionForRequests(requests),
+    replacesInvoiceId: first.previousInvoiceId || null, cancelledRequestIds: requests.filter((request) => request.status === 'cancelled').map((request) => request.id),
+    date, locale, currency: 'CAD', clientId: first.clientId,
     client: { name: client.name || '', email: client.email.trim(), address: client.address || '', city: client.city || '', province: client.province || '', postalCode: client.postalCode || '' },
     seasonId: first.season, seasonLabel: seasonLabel || first.season, requestIds: ids, lineItems, subtotalCents, depositCents,
     depositReceiptIds: matchingReceipts.map((receipt) => receipt.id).sort(),
@@ -69,6 +85,7 @@ export function invoiceTextLines(invoice) {
   const fr = invoice.locale === 'fr';
   return [
     'Ferme Colle', `${fr ? 'Facture' : 'Invoice'} ${invoice.invoiceId}`, `${fr ? 'Date' : 'Date'}: ${invoice.date}`,
+    invoice.replacesInvoiceId ? `${fr ? 'Remplace la facture' : 'Replaces invoice'}: ${invoice.replacesInvoiceId}` : '',
     invoice.client.name, invoice.client.address, [invoice.client.city, invoice.client.province, invoice.client.postalCode].filter(Boolean).join(' '),
     `${fr ? 'Saison' : 'Season'}: ${invoice.seasonLabel || invoice.seasonId}`,
     ...invoice.lineItems.map((line) => `${line.description}: ${money(line.amountCents, invoice.locale)}`),
@@ -96,7 +113,7 @@ export function renderInvoiceHtml(invoice) {
       : [])
   ].map(([label, value]) => `<tr><td style="${cell}">${escape(label)}</td><td style="${amount}">${value}</td></tr>`).join('');
   return `<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin:16px 0;">
-    <div style="background:#f8fafc;padding:16px 12px;"><strong>${fr ? 'FACTURE' : 'INVOICE'} ${escape(invoice.invoiceId)}</strong><br>${fr ? 'Date de facturation' : 'Invoice date'}: ${escape(invoice.date)}<br>${fr ? 'Saison' : 'Season'}: ${escape(invoice.seasonLabel || invoice.seasonId)}</div>
+    <div style="background:#f8fafc;padding:16px 12px;"><strong>${fr ? 'FACTURE' : 'INVOICE'} ${escape(invoice.invoiceId)}</strong><br>${fr ? 'Date de facturation' : 'Invoice date'}: ${escape(invoice.date)}<br>${fr ? 'Saison' : 'Season'}: ${escape(invoice.seasonLabel || invoice.seasonId)}${invoice.replacesInvoiceId ? `<br>${fr ? 'Remplace la facture' : 'Replaces invoice'}: ${escape(invoice.replacesInvoiceId)}` : ''}</div>
     <div style="padding:16px 12px;"><strong>${fr ? 'Facturé à' : 'Bill to'}</strong><br>${[invoice.client.name, invoice.client.address, [invoice.client.city, invoice.client.province, invoice.client.postalCode].filter(Boolean).join(' '), invoice.client.email].filter(Boolean).map(escape).join('<br>')}</div>
     <table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="background:#0f172a;color:#fff;"><th style="${cell}text-align:left;">${fr ? 'Description' : 'Description'}</th><th style="${amount}">${fr ? 'Montant (CAD)' : 'Amount (CAD)'}</th></tr></thead><tbody>${rows}${summary}<tr style="background:#eaf1f8;font-weight:700;"><td style="${cell}">${fr ? 'SOLDE À PAYER' : 'BALANCE DUE'}</td><td style="${amount}">${money(invoice.balanceDueCents, invoice.locale)}</td></tr></tbody></table>
   </div>`;
@@ -173,6 +190,10 @@ export async function renderInvoicePdf(invoice) {
   page.drawRectangle({ x: 48, y: y - seasonHeight, width: 516, height: seasonHeight, color: pale });
   seasonLines.forEach((line, index) => text(line, 60, y - 17 - index * 14, 10, bold));
   y -= seasonHeight + 20;
+  if (invoice.replacesInvoiceId) {
+    text(`${fr ? 'Remplace la facture' : 'Replaces invoice'}: ${invoice.replacesInvoiceId}`, 48, y + 4, 9, font, gray);
+    y -= 14;
+  }
   tableHeader();
   const row = (label, value, { heading = false, shade = false, table = false } = {}) => {
     const face = heading ? bold : font;
@@ -215,7 +236,7 @@ export async function renderInvoicePdf(invoice) {
 }
 
 export function createStorageInvoiceService({ db, fieldValue, loadPricing, resolveAmount, resolveCaseId, sendEmail, from, ccForLocale, renderEmail, seasonLabelFor, routeEmail }) {
-  const stateOfRequest = (request) => digest({ clientId: request.clientId, season: request.season, status: request.status, vehicle: request.vehicle, addons: request.addons, contractAmount: request.contractAmount, estimate: request.estimate, invoiceId: request.invoiceId });
+  const stateOfRequest = (request) => digest({ clientId: request.clientId, season: request.season, status: request.status, vehicle: request.vehicle, addons: request.addons, contractAmount: request.contractAmount, estimate: request.estimate, invoiceId: request.invoiceId, billingRevision: request.billingRevision, previousInvoiceId: request.previousInvoiceId, cancellation: request.cancellation });
   const serialize = async (invoice) => {
     const email = renderEmail ? await renderEmail(invoice) : { subject: `${invoice.locale === 'fr' ? 'Facture' : 'Invoice'} ${invoice.invoiceId} - Ferme Colle`, html: renderInvoiceHtml(invoice), text: invoiceTextLines(invoice).join('\n'), templateId: 'storage-invoice' };
     const requestedDelivery = { to: invoice.client.email, cc: ccForLocale(invoice.locale), subject: email.subject };
@@ -230,19 +251,24 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
   };
   async function loadQuote(values) {
     const ids = validateIds(values);
-    const existing = await db.collection('storageInvoices').doc(invoiceIdForRequests(ids)).get();
-    if (existing.exists && existing.data().status === 'sent') return { archived: true, existing: existing.data() };
-    if (existing.data()?.emailAcceptedAt || existing.data()?.emailSkippedAt) return { recoverable: true, existing: existing.data() };
-    if (existing.exists && ['sending', 'delivery_uncertain'].includes(existing.data().status)) throw invoiceError('Invoice delivery is already in progress or needs reconciliation. It will not be sent twice.');
     const [requestSnap, clientSnap, receiptSnap, creditSnap, settingsSnap, pricing] = await Promise.all([
       db.collection('storageRequests').get(), db.collection('clients').get(), db.collection('storageReceipts').get(), db.collection('storageReferralCredits').get(), db.collection('admin').doc('appSettings').get(), loadPricing()
     ]);
     const allRequests = requestSnap.docs.map((snap) => ({ ...snap.data(), id: snap.id }));
     const requests = ids.map((id) => allRequests.find((request) => request.id === id));
     if (requests.some((request) => !request)) throw invoiceError('A storage request was not found.', 'not-found');
+    const existing = await db.collection('storageInvoices').doc(invoiceIdForRequests(ids, invoiceRevisionForRequests(requests))).get();
+    if (existing.exists && existing.data().status === 'sent') return { archived: true, existing: existing.data() };
+    if (existing.data()?.status === 'superseded') throw invoiceError('This invoice was superseded. Reload the case before creating its replacement.');
+    if (existing.data()?.emailAcceptedAt || existing.data()?.emailSkippedAt) return { recoverable: true, existing: existing.data() };
+    if (existing.exists && ['sending', 'delivery_uncertain'].includes(existing.data().status)) throw invoiceError('Invoice delivery is already in progress or needs reconciliation. It will not be sent twice.');
     const caseId = resolveCaseId(requests[0]);
     const fullCaseIds = allRequests.filter((request) => resolveCaseId(request) === caseId).map((request) => request.id).sort();
     if (digest(ids) !== digest(fullCaseIds)) throw invoiceError('Preview and invoice the full storage case together.');
+    if (requests[0].previousInvoiceId) {
+      const original = (await db.collection('storageInvoices').doc(requests[0].previousInvoiceId).get()).data();
+      if (original?.status !== 'superseded' || original.replacementInvoiceId !== invoiceIdForRequests(ids, invoiceRevisionForRequests(requests))) throw invoiceError('The previous invoice has not been reopened for this replacement.');
+    }
     const clients = new Map(clientSnap.docs.map((snap) => [snap.id, snap.data()]));
     const credits = new Map(creditSnap.docs.map((snap) => [snap.id, snap.data()]));
     const setting = settingsSnap.data()?.referralDiscountAmount ?? null;
@@ -273,7 +299,7 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
       creditSnaps.forEach((creditSnap) => { if (creditSnap.data()?.reservedInvoiceId !== invoiceId) throw invoiceError('Referral credit reservation needs reconciliation.'); });
       const timestamp = fieldValue.serverTimestamp();
       invoice.creditAllocations.forEach((credit) => transaction.set(db.collection('storageReferralCredits').doc(credit.id), { usedCents: credit.beforeUsedCents + credit.appliedCents, reservedInvoiceId: fieldValue.delete(), reservedCents: fieldValue.delete(), updatedAt: timestamp }, { merge: true }));
-      invoice.requestIds.forEach((id) => transaction.set(db.collection('storageRequests').doc(id), { status: 'stored', storedAt: timestamp, invoiceId,
+      invoice.requestIds.forEach((id, index) => transaction.set(db.collection('storageRequests').doc(id), { ...(requestSnaps[index].data().status === 'cancelled' ? {} : { status: 'stored', storedAt: timestamp }), invoiceId,
         ...(data.emailSkippedAt ? { invoiceEmailDeliveryStatus: 'skipped', invoiceEmailSkippedAt: data.emailSkippedAt, invoiceEmailSkippedBy: data.emailSkippedBy } : { invoiceSentAt: timestamp, invoiceEmailDeliveryStatus: 'accepted' }),
         invoicePendingId: fieldValue.delete(), updatedAt: timestamp, updatedBy: uid }, { merge: true }));
       // status remains the legacy workflow-completion marker, not proof of email delivery.
@@ -285,13 +311,15 @@ export function createStorageInvoiceService({ db, fieldValue, loadPricing, resol
   async function send({ requestIds, fingerprint, skipEmail: skipEmailValue }, uid) {
     const skipEmail = readSkipEmail({ skipEmail: skipEmailValue });
     const ids = validateIds(requestIds);
-    const invoiceId = invoiceIdForRequests(ids);
+    const quote = await loadQuote(ids);
+    if (quote.archived) return { success: true, invoiceId: quote.existing.invoice.invoiceId, alreadySent: true };
+    if (quote.recoverable) return finalize(quote.existing.invoice.invoiceId, uid);
+    const invoiceId = quote.invoice.invoiceId;
     const invoiceRef = db.collection('storageInvoices').doc(invoiceId);
     const previous = await invoiceRef.get();
     if (previous.data()?.status === 'sent') return { success: true, invoiceId, alreadySent: true };
     if (previous.data()?.emailAcceptedAt || previous.data()?.emailSkippedAt) return finalize(invoiceId, uid);
     if (!from && !skipEmail) throw invoiceError('SMTP default FROM is not configured.');
-    const quote = await loadQuote(ids);
     const preview = await serialize(quote.invoice);
     if (fingerprint !== preview.fingerprint) throw invoiceError('Invoice details changed after preview. Reopen the preview before sending.');
     const claimed = await db.runTransaction(async (transaction) => {

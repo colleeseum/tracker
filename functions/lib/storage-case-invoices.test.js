@@ -18,10 +18,10 @@ function render(invoiceIds, status = 'stored', hasPaidReceipt = status === 'paid
     document: { createElement: element }, storageTableBody: body,
     storageRequests: invoiceIds.map((invoiceId, index) => ({
       id: `request-${index}`, clientId: 'client', season: 'winter',
-      status, vehicle: { type: 'rv' }, invoiceId, paidInvoiceId: hasPaidReceipt ? invoiceId : undefined
+      status: Array.isArray(status) ? status[index] : status, vehicle: { type: 'rv' }, invoiceId, paidInvoiceId: hasPaidReceipt ? invoiceId : undefined
     })),
     storageCasesExpanded: new Set(), clientLookup: new Map([['client', { name: 'Client' }]]),
-    STORAGE_STATUS_OPTIONS: [{ value: 'stored' }, { value: 'paid' }, { value: 'picked_up' }, { value: 'waiting_deposit' }],
+    STORAGE_STATUS_OPTIONS: [{ value: 'stored' }, { value: 'paid' }, { value: 'picked_up' }, { value: 'waiting_deposit' }, { value: 'scheduled' }, { value: 'cancelled' }],
     STORAGE_RECEIPT_EMAIL_WORKFLOWS: { missing: { buttonLabel: 'Follow up' } },
     resolveStorageCaseId: () => 'case', compareStorageRequests: () => 0,
     resolveStorageAmount: () => 100, formatCurrency: (value) => `$${value}`,
@@ -64,6 +64,16 @@ test('cases without invoices retain their existing actions', () => {
   const rows = render([undefined]);
   assert.equal(invoices(rows[0]).length, 0);
   assert.equal(rows[0].children[6].children[0].dataset.action, 'storage-case-action');
+});
+test('a cancelled vehicle does not block the remaining Scheduled or Stored case actions', () => {
+  const scheduled = render([undefined, undefined], ['scheduled', 'cancelled']);
+  const scheduledActions = scheduled[0].children[6].children[0].children.map((option) => option.value);
+  assert.ok(scheduledActions.includes('status:stored'));
+  const stored = render(['INV-SHARED', 'INV-SHARED'], ['stored', 'cancelled']);
+  const storedActions = stored[0].children[6].children[0].children.map((option) => option.value);
+  assert.ok(storedActions.includes('status:paid'));
+  assert.ok(storedActions.includes('reopen-invoice'));
+  assert.ok(!storedActions.includes('generate-contract'));
 });
 test('contract-received cases offer scheduling without deposit alongside normal deposit receipt', () => {
   const rows = render([undefined, undefined], 'waiting_deposit');

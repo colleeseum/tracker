@@ -24,7 +24,7 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     if (typeof invoiceId !== 'string' || !/^INV-[A-F0-9]{18}$/.test(invoiceId)) throw invoiceError('Select a valid saved invoice.', 'invalid-argument');
     return db.collection('storageInvoices').doc(invoiceId);
   };
-  const requestState = (request) => digest({ status: request.status, invoiceId: request.invoiceId, clientId: request.clientId, season: request.season, contractAmount: request.contractAmount, vehicle: request.vehicle, addons: request.addons });
+  const requestState = (request) => digest({ status: request.status, invoiceId: request.invoiceId, clientId: request.clientId, season: request.season, contractAmount: request.contractAmount, vehicle: request.vehicle, addons: request.addons, cancellation: request.cancellation, billingRevision: request.billingRevision });
   async function load(invoiceId) {
     const snap = await refFor(invoiceId).get();
     const data = snap.data();
@@ -32,7 +32,7 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     if (data.payment?.status === 'sent' || data.payment?.emailAcceptedAt || data.payment?.emailSkippedAt) return { data, recovery: true };
     if (['sending', 'delivery_uncertain'].includes(data.payment?.status)) throw invoiceError('Payment email is pending or needs reconciliation. Do not send it twice.');
     const requests = await Promise.all(data.invoice.requestIds.map((id) => db.collection('storageRequests').doc(id).get()));
-    if (requests.some((request) => !request.exists || request.data().status !== 'stored' || request.data().invoiceId !== invoiceId || request.data().invoicePendingId || request.data().paymentPendingId)) throw invoiceError('Every invoice vehicle must be Stored and free of pending delivery before confirming payment.');
+    if (requests.some((request) => !request.exists || !['stored', 'cancelled'].includes(request.data().status) || request.data().invoiceId !== invoiceId || request.data().invoicePendingId || request.data().paymentPendingId)) throw invoiceError('Every active invoice vehicle must be Stored and free of pending delivery before confirming payment. Cancelled vehicles stay cancelled.');
     const allRequests = await db.collection('storageRequests').get();
     const caseId = resolveCaseId(requests[0].data());
     const caseIds = allRequests.docs.filter((request) => resolveCaseId(request.data()) === caseId).map((request) => request.id).sort();
@@ -101,7 +101,7 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
           updatedAt: timestamp, updatedBy: uid
         });
       }
-      requests.forEach((request) => transaction.set(db.collection('storageRequests').doc(request.id), { status: 'paid', paidAt: timestamp, paidBy: uid, paidInvoiceId: invoiceId, paymentPendingId: fieldValue.delete(), updatedAt: timestamp, updatedBy: uid }, { merge: true }));
+      requests.forEach((request) => transaction.set(db.collection('storageRequests').doc(request.id), { ...(request.data().status === 'cancelled' ? {} : { status: 'paid', paidAt: timestamp, paidBy: uid }), paidInvoiceId: invoiceId, paymentPendingId: fieldValue.delete(), updatedAt: timestamp, updatedBy: uid }, { merge: true }));
       transaction.set(ref, { payment: { ...data.payment, status: 'sent', paidAt: timestamp, paidBy: uid, amountCents: data.invoice.balanceDueCents, ledgerEntryId, emailDeliveryStatus: data.payment.emailSkippedAt ? 'skipped' : 'accepted' }, balanceRemainingCents: 0 }, { merge: true });
       return { success: true, invoiceId };
     });

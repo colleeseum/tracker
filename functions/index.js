@@ -10,6 +10,7 @@ import { createStorageInvoiceService, renderInvoiceHtml, invoiceTextLines, money
 import { DEFAULT_STORAGE_INVOICE_TEMPLATE, DEFAULT_STORAGE_PAID_TEMPLATE } from './lib/storage-invoice-template.js';
 import { createStoragePaymentService } from './lib/storage-payments.js';
 import { createStorageNoDepositService } from './lib/storage-no-deposit.js';
+import { createStorageCancellationService } from './lib/storage-cancellations.js';
 import { createEmailSafetyPolicy, createSafeMailer } from './lib/email-safety.js';
 import { readSkipEmail, workflowEmailAudit } from './lib/email-options.js';
 
@@ -2292,6 +2293,10 @@ const storagePaymentService = createStoragePaymentService({
   resolveLedgerAccounts: resolveFermeColleLedgerAccounts
 });
 const storageNoDepositService = createStorageNoDepositService({ db, fieldValue: admin.firestore.FieldValue, resolveCaseId: resolveEmailCaseId });
+const storageCancellationService = createStorageCancellationService({
+  db, fieldValue: admin.firestore.FieldValue, resolveCaseId: resolveEmailCaseId, loadPricing: loadStoragePricingData,
+  resolveAmount: resolveRequestAmountForEmail, estimateDeposit: estimateDepositForAmount
+});
 
 function storageInvoiceCallable(handler) {
   return functions.https.onCall(async (data, context) => {
@@ -2313,6 +2318,9 @@ export const prepareStoragePayment = storageInvoiceCallable((data) => storagePay
 export const sendStoragePayment = storageInvoiceCallable((data, uid, actor) => storagePaymentService.send(data, uid, actor));
 export const getStoragePayment = storageInvoiceCallable((data) => storagePaymentService.get(data.invoiceId));
 export const scheduleStorageWithoutDeposit = storageInvoiceCallable((data, uid) => storageNoDepositService.schedule(data, uid));
+export const prepareStorageCancellation = storageInvoiceCallable((data) => storageCancellationService.prepare(data.requestId));
+export const cancelStorageVehicle = storageInvoiceCallable((data, uid) => storageCancellationService.cancel(data, uid));
+export const reopenStorageInvoice = storageInvoiceCallable((data, uid) => storageCancellationService.reopen(data, uid));
 export const getEmailDeliveryPolicy = storageInvoiceCallable(() => ({ development: emailSafetyPolicy.development, redirectTo: emailSafetyPolicy.redirectTo }));
 
 export const getWebsiteContent = functions.https.onCall(async (data, context) => {

@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import Mustache from 'mustache';
 import { createEmailSafetyPolicy, createSafeMailer, DEV_EMAIL_RECIPIENT } from './email-safety.js';
+import { createStorageCancellationService } from './storage-cancellations.js';
+import { createStoragePaymentService, storagePaymentLedgerId } from './storage-payments.js';
 
 function fixture() {
   const requests = [
@@ -109,11 +111,15 @@ function memoryDb(seed) {
   let queue = Promise.resolve();
   return {
     records,
-    collection: (name) => ({ doc: (id) => ref(`${name}/${id}`), get: async () => ({ docs: [...records.keys()].filter((path) => path.startsWith(`${name}/`)).map(snapshot) }) }),
+    collection: (name) => ({ name, doc: (id) => ref(`${name}/${id}`), get: async () => ({ docs: [...records.keys()].filter((path) => path.startsWith(`${name}/`)).map(snapshot) }) }),
     runTransaction(handler) {
       const work = queue.then(async () => {
         const writes = [];
-        const result = await handler({ get: async (reference) => snapshot(reference.path), set: (reference, values, options) => { writes.push([reference.path, values, options]); } });
+        const result = await handler({
+          get: async (reference) => reference.name ? { docs: [...records.keys()].filter((path) => path.startsWith(`${reference.name}/`)).map(snapshot) } : snapshot(reference.path),
+          set: (reference, values, options) => { writes.push([reference.path, values, options]); },
+          update: (reference, values) => { assert.ok(records.has(reference.path)); writes.push([reference.path, values, { merge: true }]); }
+        });
         writes.forEach((args) => write(...args));
         return result;
       });
@@ -142,6 +148,110 @@ function serviceFixture(sender, renderEmail, routeEmail) {
   });
   return { service, db, emails, ids: data.requests.map((request) => request.id) };
 }
+
+function cancellationService(db) {
+  return createStorageCancellationService({ db, fieldValue: { serverTimestamp: () => 'timestamp', delete: () => '__delete__' },
+    resolveCaseId: (request) => `${request.clientId}|${request.season}`, loadPricing: async () => ({}),
+    resolveAmount: (request) => request.contractAmount, estimateDeposit: (amount) => amount > 400 ? 100 : 50 });
+}
+
+test('unpaid RV/motorcycle case reopens, retains deposits and produces a new invoice with -130 cancellation, 360 due', async () => {
+  const { service, db, emails, ids } = serviceFixture();
+  db.records.delete('storageRequests/referred-1'); db.records.delete('storageRequests/referred-2');
+  db.records.get(`storageRequests/${ids[0]}`).contractAmount = 460;
+  db.records.get(`storageRequests/${ids[1]}`).contractAmount = 180;
+  db.records.get(`storageRequests/${ids[1]}`).vehicle = { type: 'motorcycle' };
+  db.records.get('storageReceipts/paid-deposit').amount = 150;
+  const receiptBefore = structuredClone(db.records.get('storageReceipts/paid-deposit'));
+  const original = await service.prepare(ids);
+  await service.send({ requestIds: ids, fingerprint: original.fingerprint, skipEmail: true }, 'admin');
+  const originalPdf = db.records.get(`storageInvoices/${original.invoiceId}`).preview.pdfBase64;
+  const cancellations = cancellationService(db);
+  await assert.rejects(cancellations.cancel({ requestId: ids[1], retainedDepositAmount: 50, reason: 'Cancelled', confirmCancellation: true }, 'admin'), /Reopen/);
+  await cancellations.reopen({ invoiceId: original.invoiceId, reason: 'Incorrect motorcycle charge', confirmReopen: true }, 'admin');
+  assert.equal(db.records.get(`storageRequests/${ids[0]}`).status, 'scheduled');
+  await cancellations.cancel({ requestId: ids[1], retainedDepositAmount: 50, reason: 'Motorcycle cancelled; deposit kept', confirmCancellation: true }, 'admin');
+  const replacement = await service.prepare(ids);
+  assert.notEqual(replacement.invoiceId, original.invoiceId);
+  assert.equal(replacement.invoice.replacesInvoiceId, original.invoiceId);
+  assert.equal(replacement.invoice.subtotalCents, 51000);
+  assert.equal(replacement.invoice.depositCents, 15000);
+  assert.equal(replacement.invoice.balanceDueCents, 36000);
+  assert.equal(replacement.invoice.lineItems.find((line) => line.cancellationAdjustment).amountCents, -13000);
+  await service.send({ requestIds: ids, fingerprint: replacement.fingerprint, skipEmail: true }, 'admin');
+  assert.equal(db.records.get(`storageRequests/${ids[0]}`).status, 'stored');
+  assert.equal(db.records.get(`storageRequests/${ids[1]}`).status, 'cancelled');
+  assert.equal(db.records.get(`storageInvoices/${original.invoiceId}`).status, 'superseded');
+  assert.equal(db.records.get(`storageInvoices/${original.invoiceId}`).preview.pdfBase64, originalPdf);
+  assert.deepEqual(db.records.get('storageReceipts/paid-deposit'), receiptBefore);
+  assert.equal(emails.length, 0);
+  const payment = createStoragePaymentService({ db, fieldValue: { serverTimestamp: () => 'timestamp', delete: () => '__delete__' },
+    from: 'sender@example.invalid', resolveCaseId: (request) => `${request.clientId}|${request.season}`,
+    resolveLedgerAccounts: async () => ({ cashAccount: { id: 'cash' }, entityAccount: { id: 'entity' } }),
+    renderEmail: async () => ({ subject: 'Paid', html: 'Paid', text: 'Paid' }), sendEmail: async () => { throw new Error('Must not send'); } });
+  const paid = await payment.prepare(replacement.invoiceId);
+  await payment.send({ invoiceId: replacement.invoiceId, fingerprint: paid.fingerprint, confirmFullPayment: true, skipEmail: true }, 'admin');
+  assert.equal(db.records.get(`expenses/${storagePaymentLedgerId(replacement.invoiceId)}`).amount, 360);
+  assert.equal(db.records.get(`storageRequests/${ids[1]}`).status, 'cancelled');
+  await assert.rejects(payment.prepare(original.invoiceId), /original invoice/);
+});
+
+test('reopening refuses paid invoices and ledger payments; cancellation cannot invent or refund deposits', async () => {
+  const { service, db, ids } = serviceFixture();
+  const cancellations = cancellationService(db);
+  await assert.rejects(cancellations.cancel({ requestId: ids[0], retainedDepositAmount: 200, reason: 'Cancel', confirmCancellation: true }, 'admin'), /exceeds/);
+  const original = await service.prepare(ids);
+  await service.send({ requestIds: ids, fingerprint: original.fingerprint, skipEmail: true }, 'admin');
+  const saved = db.records.get(`storageInvoices/${original.invoiceId}`);
+  saved.payment = { status: 'sent' };
+  await assert.rejects(cancellations.reopen({ invoiceId: original.invoiceId, reason: 'Cancel', confirmReopen: true }, 'admin'), /unpaid/);
+  delete saved.payment;
+  db.records.set('expenses/manual', { storageInvoiceId: original.invoiceId, amount: 575 });
+  await assert.rejects(cancellations.reopen({ invoiceId: original.invoiceId, reason: 'Cancel', confirmReopen: true }, 'admin'), /ledger payment/);
+  assert.equal(saved.status, 'sent');
+});
+
+test('reopening and issuing a replacement neither duplicates nor loses referral credits', async () => {
+  const { service, db, ids } = serviceFixture();
+  const original = await service.prepare(ids);
+  await service.send({ requestIds: ids, fingerprint: original.fingerprint, skipEmail: true }, 'admin');
+  const cancellations = cancellationService(db);
+  await cancellations.reopen({ invoiceId: original.invoiceId, reason: 'Correction', confirmReopen: true }, 'admin');
+  const creditId = referralCreditId('referrer', 'new-customer');
+  assert.equal(db.records.get(`storageReferralCredits/${creditId}`).usedCents, 0);
+  const replacement = await service.prepare(ids);
+  assert.equal(replacement.invoice.referralDiscountCents, 2500);
+  await service.send({ requestIds: ids, fingerprint: replacement.fingerprint, skipEmail: true }, 'admin');
+  assert.equal(db.records.get(`storageReferralCredits/${creditId}`).usedCents, 2500);
+  await cancellations.reopen({ invoiceId: original.invoiceId, reason: 'Duplicate click', confirmReopen: true }, 'admin');
+  assert.equal(db.records.get(`storageReferralCredits/${creditId}`).usedCents, 2500);
+});
+
+test('cancellation is idempotent, never exceeds actual deposits, and records the $50 retained deposit', async () => {
+  const { db, ids } = serviceFixture();
+  const cancellations = cancellationService(db);
+  const beforeReceipt = structuredClone(db.records.get('storageReceipts/paid-deposit'));
+  const quote = await cancellations.prepare(ids[0]);
+  assert.equal(quote.totalDepositCents, 10000);
+  const payload = { requestId: ids[0], retainedDepositAmount: 50, reason: 'Cancelled', confirmCancellation: true };
+  await cancellations.cancel(payload, 'admin');
+  const before = JSON.stringify([...db.records]);
+  await cancellations.cancel(payload, 'admin');
+  assert.equal(JSON.stringify([...db.records]), before);
+  assert.equal(db.records.get(`storageRequests/${ids[0]}`).cancellation.retainedDepositCents, 5000);
+  await assert.rejects(cancellations.cancel({ ...payload, requestId: ids[1], retainedDepositAmount: 60 }, 'admin'), /exceeds/);
+  assert.deepEqual(db.records.get('storageReceipts/paid-deposit'), beforeReceipt);
+});
+
+test('correction and cancellation cannot bypass pending delivery or reuse stale invoice previews', async () => {
+  const { service, db, ids } = serviceFixture();
+  const before = await service.prepare(ids);
+  db.records.get(`storageRequests/${ids[0]}`).invoicePendingId = 'pending';
+  await assert.rejects(cancellationService(db).cancel({ requestId: ids[0], retainedDepositAmount: 50, reason: 'Cancel', confirmCancellation: true }, 'admin'), /pending/);
+  delete db.records.get(`storageRequests/${ids[0]}`).invoicePendingId;
+  await cancellationService(db).cancel({ requestId: ids[1], retainedDepositAmount: 50, reason: 'Cancel', confirmCancellation: true }, 'admin');
+  await assert.rejects(service.send({ requestIds: ids, fingerprint: before.fingerprint, skipEmail: true }, 'admin'), /changed after preview/);
+});
 test('preview/cancel has no writes or emails; confirmed send attaches PDF, consumes credit and marks stored once', async () => {
   const { service, db, emails, ids } = serviceFixture();
   const before = JSON.stringify([...db.records]);

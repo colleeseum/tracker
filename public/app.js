@@ -59,6 +59,9 @@ const prepareStoragePaymentCallable = httpsCallable(functionsApp, 'prepareStorag
 const sendStoragePaymentCallable = httpsCallable(functionsApp, 'sendStoragePayment');
 const getStoragePaymentCallable = httpsCallable(functionsApp, 'getStoragePayment');
 const scheduleStorageWithoutDepositCallable = httpsCallable(functionsApp, 'scheduleStorageWithoutDeposit');
+const prepareStorageCancellationCallable = httpsCallable(functionsApp, 'prepareStorageCancellation');
+const cancelStorageVehicleCallable = httpsCallable(functionsApp, 'cancelStorageVehicle');
+const reopenStorageInvoiceCallable = httpsCallable(functionsApp, 'reopenStorageInvoice');
 const getDefaultStoragePaidEmailTemplateCallable = httpsCallable(functionsApp, 'getDefaultStoragePaidEmailTemplate');
 let defaultStoragePaidEmailTemplate = null;
 const getEmailDeliveryPolicyCallable = httpsCallable(functionsApp, 'getEmailDeliveryPolicy');
@@ -1034,7 +1037,8 @@ const STORAGE_STATUS_OPTIONS = [
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'stored', label: 'Stored' },
   { value: 'paid', label: 'Paid' },
-  { value: 'picked_up', label: 'Picked-Up' }
+  { value: 'picked_up', label: 'Picked-Up' },
+  { value: 'cancelled', label: 'Cancelled' }
 ];
 
 const STORAGE_WORKFLOW_LOCKED_STATUSES = new Set([
@@ -2260,7 +2264,7 @@ function renderStorageTable() {
     const firstRequest = caseRequests[0];
     const tenantDisplay = clientLookup.get(firstRequest.clientId)?.name || '—';
     const caseAmount = caseRequests.reduce((sum, request) => {
-      const amount = resolveStorageAmount(request);
+      const amount = request.status === 'cancelled' ? (request.cancellation?.retainedDepositCents || 0) / 100 : resolveStorageAmount(request);
       return sum + (Number.isFinite(amount) ? amount : 0);
     }, 0);
     const caseRow = document.createElement('tr');
@@ -2292,7 +2296,7 @@ function renderStorageTable() {
     caseRow.appendChild(amountCell);
     const caseActionCell = document.createElement('td');
     const knownStatuses = new Set(STORAGE_STATUS_OPTIONS.map((o) => o.value));
-    const caseStatuses = caseRequests.map((r) => String(r.status || 'new'));
+    const caseStatuses = caseRequests.filter((r) => r.status !== 'cancelled').map((r) => String(r.status || 'new'));
     const hasNew = caseStatuses.some((s) => s === 'new' || !knownStatuses.has(s));
     const allContractReady = caseStatuses.length > 0 && caseStatuses.every((s) => s === 'contract_ready');
     const allWaitingContractDeposit =
@@ -2405,13 +2409,14 @@ function renderStorageTable() {
       addCaseActionSelect([{ value: 'status:stored', label: 'Mark stored & invoice', title: 'Preview the invoice and PDF before emailing and moving this case to Stored' }]);
     } else if (allStored) {
       addCaseActionSelect([
+        { value: 'reopen-invoice', label: 'Correct unpaid invoice', title: 'Preserve the old invoice and return active vehicles to Scheduled for a corrected invoice' },
         { value: 'status:paid', label: 'Mark paid & receipt', title: 'Confirm full payment, preview the email and stamped PDF, then mark this case Paid' },
         { value: 'status:picked_up', label: 'Mark picked up', title: 'Move this case to Picked-Up' }
       ]);
     } else if (allPaid) {
       addCaseActionSelect([{ value: 'status:picked_up', label: 'Mark picked up', title: 'Move this case to Picked-Up' }]);
     }
-    const invoiceIds = [...new Set(caseRequests.map((request) => request.invoiceId).filter(Boolean))];
+    const invoiceIds = [...new Set(caseRequests.map((request) => request.invoiceId || request.previousInvoiceId).filter(Boolean))];
     const invoiceLinks = document.createElement('div');
     invoiceLinks.className = 'storage-case-invoices';
     invoiceIds.forEach((invoiceId, index) => {
@@ -2421,7 +2426,8 @@ function renderStorageTable() {
       invoiceButton.className = 'link';
       invoiceButton.dataset.action = paid ? 'view-storage-paid' : 'view-storage-invoice';
       invoiceButton.dataset.invoiceId = invoiceId;
-      const label = paid ? 'Paid' : 'Invoice';
+      const previous = !caseRequests.some((request) => request.invoiceId === invoiceId);
+      const label = paid ? 'Paid' : previous ? 'Previous invoice' : 'Invoice';
       invoiceButton.textContent = invoiceIds.length > 1 ? `${label} ${index + 1} (PDF)` : `${label} (PDF)`;
       invoiceButton.title = `View ${paid ? 'paid ' : ''}${invoiceId}`;
       invoiceButton.setAttribute('aria-label', `View ${paid ? 'paid ' : ''}invoice ${invoiceId} for ${tenantDisplay}`);
@@ -2451,6 +2457,22 @@ function renderStorageTable() {
         referrals.textContent = `Referred by: ${referralIds.map((id) => clientLookup.get(id)?.name || clientLookup.get(id)?.email || `Unavailable client (${id})`).join(', ')}`;
         vehicleTypeCell.appendChild(referrals);
       }
+      if (['new', 'contract_ready', 'waiting_contract_deposit', 'waiting_contract', 'waiting_deposit', 'reserved', 'scheduled'].includes(request.status) && !request.invoiceId) {
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'link';
+        cancelButton.dataset.action = 'cancel-storage-vehicle';
+        cancelButton.dataset.id = request.id;
+        cancelButton.textContent = 'Cancel vehicle';
+        cancelButton.setAttribute('aria-label', `Cancel ${vehicle.typeLabel || vehicle.type || 'vehicle'} for ${tenantDisplay}`);
+        vehicleTypeCell.appendChild(cancelButton);
+      }
+      if (request.status === 'cancelled') {
+        const cancellation = document.createElement('div');
+        cancellation.className = 'hint';
+        cancellation.textContent = `Cancelled: ${formatCurrency((request.cancellation?.retainedDepositCents || 0) / 100)} deposit retained; ${formatCurrency((request.cancellation?.creditCents || 0) / 100)} cancellation adjustment.`;
+        vehicleTypeCell.appendChild(cancellation);
+      }
       row.appendChild(vehicleTypeCell);
 
       const addonCell = document.createElement('td');
@@ -2466,7 +2488,7 @@ function renderStorageTable() {
       row.appendChild(statusChildCell);
 
       const amountChildCell = document.createElement('td');
-      const resolvedAmount = resolveStorageAmount(request);
+      const resolvedAmount = request.status === 'cancelled' ? (request.cancellation?.retainedDepositCents || 0) / 100 : resolveStorageAmount(request);
       amountChildCell.textContent = Number.isFinite(resolvedAmount) ? formatCurrency(resolvedAmount) : '—';
       row.appendChild(amountChildCell);
 
@@ -2533,7 +2555,8 @@ function resolveStorageCaseId(request) {
 }
 
 function deriveStorageCaseStatus(requests) {
-  const statuses = requests.map((request) => String(request?.status || 'new'));
+  const statuses = requests.filter((request) => request.status !== 'cancelled').map((request) => String(request?.status || 'new'));
+  if (requests.length && !statuses.length) return 'Cancelled';
   if (!statuses.length) return 'Draft';
   if (statuses.every((status) => status === 'new')) return 'Draft';
   if (statuses.every((status) => status === 'picked_up')) return 'Closed';
@@ -9729,6 +9752,7 @@ function getStorageStatusTransitionError(currentStatus, nextStatus) {
   const current = String(currentStatus || 'new');
   const next = String(nextStatus || 'new');
   if (next === current) return '';
+  if (next === 'cancelled' || current === 'cancelled') return 'Use Cancel vehicle to record the cancellation and retained deposit. Cancelled vehicles cannot be moved through the normal status flow.';
   if (next === 'stored' && current !== 'scheduled') return 'Schedule the vehicle before marking it Stored and invoicing.';
   if (next === 'paid' && current !== 'stored') return 'Mark the vehicle Stored and send its invoice before confirming full payment.';
   if (isStorageStatusLocked(next)) {
@@ -11038,7 +11062,8 @@ function getStorageCaseRequests(caseId) {
 async function updateStorageCaseStatus(caseRequests, targetStatus) {
   if (targetStatus !== 'paid' && caseRequests.some((request) => request.paymentPendingId)) throw new Error('Payment receipt delivery is pending. Complete or reconcile it before changing status.');
   if (targetStatus !== 'stored' && caseRequests.some((request) => request.invoicePendingId)) throw new Error('Invoice delivery is pending. Complete or reconcile it before changing storage status.');
-  const invalid = caseRequests.find((request) => getStorageStatusTransitionError(request.status || 'new', targetStatus));
+  const activeRequests = caseRequests.filter((request) => request.status !== 'cancelled');
+  const invalid = activeRequests.find((request) => getStorageStatusTransitionError(request.status || 'new', targetStatus));
   if (invalid) {
     throw new Error(getStorageStatusTransitionError(invalid.status || 'new', targetStatus));
   }
@@ -11051,7 +11076,7 @@ async function updateStorageCaseStatus(caseRequests, targetStatus) {
     return;
   }
   await Promise.all(
-    caseRequests.map((request) =>
+    activeRequests.map((request) =>
       updateDoc(doc(db, 'storageRequests', request.id), {
         caseId: resolveStorageCaseId(request),
         status: targetStatus,
@@ -11087,6 +11112,16 @@ if (storageTableBody) {
       }
       return;
     }
+    if (selectedAction === 'reopen-invoice') {
+      const invoiceIds = [...new Set(caseRequests.map((request) => request.invoiceId).filter(Boolean))];
+      if (invoiceIds.length !== 1) { alert('Select one complete unpaid invoice to correct.'); return; }
+      const reason = window.prompt('Reason for correcting this unpaid invoice:', 'Vehicle cancellation');
+      if (!reason?.trim()) return;
+      if (!window.confirm('Preserve this invoice and return its active vehicles to Scheduled? No email will be sent. A corrected invoice will receive a new number; deposits are kept. Paid invoices cannot be reopened.')) return;
+      try { await reopenStorageInvoiceCallable({ invoiceId: invoiceIds[0], reason, confirmReopen: true }); }
+      catch (error) { alert(error.message || 'Unable to reopen invoice.'); }
+      return;
+    }
     if (selectedAction === 'confirmation-email') {
       openStorageConfirmationEmailModal(caseRequests, 'confirmation');
       return;
@@ -11115,6 +11150,24 @@ if (storageTableBody) {
   });
 
   storageTableBody.addEventListener('click', async (event) => {
+    const cancelVehicleButton = event.target.closest('[data-action="cancel-storage-vehicle"]');
+    if (cancelVehicleButton) {
+      try {
+        const requestId = cancelVehicleButton.dataset.id;
+        const { data: quote } = await prepareStorageCancellationCallable({ requestId });
+        if (quote.alreadyCancelled) { alert('This vehicle is already cancelled.'); return; }
+        const amount = window.prompt(`Deposit to KEEP for this cancelled vehicle (CAD). Original charge: ${formatCurrency(quote.originalAmountCents / 100)}. Recorded case deposits: ${formatCurrency(quote.totalDepositCents / 100)}.`, String(quote.suggestedRetainedCents / 100));
+        if (amount == null) return;
+        const retainedDepositAmount = Number(amount);
+        if (!amount.trim() || !Number.isFinite(retainedDepositAmount) || retainedDepositAmount < 0) throw new Error('Enter a valid retained deposit amount.');
+        const reason = window.prompt('Cancellation reason:', 'Customer cancelled vehicle');
+        if (!reason?.trim()) return;
+        const credit = quote.originalAmountCents / 100 - retainedDepositAmount;
+        if (!window.confirm(`Cancel this vehicle, KEEP ${formatCurrency(retainedDepositAmount)} of the recorded deposit, and show a -${formatCurrency(credit)} adjustment on the invoice? No refund or email will be sent.`)) return;
+        await cancelStorageVehicleCallable({ requestId, retainedDepositAmount, reason, confirmCancellation: true });
+      } catch (error) { alert(error.message || 'Unable to cancel vehicle.'); }
+      return;
+    }
     const paidButton = event.target.closest('[data-action="view-storage-paid"]');
     if (paidButton) {
       try { await openSavedStorageInvoicePdf(paidButton.dataset.invoiceId, true); }
