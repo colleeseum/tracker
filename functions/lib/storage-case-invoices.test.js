@@ -75,6 +75,20 @@ test('a cancelled vehicle does not block the remaining Scheduled or Stored case 
   assert.ok(storedActions.includes('reopen-invoice'));
   assert.ok(!storedActions.includes('generate-contract'));
 });
+test('cancel uses the provided icon in the action cell, not beside the vehicle description', () => {
+  const rows = render([undefined], 'scheduled');
+  const vehicleCell = rows[1].children[2];
+  const actionCell = rows[1].children[6];
+  assert.ok(!vehicleCell.children.some((child) => child.dataset.action === 'cancel-storage-vehicle'));
+  const cancel = actionCell.children.find((child) => child.dataset.action === 'cancel-storage-vehicle');
+  assert.ok(cancel);
+  assert.equal(cancel.className, 'icon-button');
+  assert.equal(cancel.title, 'Cancel vehicle');
+  assert.match(cancel.innerHTML, /icons\/cancel\.png/);
+  assert.ok(cancel.attributes['aria-label'].includes('Cancel'));
+  const cancelled = render([undefined], 'cancelled');
+  assert.ok(!cancelled[1].children[6].children.some((child) => child.dataset.action === 'cancel-storage-vehicle'));
+});
 test('contract-received cases offer scheduling without deposit alongside normal deposit receipt', () => {
   const rows = render([undefined, undefined], 'waiting_deposit');
   const actions = rows[0].children[6].children[0].children.map((option) => option.value);

@@ -2457,16 +2457,6 @@ function renderStorageTable() {
         referrals.textContent = `Referred by: ${referralIds.map((id) => clientLookup.get(id)?.name || clientLookup.get(id)?.email || `Unavailable client (${id})`).join(', ')}`;
         vehicleTypeCell.appendChild(referrals);
       }
-      if (['new', 'contract_ready', 'waiting_contract_deposit', 'waiting_contract', 'waiting_deposit', 'reserved', 'scheduled'].includes(request.status) && !request.invoiceId) {
-        const cancelButton = document.createElement('button');
-        cancelButton.type = 'button';
-        cancelButton.className = 'link';
-        cancelButton.dataset.action = 'cancel-storage-vehicle';
-        cancelButton.dataset.id = request.id;
-        cancelButton.textContent = 'Cancel vehicle';
-        cancelButton.setAttribute('aria-label', `Cancel ${vehicle.typeLabel || vehicle.type || 'vehicle'} for ${tenantDisplay}`);
-        vehicleTypeCell.appendChild(cancelButton);
-      }
       if (request.status === 'cancelled') {
         const cancellation = document.createElement('div');
         cancellation.className = 'hint';
@@ -2522,6 +2512,18 @@ function renderStorageTable() {
       editButton.setAttribute('aria-label', `Edit storage request for ${tenantDisplay}`);
       editButton.innerHTML = `<img src="icons/pencil.svg" alt="Edit storage request for ${tenantDisplay}" />`;
       actionCell.appendChild(editButton);
+
+      if (['new', 'contract_ready', 'waiting_contract_deposit', 'waiting_contract', 'waiting_deposit', 'reserved', 'scheduled'].includes(request.status) && !request.invoiceId) {
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'icon-button';
+        cancelButton.dataset.action = 'cancel-storage-vehicle';
+        cancelButton.dataset.id = request.id;
+        cancelButton.title = 'Cancel vehicle';
+        cancelButton.setAttribute('aria-label', `Cancel ${vehicle.typeLabel || vehicle.type || 'vehicle'} for ${tenantDisplay}`);
+        cancelButton.innerHTML = '<img src="icons/cancel.png" alt="Cancel vehicle" />';
+        actionCell.appendChild(cancelButton);
+      }
 
       if (request.status === 'new') {
         const deleteButton = document.createElement('button');
