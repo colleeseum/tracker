@@ -1092,6 +1092,7 @@ form {
 
 .suggestion-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
@@ -1100,6 +1101,19 @@ form {
 .suggestion-header h4 {
   margin: 0;
   font-size: 1rem;
+}
+
+.suggestion-view-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.suggestion-view-actions [aria-pressed="true"] {
+  background: #dbeafe;
+  color: #1e40af;
+  box-shadow: inset 0 0 0 1px #93c5fd;
 }
 
 .suggestion-header p {

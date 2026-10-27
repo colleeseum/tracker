@@ -44,6 +44,7 @@ import { firebaseConfig, emulatorConfig } from './firebase-config.js';
 import { initializeClientMailing } from './client-mailing.js';
 import { createReportLockController } from './locked-reports.js';
 import { reconcileReport } from './report-reconciliation.js';
+import { findMileageLedgerEntries } from './mileage-ledger.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -644,6 +645,10 @@ const pricingTabButtons = Array.from(pricingTabs?.querySelectorAll('button[data-
 const mileageSuggestionSection = document.getElementById('mileage-suggestions');
 const mileageSuggestionList = document.getElementById('mileage-suggestion-list');
 const dismissMileageSuggestionsButton = document.getElementById('dismiss-mileage-suggestions');
+const pendingMileageSuggestionsButton = document.getElementById('pending-mileage-suggestions');
+const ignoredMileageSuggestionsButton = document.getElementById('ignored-mileage-suggestions');
+const mileageSuggestionTitle = document.getElementById('mileage-suggestion-title');
+const mileageSuggestionDescription = document.getElementById('mileage-suggestion-description');
 
 function hideEntryModal() {
   entryModal.classList.add('hidden');
@@ -810,6 +815,8 @@ let payingBillId = null;
 let selectedTags = [];
 let selectedInterestTags = [];
 let missingMileageSuggestions = [];
+let ignoredMileageSuggestions = [];
+let mileageSuggestionView = 'pending';
 let hideMileageSuggestions = false;
 let clients = [];
 let clientLookup = new Map();
@@ -856,6 +863,8 @@ let mileageSettings = { defaultEntityId: '', startingPoints: [] };
 let unsubscribeMileageSettings = null;
 let mileageYearToDate = 0;
 let editingMileageId = null;
+let mileageSourceExpenseId = null;
+let mileageSourceTransactionId = null;
 let mileageKilometreTotalsByYear = new Map();
 let mileageRateLookup = new Map();
 let addonPriceLookup = new Map();
@@ -5674,6 +5683,8 @@ function syncMileageTagSuggestions() {
 
 function resetMileageFormState() {
   editingMileageId = null;
+  mileageSourceExpenseId = null;
+  mileageSourceTransactionId = null;
   if (mileageForm) {
     mileageForm.reset();
   }
@@ -5715,6 +5726,8 @@ function closeMileageModal() {
 function beginEditMileageEntry(log) {
   if (!log) return;
   editingMileageId = log.id;
+  mileageSourceExpenseId = log.sourceExpenseId || null;
+  mileageSourceTransactionId = log.sourceTransactionId || null;
   const dateObj = toDateObject(log.date) || new Date();
   if (mileageDateInput) {
     mileageDateInput.value = getLocalDateInputValue(dateObj);
@@ -5750,6 +5763,9 @@ function beginEditMileageEntry(log) {
 
 function openMileageModalForSuggestion(suggestion) {
   if (!suggestion) return;
+  resetMileageFormState();
+  mileageSourceExpenseId = suggestion.id;
+  mileageSourceTransactionId = suggestion.transactionId || suggestion.id;
   openMileageModal('create');
   updateMileageStartingPointOptions();
   if (mileageDateInput && suggestion.dateKey) {
@@ -5762,6 +5778,28 @@ function openMileageModalForSuggestion(suggestion) {
     mileagePurposeInput.value = suggestion.description || `Trip for ${suggestion.vendorLabel || 'vendor'}`;
   }
   mileageKmInput?.focus();
+}
+
+function openMileageLedgerEntry(expenseId) {
+  const entry = expenseLookup.get(expenseId);
+  if (!entry || entry.isVirtualOpening) {
+    window.alert('The linked ledger transaction is no longer available.');
+    return;
+  }
+  if (entry.category === 'Transfer' && entry.transactionId) startEditTransfer(entry);
+  else startEditEntry(entry);
+}
+
+function openMileageLedgerEntries(log) {
+  if (!log) return;
+  const matches = findMileageLedgerEntries(log, expenses, { dateKey: getDateKey, vendorKey: normalizeVendorKey });
+  if (!matches.entries.length) {
+    window.alert(matches.kind === 'linked' ? 'The linked ledger transaction is no longer available.' : 'No matching ledger transactions were found for this trip.');
+    return;
+  }
+  if (matches.entries.length === 1) { openMileageLedgerEntry(matches.entries[0].id); return; }
+  const id = registerReportDrilldown(matches.entries.map((entry) => entry.id), matches.kind === 'linked' ? 'Linked ledger transactions' : 'Matching ledger transactions (date and vendor)', { entityName: 'Select the transaction to open using its edit action.' });
+  openReportDetailModalById(id);
 }
 
 function renderMileageLog() {
@@ -5803,8 +5841,12 @@ function renderMileageLog() {
     if (startingPointTag) inlineTagSegments.push(startingPointTag);
     if (inlineTagMarkup) inlineTagSegments.push(inlineTagMarkup);
     const inlineTags = inlineTagSegments.length ? `<span class="inline-tags">${inlineTagSegments.join('')}</span>` : '';
+    const ledgerMatches = findMileageLedgerEntries(log, expenses, { dateKey: getDateKey, vendorKey: normalizeVendorKey });
+    const showLedgerLink = Boolean(log.sourceExpenseId || log.sourceTransactionId || ledgerMatches.entries.length);
+    const ledgerTitle = ledgerMatches.kind === 'linked' ? 'Open linked ledger transaction' : 'Open matching ledger transactions (date and vendor)';
     const actionsMarkup = `
       <div class="table-actions">
+        ${showLedgerLink ? `<button type="button" class="icon-button" data-action="view-mileage-ledger" data-id="${escapeEmailTemplateHtml(log.id)}" title="${ledgerTitle}" aria-label="${ledgerTitle}"><img src="icons/link.svg" alt="" /></button>` : ''}
         <button
           type="button"
           class="icon-button"
@@ -6442,12 +6484,12 @@ function openReportDetailModalById(drilldownId) {
       const account = accountLookup.get(entry.accountId);
       const signedAmount = getEntryDelta(entry);
       row.innerHTML = `
-        <td>${formatDate(entry.date)}</td>
-        <td>${entry.description || entry.category || '—'}</td>
-        <td>${account?.name || '—'}</td>
+        <td>${escapeEmailTemplateHtml(formatDate(entry.date))}</td>
+        <td>${escapeEmailTemplateHtml(entry.description || entry.category || '—')}</td>
+        <td>${escapeEmailTemplateHtml(account?.name || '—')}</td>
         <td class="report-amount">${formatCurrency(signedAmount)}</td>
         <td class="report-entry-action-cell">
-          <button type="button" class="icon-button small" data-action="edit-entry-inline" data-entry-id="${entry.id}" aria-label="Edit entry">
+          <button type="button" class="icon-button small" data-action="edit-entry-inline" data-entry-id="${escapeEmailTemplateHtml(entry.id)}" aria-label="Edit entry">
             <img src="icons/pencil.svg" alt="Edit entry" />
           </button>
         </td>
@@ -8980,8 +9022,7 @@ function subscribeToExpensesStream() {
       renderLedgerTable();
       renderAccountList();
       rebuildVendorTagSet();
-      computeMissingMileageSuggestions();
-      renderMissingMileageSuggestions();
+      renderMileageLog();
       maybeRenderReports();
     },
     (error) => {
@@ -9073,6 +9114,11 @@ function cleanExpensesSubscription() {
   }
   unsubscribeExpenses = null;
   expenses = [];
+  missingMileageSuggestions = [];
+  ignoredMileageSuggestions = [];
+  mileageSuggestionView = 'pending';
+  hideMileageSuggestions = false;
+  renderMissingMileageSuggestions();
   rebuildExpenseLookup();
   rebuildVendorTagSet();
   accountAdjustments = new Map();
@@ -12959,6 +13005,7 @@ if (mileageForm) {
         });
       } else {
         await addDoc(collection(db, 'mileageLogs'), {
+          ...(mileageSourceExpenseId ? { sourceExpenseId: mileageSourceExpenseId, sourceTransactionId: mileageSourceTransactionId || mileageSourceExpenseId } : {}),
           date: Timestamp.fromDate(parsedDate),
           purpose,
           kilometres: kmValue,
@@ -12987,6 +13034,10 @@ if (mileageTableBody) {
     if (!button) return;
     const { action, id } = button.dataset;
     if (!id) return;
+    if (action === 'view-mileage-ledger') {
+      openMileageLedgerEntries(mileageLogs.find((log) => log.id === id));
+      return;
+    }
     if (action === 'edit-mileage') {
       const entry = mileageLogs.find((log) => log.id === id);
       if (entry) {
@@ -13217,7 +13268,8 @@ if (reportDetailModal) {
       const entry = expenseLookup.get(entryId);
       if (entry) {
         closeReportDetailModal();
-        startEditEntry(entry);
+        if (entry.category === 'Transfer' && entry.transactionId) startEditTransfer(entry);
+        else startEditEntry(entry);
       }
     }
   });
@@ -15117,15 +15169,23 @@ if (entryReceiptLink) {
 }
 
 if (mileageSuggestionList) {
-  mileageSuggestionList.addEventListener('click', (event) => {
+  mileageSuggestionList.addEventListener('click', async (event) => {
     const button = event.target.closest('button[data-action]');
     if (!button) return;
-    const suggestion = missingMileageSuggestions.find((item) => item.id === button.dataset.id);
+    const suggestion = [...missingMileageSuggestions, ...ignoredMileageSuggestions].find((item) => item.id === button.dataset.id);
     if (!suggestion) return;
-    if (button.dataset.action === 'log-missing-mileage') {
+    if (button.dataset.action === 'view-suggestion-ledger') {
+      openMileageLedgerEntry(suggestion.id);
+    } else if (button.dataset.action === 'log-missing-mileage') {
       openMileageModalForSuggestion(suggestion);
     } else if (button.dataset.action === 'ignore-missing-mileage') {
-      ignoreMissingMileageSuggestion(suggestion.id);
+      button.disabled = true;
+      try { await ignoreMissingMileageSuggestion(suggestion.id); }
+      finally { button.disabled = false; }
+    } else if (button.dataset.action === 'restore-missing-mileage') {
+      button.disabled = true;
+      try { await setMissingMileageIgnored(suggestion.id, false); }
+      finally { button.disabled = false; }
     }
   });
 }
@@ -15133,6 +15193,14 @@ if (mileageSuggestionList) {
 if (dismissMileageSuggestionsButton) {
   dismissMileageSuggestionsButton.addEventListener('click', () => {
     hideMileageSuggestions = !hideMileageSuggestions;
+    renderMissingMileageSuggestions();
+  });
+}
+
+for (const [button, view] of [[pendingMileageSuggestionsButton, 'pending'], [ignoredMileageSuggestionsButton, 'ignored']]) {
+  button?.addEventListener('click', () => {
+    mileageSuggestionView = view;
+    hideMileageSuggestions = false;
     renderMissingMileageSuggestions();
   });
 }
@@ -15912,17 +15980,17 @@ function computeMissingMileageSuggestions() {
       .forEach((vendorKey) => coverage.add(`${vendorKey}__${dateKey}`));
   });
   missingMileageSuggestions = [];
+  ignoredMileageSuggestions = [];
   expenses.forEach((entry) => {
-    if (entry.entryType !== 'expense') return;
+    if (!entry || entry.entryType !== 'expense') return;
     const vendorLabel = entry.vendorTag;
     const vendorKey = normalizeVendorKey(vendorLabel);
-    if (!vendorKey) return;
-    if (entry.ignoreMissingMileage) return;
     const dateKey = getDateKey(entry.date);
-    if (!dateKey) return;
     const coverageKey = `${vendorKey}__${dateKey}`;
-    if (coverage.has(coverageKey)) return;
-    missingMileageSuggestions.push({
+    const ignored = Boolean(entry.ignoreMissingMileage);
+    if (!ignored && (!vendorKey || !dateKey || coverage.has(coverageKey))) return;
+    const target = ignored ? ignoredMileageSuggestions : missingMileageSuggestions;
+    target.push({
       id: entry.id,
       vendorLabel,
       vendorKey,
@@ -15940,7 +16008,19 @@ function computeMissingMileageSuggestions() {
 
 function renderMissingMileageSuggestions() {
   if (!mileageSuggestionSection || !mileageSuggestionList) return;
-  const hasSuggestions = missingMileageSuggestions.length > 0;
+  if (mileageSuggestionTitle) mileageSuggestionTitle.textContent = mileageSuggestionView === 'ignored' ? 'Ignored mileage suggestions' : 'Potential missing mileage log entries';
+  if (mileageSuggestionDescription) mileageSuggestionDescription.textContent = mileageSuggestionView === 'ignored'
+    ? 'Restore removes the dismissal. It does not create a trip or change the expense amount.'
+    : 'Vendor expenses without a matching mileage entry on the same date.';
+  const hasSuggestions = missingMileageSuggestions.length > 0 || ignoredMileageSuggestions.length > 0;
+  if (pendingMileageSuggestionsButton) {
+    pendingMileageSuggestionsButton.textContent = `Pending (${missingMileageSuggestions.length})`;
+    pendingMileageSuggestionsButton.setAttribute('aria-pressed', String(mileageSuggestionView === 'pending'));
+  }
+  if (ignoredMileageSuggestionsButton) {
+    ignoredMileageSuggestionsButton.textContent = `Ignored (${ignoredMileageSuggestions.length})`;
+    ignoredMileageSuggestionsButton.setAttribute('aria-pressed', String(mileageSuggestionView === 'ignored'));
+  }
   if (!hasSuggestions) {
     mileageSuggestionSection.classList.add('hidden');
     mileageSuggestionList.innerHTML = '';
@@ -15961,32 +16041,40 @@ function renderMissingMileageSuggestions() {
     return;
   }
   mileageSuggestionList.innerHTML = '';
-  missingMileageSuggestions.forEach((suggestion) => {
+  const ignored = mileageSuggestionView === 'ignored';
+  const visible = ignored ? ignoredMileageSuggestions : missingMileageSuggestions;
+  if (!visible.length) {
+    mileageSuggestionList.innerHTML = `<li class="suggestion-item">${ignored ? 'No ignored expenses.' : 'No pending suggestions. You can review dismissed expenses under Ignored.'}</li>`;
+    return;
+  }
+  visible.forEach((suggestion) => {
     const item = document.createElement('li');
     item.className = 'suggestion-item';
     item.dataset.id = suggestion.id;
     const tagsMarkup =
       Array.isArray(suggestion.tags) && suggestion.tags.length
         ? `<div class="suggestion-tags">${suggestion.tags
-            .map((tag) => `<span class="table-tag">${formatTagLabel(tag)}</span>`)
+            .map((tag) => `<span class="table-tag">${escapeEmailTemplateHtml(formatTagLabel(tag))}</span>`)
             .join('')}</div>`
         : '';
     item.innerHTML = `
       <div class="suggestion-info">
-        <strong>${suggestion.vendorLabel || 'Vendor'}${suggestion.entityName ? ` for ${suggestion.entityName}` : ''}</strong>
+        <strong>${escapeEmailTemplateHtml(suggestion.vendorLabel || 'Vendor')}${suggestion.entityName ? ` for ${escapeEmailTemplateHtml(suggestion.entityName)}` : ''}</strong>
         <div class="suggestion-meta">
-          <span>${suggestion.dateDisplay || 'Unknown date'}</span>
-          <span>${suggestion.accountName || 'Account'}</span>
+          <span>${escapeEmailTemplateHtml(suggestion.dateDisplay || 'Unknown date')}</span>
+          <span>${escapeEmailTemplateHtml(suggestion.accountName || 'Account')}</span>
           <span>${formatCurrency(suggestion.amount)}</span>
         </div>
-        <p>${suggestion.description || 'Add notes to remember this trip.'}</p>
+        <p>${escapeEmailTemplateHtml(suggestion.description || 'Add notes to remember this trip.')}</p>
         ${tagsMarkup}
       </div>
       <div class="suggestion-actions">
-        <button type="button" data-action="log-missing-mileage" data-id="${suggestion.id}">Log mileage</button>
-        <button type="button" class="secondary" data-action="ignore-missing-mileage" data-id="${suggestion.id}">
+        <button type="button" class="secondary" data-action="view-suggestion-ledger" data-id="${escapeEmailTemplateHtml(suggestion.id)}">Open ledger transaction</button>
+        ${ignored ? `<button type="button" class="secondary" data-action="restore-missing-mileage" data-id="${escapeEmailTemplateHtml(suggestion.id)}">Restore suggestion</button>` : `
+        <button type="button" data-action="log-missing-mileage" data-id="${escapeEmailTemplateHtml(suggestion.id)}">Log mileage</button>
+        <button type="button" class="secondary" data-action="ignore-missing-mileage" data-id="${escapeEmailTemplateHtml(suggestion.id)}">
           Ignore
-        </button>
+        </button>`}
       </div>
     `;
     mileageSuggestionList.appendChild(item);
@@ -16062,14 +16150,19 @@ function getMonthlyTagMetrics() {
   return { totalOutflow, topTag, topTagAmount };
 }
 async function ignoreMissingMileageSuggestion(expenseId) {
+  return setMissingMileageIgnored(expenseId, true);
+}
+
+async function setMissingMileageIgnored(expenseId, ignored) {
   if (!expenseId) return;
   try {
     await updateDoc(doc(db, 'expenses', expenseId), {
-      ignoreMissingMileage: true,
-      updatedAt: serverTimestamp()
+      ignoreMissingMileage: ignored === true,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null
     });
   } catch (error) {
-    window.alert(`Unable to ignore suggestion: ${error.message}`);
+    window.alert(`Unable to ${ignored ? 'ignore' : 'restore'} suggestion: ${error.message}`);
   }
 }
 

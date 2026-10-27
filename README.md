@@ -199,7 +199,8 @@ To save a snapshot while the emulators are still running, use
 - **Storage tab:** Track seasonal storage requests (tenant info, insurance, add-ons) and move each request through the workflow statuses (New → Picked-Up).
 - **Pricing tab:** Manage seasons, storage offers, and add-on service pricing (battery maintenance, propane storage, etc.) with built-in Firestore CRUD.
 - **Settings:** Use the Settings link at the bottom of the sidebar to manage ledger categories (label, income/expense type, numeric code). The Ledger “Add entry” form only shows categories that match the selected entry type.
-- **Mileage log:** Keep CRA-friendly mileage totals. The mileage view now surfaces vendor expenses without a same-day mileage log so you can quickly log the trip or mark the reminder as ignored.
+- **Mileage log:** Keep CRA-friendly mileage totals. The mileage view surfaces vendor expenses without a same-day mileage log. Use **Pending** to log or ignore suggestions and **Ignored** to review dismissals. **Restore suggestion** clears the ignore flag without creating a trip or changing financial fields. A restored expense returns to Pending only when no matching trip exists. Ignored remains accessible even when Pending is empty.
+- **Mileage ledger links:** Pending and Ignored suggestions include **Open ledger transaction**, opening the existing transaction editor without saving changes. Trips created from suggestions retain `sourceExpenseId` and `sourceTransactionId` and show a link icon beside their actions. Older trips can open matching date/vendor/entity transactions; multiple matches are presented for selection, never guessed or saved as an inferred association. A missing explicit source is reported rather than silently opening another transaction. Manual trips without a matching expense have no ledger link.
 
 ## Data model & rules
 

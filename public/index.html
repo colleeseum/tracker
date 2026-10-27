@@ -675,10 +675,14 @@
               <div id="mileage-suggestions" class="mileage-suggestions hidden">
                 <div class="suggestion-header">
                   <div>
-                    <h4>Potential missing mileage log entries</h4>
-                    <p>Vendor expenses without a matching mileage entry on the same date.</p>
+                    <h4 id="mileage-suggestion-title">Potential missing mileage log entries</h4>
+                    <p id="mileage-suggestion-description">Vendor expenses without a matching mileage entry on the same date.</p>
                   </div>
-                  <button type="button" id="dismiss-mileage-suggestions" class="link">Hide</button>
+                  <div class="suggestion-view-actions">
+                    <button type="button" id="pending-mileage-suggestions" class="secondary" aria-pressed="true">Pending</button>
+                    <button type="button" id="ignored-mileage-suggestions" class="secondary" aria-pressed="false">Ignored</button>
+                    <button type="button" id="dismiss-mileage-suggestions" class="link">Hide</button>
+                  </div>
                 </div>
                 <ul id="mileage-suggestion-list"></ul>
               </div>
