@@ -1497,7 +1497,14 @@ form {
 }
 
 .report-entity-balances strong {
-  font-size: 1rem;
+  font-size: 1.25rem;
+}
+
+.report-tax-summary,
+.report-reconciliation {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
 }
 
 .report-section {

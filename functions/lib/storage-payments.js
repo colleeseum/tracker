@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 import { digest, invoiceError, invoiceDate } from './storage-invoices.js';
 import { readSkipEmail } from './email-options.js';
+import { storageIncomeFields } from './storage-income-category.js';
 
 export async function stampPaidInvoicePdf(pdfBase64, locale) {
   const pdf = await PDFDocument.load(Buffer.from(pdfBase64, 'base64'));
@@ -19,7 +20,7 @@ export async function stampPaidInvoicePdf(pdfBase64, locale) {
 
 export const storagePaymentLedgerId = (invoiceId) => `storage-payment-${invoiceId}`;
 
-export function createStoragePaymentService({ db, fieldValue, sendEmail, from, renderEmail, routeEmail, resolveCaseId, resolveLedgerAccounts, ccForLocale }) {
+export function createStoragePaymentService({ db, fieldValue, sendEmail, from, renderEmail, routeEmail, resolveCaseId, resolveLedgerAccounts, resolveIncomeCategory, ccForLocale }) {
   const refFor = (invoiceId) => {
     if (typeof invoiceId !== 'string' || !/^INV-[A-F0-9]{18}$/.test(invoiceId)) throw invoiceError('Select a valid saved invoice.', 'invalid-argument');
     return db.collection('storageInvoices').doc(invoiceId);
@@ -40,13 +41,15 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     if (digest(caseIds) !== digest([...data.invoice.requestIds].sort())) throw invoiceError('Confirm payment for the complete invoiced case. Review added or changed vehicles first.');
     if (!Number.isSafeInteger(data.invoice.balanceDueCents) || data.invoice.balanceDueCents < 0) throw invoiceError('The saved invoice balance is invalid.');
     let ledgerAccounts = null;
+    let ledgerCategory = null;
     if (data.invoice.balanceDueCents > 0) {
       if ((await db.collection('expenses').doc(storagePaymentLedgerId(invoiceId)).get()).exists) throw invoiceError('A ledger entry already exists for this payment. Reconcile it before sending a receipt.');
       const accounts = await resolveLedgerAccounts();
       if (!accounts?.cashAccount?.id || !accounts?.entityAccount?.id) throw invoiceError('Configure the default cash account and Ferme Colle entity before receiving payment.');
       ledgerAccounts = { accountId: accounts.cashAccount.id, entityId: accounts.entityAccount.id };
+      ledgerCategory = storageIncomeFields(await resolveIncomeCategory(), 'final-payment');
     }
-    return { data, ledgerAccounts, states: requests.map((request) => ({ requestId: request.id, fingerprint: requestState(request.data()) })) };
+    return { data, ledgerAccounts, ledgerCategory, states: requests.map((request) => ({ requestId: request.id, fingerprint: requestState(request.data()) })) };
   }
   async function serialize(invoiceId, quote) {
     const invoice = quote.data.invoice;
@@ -59,8 +62,8 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     const requested = { to: invoice.client.email, cc, subject: email.subject };
     const delivery = routeEmail ? routeEmail(requested) : requested;
     const pdfBase64 = (await stampPaidInvoicePdf(quote.data.preview.pdfBase64, invoice.locale)).toString('base64');
-    const preview = { invoice, invoiceId, paidDate, paymentAmountCents: invoice.balanceDueCents, ledgerAccounts: quote.ledgerAccounts, ...email, ...delivery, pdfBase64, payment: true,
-      fingerprint: digest({ invoice, paidDate, email, delivery, ledgerAccounts: quote.ledgerAccounts, states: quote.states, originalPdf: digest(quote.data.preview.pdfBase64), layoutVersion: 'paid-1' }) };
+    const preview = { invoice, invoiceId, paidDate, paymentAmountCents: invoice.balanceDueCents, ledgerAccounts: quote.ledgerAccounts, ledgerCategory: quote.ledgerCategory, ...email, ...delivery, pdfBase64, payment: true,
+      fingerprint: digest({ invoice, paidDate, email, delivery, ledgerAccounts: quote.ledgerAccounts, ledgerCategory: quote.ledgerCategory, states: quote.states, originalPdf: digest(quote.data.preview.pdfBase64), layoutVersion: 'paid-1' }) };
     // Both original and paid PDFs share the same Firestore invoice document.
     if (Buffer.byteLength(JSON.stringify({ ...quote.data, payment: { preview, requestStates: quote.states } })) > 900000) throw invoiceError('The paid receipt exceeds the invoice document size limit.');
     return preview;
@@ -71,6 +74,10 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
     return { ...await serialize(invoiceId, quote), archived: false };
   }
   async function finalize(invoiceId, uid) {
+    const saved = (await refFor(invoiceId).get()).data();
+    // Older accepted/skipped previews can finish without resending their email.
+    const legacyCategory = saved?.invoice?.balanceDueCents > 0 && saved?.payment?.status !== 'sent' && !saved?.payment?.preview?.ledgerCategory?.categoryId
+      ? storageIncomeFields(await resolveIncomeCategory(), 'final-payment') : null;
     return db.runTransaction(async (transaction) => {
       const ref = refFor(invoiceId);
       const snap = await transaction.get(ref);
@@ -82,10 +89,12 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
         if (request.data()?.paymentPendingId !== invoiceId || requestState(request.data() || {}) !== data.payment.requestStates[index].fingerprint) throw invoiceError('A vehicle changed after receipt delivery. Reconcile before completing Paid status.');
       });
       const ledgerEntryId = data.invoice.balanceDueCents > 0 ? storagePaymentLedgerId(invoiceId) : null;
+      const ledgerCategory = data.payment.preview.ledgerCategory?.categoryId ? data.payment.preview.ledgerCategory : legacyCategory;
       if (ledgerEntryId) {
         const ledger = await transaction.get(db.collection('expenses').doc(ledgerEntryId));
         if (ledger.exists) throw invoiceError('A ledger entry already exists for this payment. Reconcile before completing Paid status.');
         if (!data.payment.preview.ledgerAccounts?.accountId || !data.payment.preview.ledgerAccounts?.entityId) throw invoiceError('Payment ledger accounts are missing. Reconcile before completing Paid status.');
+        if (!ledgerCategory?.categoryId) throw invoiceError('Storage income category is missing. Reconcile before completing Paid status.');
       }
       const timestamp = fieldValue.serverTimestamp();
       if (ledgerEntryId) {
@@ -93,8 +102,8 @@ export function createStoragePaymentService({ db, fieldValue, sendEmail, from, r
           title: `Storage payment ${data.invoice.seasonLabel || data.invoice.seasonId} ${data.invoice.client.name} ${invoiceId}`.replace(/\s+/g, ' ').trim(),
           description: [`Invoice: ${invoiceId}`, ...data.invoice.lineItems.map((line) => line.description)].join('\n'),
           ...data.payment.preview.ledgerAccounts,
-          date: data.payment.confirmedAt, entryType: 'income', category: 'Storage payment',
-          categoryId: null, categoryCode: null, categoryType: 'income',
+          date: data.payment.confirmedAt, entryType: 'income',
+          ...ledgerCategory,
           amount: data.invoice.balanceDueCents / 100, transactionId: ledgerEntryId,
           clientId: data.invoice.clientId, storageInvoiceId: invoiceId,
           storageRequestIds: data.invoice.requestIds, storageCaseId: resolveCaseId(requests[0].data()),

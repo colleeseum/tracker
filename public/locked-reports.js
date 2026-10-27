@@ -89,14 +89,14 @@ export function createReportLockController({ getFilters, isGenerated, isVisible 
     if (busy || !live) return;
     const snapshot = live;
     const name = snapshot.inputs.entityName || snapshot.filters.entityId;
-    if (!confirmLock(`Permanently lock ${name}, ${snapshot.filters.year}, ${snapshot.filters.type === 'tags' ? 'Tag summary' : 'T2042 report'}? The saved report cannot be overwritten or regenerated. Ledger entries remain editable, but later changes will not affect this snapshot.`)) return;
+    if (!confirmLock(`Permanently lock ${name}, ${snapshot.filters.year}, ${snapshot.filters.type === 'tags' ? 'Tag summary' : 'Financial summary'}? The saved report cannot be overwritten or regenerated. Ledger entries remain editable, but later changes will not affect this snapshot.`)) return;
     busy = true; ++sequence; lockButton.disabled = true; status.textContent = 'Saving permanent snapshot…';
     let failure = null;
     try {
       // Capture DOM before awaiting CSS/network, paired with the inputs frozen at render time.
       const content = output.cloneNode(true);
       const css = await getCss();
-      const html = buildStaticReportHtml({ output: content, css, title: `${name} · ${snapshot.filters.year} · ${snapshot.filters.type === 'tags' ? 'Tag summary' : 'T2042 report'}`, details: snapshot.inputs.details });
+      const html = buildStaticReportHtml({ output: content, css, title: `${name} · ${snapshot.filters.year} · ${snapshot.filters.type === 'tags' ? 'Tag summary' : 'Financial summary'}`, details: snapshot.inputs.details });
       const saved = await save({ ...snapshot.filters, entityName: name, html, inputs: snapshot.inputs });
       cache.set(reportKey(snapshot.filters), saved); activeArchive = snapshot.filters;
     } catch (error) { failure = error; cache.delete(reportKey(snapshot.filters)); }

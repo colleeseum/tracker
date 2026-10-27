@@ -41,14 +41,16 @@ async function fixture(sender, locale = 'en', options = {}) {
   const policy = createEmailSafetyPolicy({ FUNCTIONS_EMULATOR: 'true' });
   const mailer = createSafeMailer({ sendMail: async (message) => { emails.push(message); return sender ? sender(message) : { accepted: ['entrepot@as-colle.com'] }; } }, policy);
   const ledgerAccounts = { cashAccount: { id: 'cash' }, entityAccount: { id: 'ferme-colle' } };
+  const incomeCategory = { id: 'storage-income', label: 'Entrepot', code: 9600, type: 'income' };
   const service = createStoragePaymentService({ db, fieldValue: { serverTimestamp: () => 'timestamp', delete: () => '__delete__' },
     resolveLedgerAccounts: async () => ledgerAccounts,
+    resolveIncomeCategory: async () => incomeCategory,
     from: 'billing@as-colle.com', sendEmail: (message) => mailer.sendMail(message), routeEmail: options.routeEmail || policy.preview,
     ccForLocale: options.ccForLocale,
     resolveCaseId: (request) => `${request.clientId}|${request.season}`,
     renderEmail: async (invoice) => ({ subject: `${locale === 'fr' ? 'Paiement reçu' : 'Payment received'} ${invoice.invoiceId}`, html: `<p>${invoice.paymentAmountCents}</p>`, text: 'Paid in full', templateId: 'storage-paid' })
   });
-  return { service, records, emails, originalPdf, db, ledgerAccounts };
+  return { service, records, emails, originalPdf, db, ledgerAccounts, incomeCategory };
 }
 
 test('paid receipt uses current client CC even for an older invoice, with dev suppression intact', async () => {
@@ -65,6 +67,46 @@ test('paid receipt uses current client CC even for an older invoice, with dev su
     assert.equal(cleared.cc, development ? '' : 'office@example.invalid');
     if (!development) assert.notEqual(cleared.fingerprint, preview.fingerprint);
   }
+});
+
+test('final payment saves the configured storage category and payment stage on the same ledger record', async () => {
+  const { service, records, incomeCategory } = await fixture();
+  incomeCategory.code = 8123;
+  const preview = await service.prepare(id);
+  assert.equal(preview.ledgerCategory.categoryCode, 8123);
+  await service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true, skipEmail: true }, 'admin');
+  const ledger = records.get(`expenses/${storagePaymentLedgerId(id)}`);
+  assert.equal(ledger.categoryId, incomeCategory.id);
+  assert.equal(ledger.category, incomeCategory.label);
+  assert.equal(ledger.categoryCode, 8123);
+  assert.equal(ledger.storagePaymentStage, 'final-payment');
+  assert.equal(ledger.amount, 575);
+  assert.match(ledger.title, /^Storage payment/);
+});
+
+test('category changes invalidate payment previews before email or ledger writes', async () => {
+  const { service, records, emails, incomeCategory } = await fixture();
+  const preview = await service.prepare(id);
+  incomeCategory.code = 8123;
+  await assert.rejects(service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin'), /changed after preview/);
+  assert.equal(emails.length, 0);
+  assert.ok(!records.has(`expenses/${storagePaymentLedgerId(id)}`));
+  incomeCategory.type = 'expense';
+  await assert.rejects(service.prepare(id), /storage income category/);
+});
+
+test('legacy accepted previews without category metadata finalize with the configured category and no resend', async () => {
+  const { service, records, emails, db } = await fixture();
+  const transaction = db.runTransaction.bind(db); let calls = 0;
+  db.runTransaction = (handler) => ++calls === 3 ? Promise.reject(new Error('Database temporarily unavailable')) : transaction(handler);
+  const preview = await service.prepare(id);
+  await assert.rejects(service.send({ invoiceId: id, fingerprint: preview.fingerprint, confirmFullPayment: true }, 'admin'), /temporarily unavailable/);
+  const saved = records.get(`storageInvoices/${id}`);
+  delete saved.payment.preview.ledgerCategory;
+  await service.send({ invoiceId: id, confirmFullPayment: true }, 'admin');
+  assert.equal(emails.length, 1);
+  assert.equal(records.get(`expenses/${storagePaymentLedgerId(id)}`).categoryId, 'storage-income');
+  assert.equal(records.get(`expenses/${storagePaymentLedgerId(id)}`).amount, 575);
 });
 
 test('payment preview and send cannot race a pending invoice reminder', async () => {

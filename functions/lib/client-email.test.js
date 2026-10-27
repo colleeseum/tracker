@@ -13,7 +13,7 @@ const context = vm.createContext({
   normalizeLanguageCode: (value, fallback) => ['en', 'fr'].includes(value) ? value : fallback,
   getDefaultClientLanguage: () => 'en'
 });
-for (const [source, name] of [[app, 'buildClientEmailHtml'], [backend, 'wrapClientEmailHtml']]) {
+for (const [source, name] of [[app, 'buildClientEmailHtml'], [app, 'buildStorageEmailHtml'], [backend, 'wrapClientEmailHtml'], [backend, 'wrapTrackerEmailHtml']]) {
   const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0);
   vm.runInContext(source.slice(start, source.indexOf('\n}\n', start) + 3), context);
@@ -42,6 +42,27 @@ test('client email icon exists and retains the accessible button label', () => {
   assert.ok(app.includes('src="icons/email.png"'));
   assert.ok(!app.includes('src="icons/mail.svg"'));
   assert.ok(app.includes('emailButton.setAttribute(\'aria-label\''));
+});
+
+test('storage preview matches the sent table wrapper and retains bgcolor fallbacks in EN/FR', () => {
+  for (const locale of ['en', 'fr']) {
+    const data = { subject: 'Test <subject>', bodyHtml: '<p>Storage message</p>' };
+    const preview = context.buildStorageEmailHtml({ lang: locale, ...data });
+    const sent = context.wrapTrackerEmailHtml({ locale, ...data });
+    assert.equal(preview, sent);
+    assert.equal((sent.match(/<td bgcolor="#0f172a"/g) || []).length, 2);
+    assert.ok(sent.includes('background-color:#0f172a;color:#ffffff;padding:20px 24px'));
+    assert.ok(sent.includes('background-color:#0f172a;color:#94a3b8;padding:16px 24px'));
+    assert.ok(!sent.includes('<style>'));
+  }
+});
+
+test('storage attachment preview survives the common wrapper and escapes filenames', () => {
+  const preview = context.buildStorageEmailHtml({ lang: 'fr', subject: 'Contrat', bodyHtml: '<p>Message</p>', attachments: [{ filename: '<unsafe>.pdf', missing: true }] });
+  assert.ok(preview.includes('Pièces jointes (aperçu)'));
+  assert.ok(preview.includes('&lt;unsafe&gt;.pdf'));
+  assert.ok(preview.includes('contrat manquant'));
+  assert.ok(preview.includes('<td bgcolor="#0f172a"'));
 });
 
 test('client email editor and sandboxed preview use the full expanded modal width', () => {

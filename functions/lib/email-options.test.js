@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { readSkipEmail, workflowEmailAudit } from './email-options.js';
+import { storageIncomeFields } from './storage-income-category.js';
 
 const source = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
 function fixture(status = 'new', sender = undefined) {
@@ -32,6 +33,7 @@ function fixture(status = 'new', sender = undefined) {
     buildContractDetailsHtml: () => 'Vehicle', getLocalizedTemplateField: () => 'Message',
     fillTemplateText: () => 'Message', fillTemplateHtml: () => '<p>Message</p>', wrapTrackerEmailHtml: () => '<html>Message</html>',
     getStorageConfirmationCc: () => '', resolveRequestAmountForEmail: () => 600, estimateDepositForAmount: () => 100,
+    storageIncomeFields, loadStorageIncomeCategory: async () => ({ id: 'storage-income', label: 'Entrepot', code: 9600, type: 'income' }),
     allocateStorageReceiptId: async () => 'receipt-1', resolveFermeColleLedgerAccounts: async () => ({ cashAccount: { id: 'cash' }, entityAccount: { id: 'entity' } }),
     resolveEmailCaseId: () => 'case', buildDepositVehicleDescription: () => 'Vehicle', formatMoney: (value) => `$${value}`, console
   });
@@ -66,6 +68,15 @@ test('confirmation and contract steps skip provider calls and do not claim an em
   }
 });
 
+test('missing storage income category blocks deposit creation before email or workflow changes', async () => {
+  const { context, records, emails, auth } = fixture('waiting_deposit', 'billing@example.invalid');
+  context.loadStorageIncomeCategory = async () => { throw new Error('Select a storage income category'); };
+  await assert.rejects(context.sendStorageReceiptEmail({ requestIds: ['a'], receiptType: 'deposit', interacReference: 'reference' }, auth), /storage income category/);
+  assert.equal(emails.length, 0);
+  assert.equal(records.get('storageRequests/a').status, 'waiting_deposit');
+  assert.ok(!records.has('expenses/storage-deposit-receipt-1'));
+});
+
 test('all receipt steps advance normally without email, retaining deposit ledger entries and references', async () => {
   for (const [receiptType, status, target] of [['contract', 'waiting_contract_deposit', 'waiting_deposit'], ['deposit', 'waiting_deposit', 'reserved'], ['contract_deposit', 'waiting_contract_deposit', 'reserved'], ['missing', 'waiting_deposit', 'waiting_deposit']]) {
     const { context, records, emails, auth } = fixture(status);
@@ -79,6 +90,9 @@ test('all receipt steps advance normally without email, retaining deposit ledger
       assert.equal(receipt.sentAt, null);
       assert.equal(receipt.interacReference, 'reference');
       assert.equal(records.get('expenses/storage-deposit-receipt-1').amount, 100);
+      assert.equal(records.get('expenses/storage-deposit-receipt-1').categoryId, 'storage-income');
+      assert.equal(records.get('expenses/storage-deposit-receipt-1').categoryCode, 9600);
+      assert.equal(records.get('expenses/storage-deposit-receipt-1').storagePaymentStage, 'deposit');
     }
     if (receiptType === 'missing') assert.equal(records.get('storageRequests/a').followUpEmailDeliveryStatus, 'skipped');
   }

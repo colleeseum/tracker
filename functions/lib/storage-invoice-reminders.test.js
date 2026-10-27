@@ -12,7 +12,7 @@ import { mergeClientEmailCc } from './client-email-cc.js';
 const index = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
 const emailContext = vm.createContext({ Mustache, DEFAULT_STORAGE_INVOICE_TEMPLATE, DEFAULT_STORAGE_PAID_TEMPLATE, DEFAULT_STORAGE_INVOICE_REMINDER_TEMPLATE,
   renderInvoiceHtml, invoiceTextLines, formatInvoiceMoney: money, loadEmailTemplate: async () => null, functions: { https: { HttpsError: Error } } });
-for (const name of ['escapeHtml', 'getLocalizedTemplateField', 'normalizeTemplateSections', 'fillLegacyTemplateTokens', 'renderMustacheTemplate', 'fillTemplateText', 'fillTemplateHtml', 'wrapTrackerEmailHtml', 'renderStorageInvoiceEmail']) {
+for (const name of ['escapeHtml', 'getLocalizedTemplateField', 'normalizeTemplateSections', 'fillLegacyTemplateTokens', 'renderMustacheTemplate', 'fillTemplateText', 'fillTemplateHtml', 'wrapClientEmailHtml', 'wrapTrackerEmailHtml', 'renderStorageInvoiceEmail']) {
   const start = index.includes(`async function ${name}(`) ? index.indexOf(`async function ${name}(`) : index.indexOf(`function ${name}(`);
   vm.runInContext(index.slice(start, index.indexOf('\n}\n', start) + 3), emailContext);
 }
@@ -66,7 +66,7 @@ test('friendly reminder previews use normal EN/FR branding and the exact origina
     assert.ok(preview.cc.includes('partner@example.invalid'));
     assert.equal(preview.templateId, 'storage-invoice-reminder');
     assert.match(preview.html, /Entrepot Ferme Colle/);
-    assert.ok(preview.html.includes('background:#0f172a;color:#94a3b8;padding:16px 24px;'));
+    assert.ok(preview.html.includes('bgcolor="#0f172a" style="background-color:#0f172a;color:#94a3b8;padding:16px 24px;'));
     assert.ok(preview.text.includes(locale === 'fr' ? 'Si vous avez déjà payé' : 'If you have already paid'));
     assert.ok(preview.text.includes(money(36000, locale)));
     assert.ok(!preview.html.includes('{{'));

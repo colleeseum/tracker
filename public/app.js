@@ -43,6 +43,7 @@ import {
 import { firebaseConfig, emulatorConfig } from './firebase-config.js';
 import { initializeClientMailing } from './client-mailing.js';
 import { createReportLockController } from './locked-reports.js';
+import { reconcileReport } from './report-reconciliation.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -245,6 +246,7 @@ const settingsView = document.getElementById('settings-view');
 const generalSettingsView = document.getElementById('general-settings-view');
 const defaultClientLanguageSelect = document.getElementById('default-client-language');
 const referralDiscountAmountInput = document.getElementById('referral-discount-amount');
+const storageIncomeCategorySelect = document.getElementById('storage-income-category');
 const storageBillingSettingsForm = document.getElementById('storage-billing-settings-form');
 const storageBillingSettingsStatus = document.getElementById('storage-billing-settings-status');
 const storageInvoicePdfSection = document.getElementById('storage-invoice-pdf-section');
@@ -1771,6 +1773,7 @@ function subscribeToCategories() {
     (snapshot) => {
       categories = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       categoryLookup = new Map(categories.map((category) => [category.id, category]));
+      syncGeneralSettingsUI();
       renderCategoryTable();
       updateLedgerCategoryOptions();
       renderLedgerTable();
@@ -3660,7 +3663,8 @@ function normalizeMileageSettings(data = {}) {
 function normalizeAppSettings(data = {}) {
   return {
     defaultClientLanguage: normalizeLanguageCode(data.defaultClientLanguage, 'fr'),
-    referralDiscountAmount: typeof data.referralDiscountAmount === 'number' && Number.isFinite(data.referralDiscountAmount) && data.referralDiscountAmount >= 0 ? data.referralDiscountAmount : null
+    referralDiscountAmount: typeof data.referralDiscountAmount === 'number' && Number.isFinite(data.referralDiscountAmount) && data.referralDiscountAmount >= 0 ? data.referralDiscountAmount : null,
+    storageIncomeCategoryId: typeof data.storageIncomeCategoryId === 'string' ? data.storageIncomeCategoryId : ''
   };
 }
 
@@ -3777,6 +3781,17 @@ function syncMileageSettingsUI() {
 }
 
 function syncGeneralSettingsUI() {
+  if (storageIncomeCategorySelect && document.activeElement !== storageIncomeCategorySelect) {
+    const available = categories.filter((category) => category.type === 'income');
+    const defaults = available.filter((category) => String(category.label || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() === 'entrepot');
+    const selected = appSettings.storageIncomeCategoryId || (defaults.length === 1 ? defaults[0].id : '');
+    storageIncomeCategorySelect.replaceChildren();
+    const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = 'Select income category'; storageIncomeCategorySelect.appendChild(placeholder);
+    available.forEach((category) => {
+      const option = document.createElement('option'); option.value = category.id; option.textContent = `${category.label} (code ${category.code ?? 'not set'})`; storageIncomeCategorySelect.appendChild(option);
+    });
+    storageIncomeCategorySelect.value = selected;
+  }
   if (defaultClientLanguageSelect) {
     defaultClientLanguageSelect.value = getDefaultClientLanguage();
   }
@@ -4342,35 +4357,7 @@ function buildStorageConfirmationEmailPreview(caseRequests) {
 }
 
 function buildStorageEmailHtml({ lang, subject, bodyHtml, attachments = [] }) {
-  const footerContact = lang === 'fr'
-    ? '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | entrepot@as-colle.com'
-    : '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | warehouse@as-colle.com';
-  return `<!doctype html>
-<html lang="${lang}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body { margin:0; background:#f1f5f9; font-family: Inter, Arial, sans-serif; color:#0f172a; }
-    .shell { max-width:1040px; margin:24px auto; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; }
-    .banner { background:#0f172a; color:#fff; padding:20px 24px; }
-    .brand { font-size:20px; font-weight:700; }
-    .tag { margin-top:4px; font-size:12px; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.08em; }
-    .content { padding:24px; }
-    .subject { font-size:22px; font-weight:700; margin:0 0 16px; color:#111827; }
-    .body { font-size:15px; line-height:1.6; color:#1f2937; white-space:normal; }
-    .footer { background:#0f172a; color:#94a3b8; padding:16px 24px; font-size:12px; }
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <div class="banner">
-      <div class="brand">Entrepot Ferme Colle</div>
-      <div class="tag">${lang === 'fr' ? 'ENTREPOSAGE SAISONNIER DE VEHICULES' : 'SEASONAL VEHICLE STORAGE'}</div>
-    </div>
-    <div class="content">
-      <h1 class="subject">${escapeEmailTemplateHtml(subject)}</h1>
-      <div class="body">${bodyHtml}</div>${attachments.length ? `
+  const attachmentHtml = attachments.length ? `
       <div style="margin-top:16px;padding:12px 16px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;font-size:12px;color:#64748b;">
         <div style="font-weight:600;margin-bottom:8px;">${lang === 'fr' ? 'Pièces jointes (aperçu)' : 'Attachments (preview)'}</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;">${attachments.map(({ filename, missing }) => `
@@ -4380,33 +4367,29 @@ function buildStorageEmailHtml({ lang, subject, bodyHtml, attachments = [] }) {
             ${missing ? `<span style="color:#ef4444;font-size:11px;">(${lang === 'fr' ? 'contrat manquant' : 'contract missing'})</span>` : ''}
           </div>`).join('')}
         </div>
-      </div>` : ''}
-    </div>
-    <div class="footer">${footerContact}</div>
-  </div>
-</body>
-</html>`;
+      </div>` : '';
+  return buildClientEmailHtml({ client: { preferredLanguage: lang }, subject, bodyHtml: bodyHtml + attachmentHtml });
 }
 
-function buildClientEmailHtml({ client, subject, body }) {
+function buildClientEmailHtml({ client, subject, body, bodyHtml: renderedBodyHtml = null }) {
   const locale = normalizeLanguageCode(client?.preferredLanguage, getDefaultClientLanguage());
   const isStorageClient = client?.nonStorageClient !== true;
   const footerContact = locale === 'fr'
     ? '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | entrepot@as-colle.com'
     : '<a href="https://entrepot.as-colle.com" style="color:#94a3b8;">entrepot.as-colle.com</a> | warehouse@as-colle.com';
-  const bodyHtml = escapeEmailTemplateHtml(body).replace(/\n/g, '<br>');
+  const bodyHtml = renderedBodyHtml || escapeEmailTemplateHtml(body).replace(/\n/g, '<br>');
   return `<!doctype html>
 <html lang="${locale}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
-<body style="margin:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
+<body bgcolor="#f1f5f9" style="margin:0;background-color:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f1f5f9" style="width:100%;border-collapse:collapse;background-color:#f1f5f9;">
     <tr><td align="center" style="padding:24px 0;">
       <!--[if mso]><table role="presentation" width="1040" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:1040px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
-        <tr><td bgcolor="#0f172a" style="background:#0f172a;color:#ffffff;padding:20px 24px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:1040px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+        <tr><td bgcolor="#0f172a" style="background-color:#0f172a;color:#ffffff;padding:20px 24px;">
           <div style="font-size:20px;font-weight:700;">${isStorageClient ? 'Entrepot Ferme Colle' : 'Ferme Colle'}</div>
           ${isStorageClient ? `<div style="margin-top:4px;font-size:12px;color:#cbd5e1;text-transform:uppercase;letter-spacing:0.08em;">${locale === 'fr' ? 'ENTREPOSAGE SAISONNIER DE VEHICULES' : 'SEASONAL VEHICLE STORAGE'}</div>` : ''}
         </td></tr>
@@ -4414,7 +4397,7 @@ function buildClientEmailHtml({ client, subject, body }) {
           <h1 style="font-size:22px;font-weight:700;margin:0 0 16px;color:#111827;">${escapeEmailTemplateHtml(subject)}</h1>
           <div style="font-size:15px;line-height:1.6;color:#1f2937;">${bodyHtml}</div>
         </td></tr>
-        ${isStorageClient ? `<tr><td bgcolor="#0f172a" style="background:#0f172a;color:#94a3b8;padding:16px 24px;font-size:12px;">${footerContact}</td></tr>` : ''}
+        ${isStorageClient ? `<tr><td bgcolor="#0f172a" style="background-color:#0f172a;color:#94a3b8;padding:16px 24px;font-size:12px;">${footerContact}</td></tr>` : ''}
       </table>
       <!--[if mso]></td></tr></table><![endif]-->
     </td></tr>
@@ -6385,7 +6368,7 @@ function buildIncomeReportGroup({
     )
   );
   if (otherT2042Rows.length) {
-    group.appendChild(buildReportSection('Other 2042 income', otherT2042Total, otherT2042Rows, contextMeta));
+    group.appendChild(buildReportSection('Other tax-mapped income', otherT2042Total, otherT2042Rows, contextMeta));
   }
   const totalSection = document.createElement('div');
   totalSection.className = 'report-section';
@@ -6577,10 +6560,11 @@ function buildReportTotalsSummary(data) {
     net2042Income,
     otherNetIncome = 0,
     netIncome,
-    t5IncomeTotal = 0
+    t5IncomeTotal = 0,
+    reconciliation
   } = data;
   const t5Markup =
-    t5IncomeTotal > 0
+    t5IncomeTotal !== 0
       ? `
         <div>
           <span>T5 income</span>
@@ -6588,32 +6572,65 @@ function buildReportTotalsSummary(data) {
         </div>
       `
       : '';
-  const section = document.createElement('div');
-  section.className = 'report-totals';
+  const section = document.createElement('section');
+  section.className = 'report-tax-summary';
   section.innerHTML = `
+    <h4>Estimated net tax income</h4>
+    <p class="hint">Uses existing category mappings and calculated mileage/CCA deductions. This is an estimate, not a completed T2042 or T776. T776 category mappings and deduction rules have not been configured.</p>
+    <div class="report-totals">
     ${t5Markup}
     <div>
-      <span>Total 2042 income</span>
+      <span>Tax-mapped activity income</span>
       <strong>${formatCurrency(total2042Income)}</strong>
     </div>
     <div>
-      <span>Total 2042 expenses</span>
+      <span>Tax-mapped activity expenses</span>
       <strong>${formatCurrency(total2042Expenses)}</strong>
     </div>
     <div>
-      <span>Net 2042 income</span>
+      <span>Estimated net tax income (mapped activities)</span>
       <strong>${formatCurrency(net2042Income)}</strong>
     </div>
     <div>
-      <span>Other (code 0) net</span>
+      <span>Other categories (code 0) net</span>
       <strong>${formatCurrency(otherNetIncome)}</strong>
     </div>
     <div>
-      <span>Net income</span>
+      <span>Overall adjusted result (includes T5)</span>
       <strong>${formatCurrency(netIncome)}</strong>
     </div>
+    </div>
   `;
+  if (reconciliation) {
+    const bridge = document.createElement('div');
+    bridge.className = 'report-reconciliation';
+    const rows = [
+      ['Overall adjusted result', reconciliation.adjustedResult],
+      ['Add back calculated mileage (no ledger payment)', reconciliation.mileage],
+      ['Add back CCA (non-cash deduction)', reconciliation.cca],
+      ['Capital purchases/disposals: ledger movement', reconciliation.capitalLedgerDelta],
+      ['Unclassified ledger movement', reconciliation.unclassifiedLedgerDelta],
+      ['Net ledger change', reconciliation.ledgerChange]
+    ];
+    bridge.innerHTML = `<h4>Reconciliation to ledger balance</h4><table class="report-table"><tbody>${rows.map(([label, amount]) => `<tr><td>${label}</td><td class="report-amount">${formatCurrency(amount)}</td></tr>`).join('')}</tbody></table>${reconciliation.difference ? `<p class="error">Unreconciled difference: ${formatCurrency(reconciliation.difference)}. Review classifications and rounding; this amount has not been hidden in another adjustment.</p>` : '<p class="hint">Reconciled: opening balance + net ledger change = closing balance.</p>'}`;
+    section.appendChild(bridge);
+  }
   return section;
+}
+
+function computeReportExcludedLedgerMovements(entityId, year) {
+  let capitalLedgerDelta = 0;
+  let unclassifiedLedgerDelta = 0;
+  const start = new Date(year, 0, 1);
+  const end = new Date(year + 1, 0, 1);
+  expenses.forEach((entry) => {
+    if (!entry || entry.isVirtualOpening || entry.entityId !== entityId) return;
+    const date = toDateObject(entry.date);
+    if (!date || date < start || date >= end) return;
+    if (entry.ccaPoolId || entry.isCcaClass) capitalLedgerDelta += getEntryDelta(entry);
+    else if (!['income', 'expense'].includes(getCategoryMetaForEntry(entry).type)) unclassifiedLedgerDelta += getEntryDelta(entry);
+  });
+  return { capitalLedgerDelta, unclassifiedLedgerDelta };
 }
 
 function buildCcaReportSection(entityId, year) {
@@ -6705,7 +6722,7 @@ function renderLiveReports() {
   reportDrilldownCounter = 1;
   reportDetailRowCounter = 1;
   if (!entityAccounts.length) {
-    reportsOutput.appendChild(createReportEmptyCard('Add at least one entity account to build a T2042 report.'));
+    reportsOutput.appendChild(createReportEmptyCard('Add at least one entity account to build a financial summary.'));
     return;
   }
   if (!reportGeneratedOnce) {
@@ -6732,7 +6749,7 @@ function renderLiveReports() {
   header.innerHTML = `
     <div>
       <h3>${summary.account?.name || 'Entity'}</h3>
-      <p class="hint">T2042 income & expenses for ${reportFilters.year}</p>
+      <p class="hint">Financial summary for ${reportFilters.year}</p>
     </div>
   `;
   card.appendChild(header);
@@ -6789,23 +6806,10 @@ function renderLiveReports() {
   const otherNetIncome = otherIncomeTotal - otherExpenseTotal;
   const totalIncome = taxableIncomeTotal + nonTaxableIncomeTotal + otherT2042IncomeTotal + otherIncomeTotal;
   const totalExpenses = t2042ExpenseTotal + otherExpenseTotal;
-  const netIncome = totalIncome - totalExpenses;
-  header.insertAdjacentHTML(
-    'beforeend',
-    `
-      <div class="report-entity-metrics">
-        <div class="report-entity-net">
-          <span>Net 2042 income</span>
-          <strong>${formatCurrency(net2042Income)}</strong>
-        </div>
-        <div class="report-entity-net">
-          <span>Net income</span>
-          <strong>${formatCurrency(netIncome)}</strong>
-        </div>
-      </div>
-    `
-  );
+  const netIncome = totalIncome + t5IncomeTotal - totalExpenses;
   const balances = computeEntityYearBalances(reportFilters.entityId, reportFilters.year);
+  const reconciliation = reconcileReport({ ...balances, adjustedResult: netIncome, mileage: mileageExpenseLine?.amount || 0, cca: ccaExpenseTotal,
+    ...computeReportExcludedLedgerMovements(reportFilters.entityId, reportFilters.year) });
   if (balances) {
     header.insertAdjacentHTML(
       'beforeend',
@@ -6814,6 +6818,10 @@ function renderLiveReports() {
           <div>
             <span>Opening balance (Jan 1 ${reportFilters.year})</span>
             <strong>${formatCurrency(balances.openingBalance)}</strong>
+          </div>
+          <div>
+            <span>Net ledger change</span>
+            <strong>${formatCurrency(reconciliation.ledgerChange)}</strong>
           </div>
           <div>
             <span>Closing balance (Dec 31 ${reportFilters.year})</span>
@@ -6838,7 +6846,7 @@ function renderLiveReports() {
     })
   );
   card.appendChild(
-    buildExpenseReportGroup('T2042 categories', t2042ExpenseRows, t2042ExpenseTotal, groupContext)
+    buildExpenseReportGroup('Tax-mapped categories (current mapping)', t2042ExpenseRows, t2042ExpenseTotal, groupContext)
   );
   const ccaSection = buildCcaReportSection(reportFilters.entityId, reportFilters.year);
   if (ccaSection) {
@@ -6854,7 +6862,8 @@ function renderLiveReports() {
       total2042Expenses: t2042ExpenseTotal,
       net2042Income,
       otherNetIncome,
-      netIncome
+      netIncome,
+      reconciliation
     })
   );
   if (
@@ -13522,8 +13531,10 @@ if (storageBillingSettingsForm) {
     }
     storageBillingSettingsStatus.textContent = 'Saving...';
     try {
-      await patchAppSettings({ referralDiscountAmount: Math.round(value * 100) / 100 });
-      storageBillingSettingsStatus.textContent = 'Referral discount saved.';
+      const incomeCategory = categories.find((category) => category.id === storageIncomeCategorySelect.value && category.type === 'income');
+      if (!incomeCategory) throw new Error('Select a storage income category.');
+      await patchAppSettings({ referralDiscountAmount: Math.round(value * 100) / 100, storageIncomeCategoryId: incomeCategory.id });
+      storageBillingSettingsStatus.textContent = 'Storage billing settings saved.';
     } catch (error) { storageBillingSettingsStatus.textContent = error.message || 'Unable to save billing settings.'; }
   });
 }
@@ -16085,7 +16096,7 @@ function captureReportInputs() {
     }))
   }));
   return {
-    version: 1, reportLogicVersion: '2026-10-26', filters: { ...reportFilters }, entityName: accountLookup.get(entityId)?.name || entityId,
+    version: 1, reportLogicVersion: '2026-10-26-reconciled-dashboard-v2', filters: { ...reportFilters }, entityName: accountLookup.get(entityId)?.name || entityId,
     capturedAt: new Date().toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     accounts, categories, appSettings, mileageSettings, mileageRates,
     ledgerEntries: expenses.filter((entry) => entry.entityId === entityId && beforeEnd(entry.date)),

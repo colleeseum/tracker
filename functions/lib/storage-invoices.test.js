@@ -262,6 +262,7 @@ test('unpaid RV/motorcycle case reopens, retains deposits and produces a new inv
   const payment = createStoragePaymentService({ db, fieldValue: { serverTimestamp: () => 'timestamp', delete: () => '__delete__' },
     from: 'sender@example.invalid', resolveCaseId: (request) => `${request.clientId}|${request.season}`,
     resolveLedgerAccounts: async () => ({ cashAccount: { id: 'cash' }, entityAccount: { id: 'entity' } }),
+    resolveIncomeCategory: async () => ({ id: 'storage-income', label: 'Entrepot', code: 9600, type: 'income' }),
     renderEmail: async () => ({ subject: 'Paid', html: 'Paid', text: 'Paid' }), sendEmail: async () => { throw new Error('Must not send'); } });
   const paid = await payment.prepare(replacement.invoiceId);
   await payment.send({ invoiceId: replacement.invoiceId, fingerprint: paid.fingerprint, confirmFullPayment: true, skipEmail: true }, 'admin');
@@ -476,7 +477,7 @@ const emailContext = vm.createContext({
   loadEmailTemplate: async () => null,
   functions: { https: { HttpsError: Error } }
 });
-for (const name of ['escapeHtml', 'getLocalizedTemplateField', 'normalizeTemplateSections', 'fillLegacyTemplateTokens', 'renderMustacheTemplate', 'fillTemplateText', 'fillTemplateHtml', 'wrapTrackerEmailHtml', 'renderStorageInvoiceEmail']) {
+for (const name of ['escapeHtml', 'getLocalizedTemplateField', 'normalizeTemplateSections', 'fillLegacyTemplateTokens', 'renderMustacheTemplate', 'fillTemplateText', 'fillTemplateHtml', 'wrapClientEmailHtml', 'wrapTrackerEmailHtml', 'renderStorageInvoiceEmail']) {
   const start = indexSource.indexOf(`async function ${name}(`) >= 0 ? indexSource.indexOf(`async function ${name}(`) : indexSource.indexOf(`function ${name}(`);
   assert.ok(start >= 0, name);
   vm.runInContext(indexSource.slice(start, indexSource.indexOf('\n}\n', start) + 3), emailContext);
@@ -490,8 +491,8 @@ test('invoice email uses the exact normal banner/footer wrapper in both language
     const email = await emailContext.renderStorageInvoiceEmail(invoice);
     assert.equal(email.templateId, 'storage-invoice');
     assert.match(email.html, /Entrepot Ferme Colle/);
-    assert.ok(email.html.includes('background:#0f172a;color:#ffffff;padding:20px 24px;'));
-    assert.ok(email.html.includes('background:#0f172a;color:#94a3b8;padding:16px 24px;'));
+    assert.ok(email.html.includes('bgcolor="#0f172a" style="background-color:#0f172a;color:#ffffff;padding:20px 24px;'));
+    assert.ok(email.html.includes('bgcolor="#0f172a" style="background-color:#0f172a;color:#94a3b8;padding:16px 24px;'));
     assert.match(email.html, /entrepot\.as-colle\.com/);
     assert.ok(email.html.includes(language === 'fr' ? 'entrepot@as-colle.com' : 'warehouse@as-colle.com'));
     assert.ok(email.html.includes(language === 'fr' ? 'SOLDE À PAYER' : 'BALANCE DUE'));
@@ -519,7 +520,7 @@ test('paid email uses localized receipt template, zero remaining balance and nor
     const email = await emailContext.renderStorageInvoiceEmail({ ...invoice, paidDate: '2026-10-13', paymentAmountCents: 57500 }, true);
     assert.equal(email.templateId, 'storage-paid');
     assert.match(email.html, /Entrepot Ferme Colle/);
-    assert.ok(email.html.includes('background:#0f172a;color:#94a3b8;padding:16px 24px;'));
+    assert.ok(email.html.includes('background-color:#0f172a;color:#94a3b8;padding:16px 24px;'));
     assert.match(email.subject, locale === 'fr' ? /Paiement reçu/ : /Payment received/);
     assert.match(email.text, locale === 'fr' ? /PAYÉ/ : /PAID/);
     assert.ok(email.text.includes(money(0, locale)));

@@ -53,7 +53,7 @@ async function ensureDirectory(filePath) {
 
 async function writeBackup(filePath, payload) {
   await ensureDirectory(filePath);
-  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
 function clearFirestoreEmulatorEnv() {
@@ -156,6 +156,9 @@ async function main() {
   const backupPath = resolveBackupPath();
   const host = localProfile.emulator?.host || '127.0.0.1';
   const port = localProfile.emulator?.firestorePort || 8081;
+  if (localProfile.useEmulators !== true || !['127.0.0.1', 'localhost'].includes(host) || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('Refusing sync: the target must explicitly be a loopback Firestore emulator.');
+  }
 
   console.log(`Source: production ${prodProfile.projectId}`);
   console.log(`Target: local emulator ${localProfile.projectId} (${host}:${port})`);

@@ -650,6 +650,10 @@
                 </div>
                 <form id="storage-billing-settings-form">
                   <label>
+                    Storage income category (deposits and final payments)
+                    <select id="storage-income-category" required></select>
+                  </label>
+                  <label>
                     Referral discount (CAD)
                     <input id="referral-discount-amount" type="number" min="0" step="0.01" placeholder="25.00" required />
                   </label>
@@ -918,7 +922,7 @@
                   <div class="report-filter-field">
                     <label for="report-type-select">Report type</label>
                     <select id="report-type-select">
-                      <option value="balance">Balance sheet (T2042)</option>
+                      <option value="balance">Financial summary</option>
                       <option value="tags">Tag summary</option>
                     </select>
                   </div>

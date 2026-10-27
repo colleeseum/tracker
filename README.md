@@ -79,6 +79,15 @@ No real emails are sent by this test; its own temporary records are cleaned up a
 
 ## Permanent report snapshots
 
+Live financial summaries use an internal ledger banner: opening balance, net ledger
+change and closing balance. Net ledger change is closing minus opening and includes
+all ledger movements, including T5 interest, without deducting calculated mileage
+or CCA that did not move ledger funds. A separate estimated tax section retains the
+existing category mapping, includes T5 once in the overall adjusted result, and shows
+a reconciliation for mileage, CCA, capital movements and unclassified movements.
+Any unexplained difference is displayed explicitly. This is not a switch to T776
+calculation rules. Previously locked reports retain their original contents.
+
 In **Reports**, choose the report type, entity and year, then **Open / generate**.
 Review the displayed report and choose **Lock report**. Confirmation permanently
 freezes that report type/entity/year. There is no unlock or overwrite operation.
@@ -109,6 +118,33 @@ Local persistence and access-control check using disposable fixtures:
 ```bash
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 node functions/scripts/test-local-locked-reports.mjs
 ```
+
+## Storage income classification
+
+In **Settings → General → Storage billing**, select the income category used for both
+storage deposits and final storage payments. New ledger entries save that category's
+ID, label and current tax code; no code is hard-coded. An existing unique income
+category named **Entrepot/Entrepôt** is used as the compatibility default until the
+setting is saved. Missing or ambiguous configuration blocks posting rather than
+creating uncategorized income. Payment previews include the category in their
+fingerprint, so changing it requires a fresh preview before email or ledger posting.
+
+The payment stage remains in the transaction title/description and is also stored as
+`storagePaymentStage` (`deposit` or `final-payment`). Posting amounts and invoice totals
+are unchanged: deposits are booked once when received, and only the remaining balance
+is booked on final payment. Accepted legacy payment previews can finish with the
+configured category without resending email.
+
+To preview a correction of generated **local-only** ledger entries for one year:
+
+```bash
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 node functions/scripts/correct-local-storage-income.mjs --year 2026
+```
+
+Add `--apply` only after review. It backs up the affected entries/settings, then changes
+only classification/audit fields on verified generated deposit/payment records. It
+leaves other years, custom-category entries, amounts, invoices and locked reports
+unchanged, and refuses non-loopback/non-emulator targets.
 
 ## Unpaid invoice reminders
 
